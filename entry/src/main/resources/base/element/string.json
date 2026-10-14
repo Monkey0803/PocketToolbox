@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "离线日常工具集合"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "随身工具箱"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "随身工具箱"
+    }
+  ]
+}

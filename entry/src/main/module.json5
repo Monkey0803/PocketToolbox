@@ -1,0 +1,44 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone", "tablet"
+    ],
+    "requestPermissions": [
+      { "name": "ohos.permission.PUBLISH_AGENT_REMINDER" },
+      { "name": "ohos.permission.DETECT_GESTURE" },
+      { "name": "ohos.permission.ACCELEROMETER" }
+    ],
+    "metadata": [
+      { "name": "ohos.arkui.UIMaterial.state", "value": "enable" }
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:toolbox_icon",
+        "label": "$string:EntryAbility_label",
+        "startWindowIcon": "$media:toolbox_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

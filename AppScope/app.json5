@@ -1,0 +1,16 @@
+{
+  "app": {
+    "bundleName": "com.example.pockettoolbox",
+    "vendor": "example",
+    "versionCode": 1000000,
+    "versionName": "1.0.0",
+    "icon": "$media:toolbox_icon",
+    "alternateIcons": [
+      { "name": "folding_multitool", "icon": "$media:folding_multitool_icon" },
+      { "name": "interlocking_modules", "icon": "$media:interlocking_modules_icon" },
+      { "name": "toolbox_drawers", "icon": "$media:toolbox_drawers_icon" },
+      { "name": "toolbox_grid", "icon": "$media:toolbox_grid_icon" }
+    ],
+    "label": "$string:app_name"
+  }
+}
