@@ -62,6 +62,14 @@ assert.equal(timers.parseDuration('0', '60', '0'), 0);
 assert.equal(timers.parseDuration('-1', '0', '0'), 0);
 assert.equal(timers.parseDuration('0', '0', '0.5'), 0);
 assert.equal(timers.parseDuration('24', '0', '1'), 0);
+assert.equal(timers.clampDurationPart('7', 23), 7);
+assert.equal(timers.clampDurationPart('30', 23), 23);
+assert.equal(timers.clampDurationPart('90', 59), 59);
+assert.equal(timers.clampDurationPart('', 59), 0);
+assert.equal(timers.clampDurationPart('-4', 59), 0);
+assert.equal(timers.clampDurationPart('2.9', 59), 2);
+assert.equal(timers.clampDurationPart('abc', 59), 0);
+assert.equal(timers.clampDurationPart(Number.POSITIVE_INFINITY.toString(), 59), 0);
 assert.equal(timers.remainingAt(30000, 25000), 5000);
 assert.equal(timers.remainingAt(30000, 35000), 0);
 
@@ -74,6 +82,90 @@ assert.equal(dates.addDays('2024-02-28', 1), '2024-02-29');
 assert.equal(dates.addDays('2025-01-01', -1), '2024-12-31');
 assert.equal(dates.addDays('9999-12-31', 1), undefined);
 assert.equal(dates.addDays('2024-01-01', 1.5), undefined);
+assert.equal(dates.pickerDate('2025-02-29'), undefined);
+assert.equal(dates.pickerDate('2024-2-9'), undefined);
+assert.equal(dates.pickerDateText(dates.pickerDate('2026-10-15')), '2026-10-15');
+assert.equal(dates.pickerDateText(dates.pickerDate('2024-02-29')), '2024-02-29');
+assert.equal(dates.pickerDateText(dates.pickerDate('0001-01-01')), '0001-01-01');
+assert.equal(dates.pickerDateText(dates.pickerDate('9999-12-31')), '9999-12-31');
+assert.equal(dates.pickerDateText(dates.pickerDate(dates.todayDate())), dates.todayDate());
+
+const span = dates.calendarSpan('2024-01-01', '2026-10-15');
+assert.deepEqual([span.years, span.months, span.days], [2, 9, 14]);
+const sameSpan = dates.calendarSpan('2026-10-15', '2024-01-01');
+assert.deepEqual([sameSpan.years, sameSpan.months, sameSpan.days], [2, 9, 14]);
+const exact = dates.calendarSpan('2026-10-15', '2026-10-15');
+assert.deepEqual([exact.years, exact.months, exact.days], [0, 0, 0]);
+const monthEnd = dates.calendarSpan('2024-01-31', '2024-03-31');
+assert.deepEqual([monthEnd.years, monthEnd.months, monthEnd.days], [0, 2, 0]);
+const leapSpan = dates.calendarSpan('2020-02-29', '2024-02-29');
+assert.deepEqual([leapSpan.years, leapSpan.months, leapSpan.days], [4, 0, 0]);
+const clampedSpan = dates.calendarSpan('2020-02-29', '2021-02-28');
+assert.deepEqual([clampedSpan.years, clampedSpan.months, clampedSpan.days], [1, 0, 0]);
+const nextDay = dates.calendarSpan('2024-02-29', '2024-03-01');
+assert.deepEqual([nextDay.years, nextDay.months, nextDay.days], [0, 0, 1]);
+assert.equal(dates.calendarSpan('2025-02-29', '2024-01-01'), undefined);
+assert.equal(dates.calendarSpan('2024-1-1', '2024-01-01'), undefined);
+
+const age = dates.ageAt('1990-05-20', '2026-10-15');
+assert.deepEqual([age.years, age.months, age.days], [36, 4, 25]);
+assert.equal(age.totalDays, dates.daysBetween('1990-05-20', '2026-10-15'));
+assert.equal(dates.ageAt('2024-02-29', '2024-02-29').years, 0);
+assert.equal(dates.ageAt('2024-02-29', '2024-02-29').totalDays, 0);
+assert.equal(dates.ageAt('2000-01-01', '2024-01-01').years, 24);
+assert.equal(dates.ageAt('2000-01-01', '2024-01-01').totalDays, dates.daysBetween('2000-01-01', '2024-01-01'));
+assert.equal(dates.ageAt('2026-10-16', '2026-10-15'), undefined);
+assert.equal(dates.ageAt('2025-02-29', '2026-10-15'), undefined);
+
+const info = dates.calendarInfo('2026-10-15');
+assert.equal(info.weekday, 4);
+assert.equal(info.dayOfYear, 288);
+assert.equal(info.isoWeek, 42);
+assert.equal(info.isoWeekYear, 2026);
+const week53 = dates.calendarInfo('2021-01-01');
+assert.equal(week53.weekday, 5);
+assert.equal(week53.dayOfYear, 1);
+assert.equal(week53.isoWeek, 53);
+assert.equal(week53.isoWeekYear, 2020);
+const weekOne = dates.calendarInfo('2024-12-30');
+assert.equal(weekOne.weekday, 1);
+assert.equal(weekOne.isoWeek, 1);
+assert.equal(weekOne.isoWeekYear, 2025);
+const leapDayInfo = dates.calendarInfo('2024-02-29');
+assert.equal(leapDayInfo.weekday, 4);
+assert.equal(leapDayInfo.dayOfYear, 60);
+assert.equal(dates.calendarInfo('2025-02-29'), undefined);
+
+assert.equal(dates.workingDaysBetween('2026-10-15', '2026-10-15', true), 1);
+assert.equal(dates.workingDaysBetween('2026-10-15', '2026-10-15', false), 0);
+assert.equal(dates.workingDaysBetween('2026-10-15', '2026-10-19', true), 3);
+assert.equal(dates.workingDaysBetween('2026-10-15', '2026-10-19', false), 2);
+assert.equal(dates.workingDaysBetween('2026-10-19', '2026-10-15', true), 3);
+assert.equal(dates.workingDaysBetween('2026-10-12', '2026-10-18', true), 5);
+assert.equal(dates.workingDaysBetween('2026-10-17', '2026-10-18', true), 0);
+assert.equal(dates.workingDaysBetween('2025-02-29', '2026-10-15', true), undefined);
+
+assert.equal(dates.addWorkingDays('2026-10-15', 0), '2026-10-15');
+assert.equal(dates.addWorkingDays('2026-10-15', 1), '2026-10-16');
+assert.equal(dates.addWorkingDays('2026-10-15', 2), '2026-10-19');
+assert.equal(dates.addWorkingDays('2026-10-15', 5), '2026-10-22');
+assert.equal(dates.addWorkingDays('2026-10-17', 1), '2026-10-19');
+assert.equal(dates.addWorkingDays('2026-10-19', -1), '2026-10-16');
+assert.equal(dates.addWorkingDays('2026-10-19', -5), '2026-10-12');
+assert.equal(dates.addWorkingDays('2025-02-29', 1), undefined);
+assert.equal(dates.addWorkingDays('2026-10-15', 1.5), undefined);
+const farWork = dates.addWorkingDays('2026-10-15', 36500);
+assert.ok(farWork !== undefined);
+assert.equal(dates.workingDaysBetween('2026-10-15', farWork, true), 36501);
+assert.equal(dates.addWorkingDays(farWork, -36500), '2026-10-15');
+assert.equal(dates.addWorkingDays('2026-10-15', 36501), undefined);
+
+assert.equal(dates.DATE_TOOL_MODES.length, 5);
+const modeIds = new Set(dates.DATE_TOOL_MODES.map((mode) => mode.id));
+assert.equal(modeIds.size, dates.DATE_TOOL_MODES.length);
+for (const mode of dates.DATE_TOOL_MODES) {
+  assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
+}
 
 assert.equal(textTools.textStats('').lines, 0);
 assert.equal(textTools.textStats('A😀\n 中').characters, 5);

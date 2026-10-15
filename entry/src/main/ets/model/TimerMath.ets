@@ -10,6 +10,13 @@ export function parseDuration(hours: string, minutes: string, seconds: string): 
   return ms >= 1000 && ms <= 86400000 ? ms : 0;
 }
 
+// 时间选择器回填或编辑既有计时器时，把字符串片段收敛到该位的合法范围（时 0–23，分/秒 0–59）。
+export function clampDurationPart(value: string, max: number): number {
+  let parsed: number = Math.trunc(Number(value));
+  if (!Number.isFinite(parsed) || parsed < 0) { return 0; }
+  return parsed > max ? max : parsed;
+}
+
 export function remainingAt(deadlineMs: number, nowMs: number): number {
   return Math.max(0, deadlineMs - nowMs);
 }

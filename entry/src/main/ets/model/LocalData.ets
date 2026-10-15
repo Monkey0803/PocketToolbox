@@ -15,6 +15,7 @@ export class CountdownItem {
   remainingMs: number = 0;
   deadlineMs: number = 0;
   reminderId: number = -1;
+  liveViewId: number = -1;
   state: string = 'ready';
 }
 
