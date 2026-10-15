@@ -100,11 +100,11 @@ export const DATE_TOOL_MODES: DateToolMode[] = [
   { id: 'calendar', zh: '星期与周数', en: 'Weekday and week' }
 ];
 
+// 纯算术求当月天数，避免在遍历/高频路径里反复创建 Date。
 function daysInMonth(year: number, monthIndex: number): number {
-  const date: Date = new Date(0);
-  date.setUTCFullYear(year, monthIndex + 1, 0);
-  date.setUTCHours(0, 0, 0, 0);
-  return date.getUTCDate();
+  const lengths: number[] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (monthIndex === 1 && ((year % 4 === 0 && year % 100 !== 0) || year % 400 === 0)) { return 29; }
+  return lengths[monthIndex];
 }
 
 // 按月推进并保持月末语义：1 月 31 日加一个月得 2 月 28/29 日。
@@ -132,13 +132,17 @@ export function calendarSpan(first: string, second: string): CalendarSpan | unde
   const start: Date = a.getTime() <= b.getTime() ? a : b;
   const end: Date = a.getTime() <= b.getTime() ? b : a;
   const span: CalendarSpan = new CalendarSpan();
-  let years: number = 0;
-  while (shiftMonths(start, (years + 1) * 12).getTime() <= end.getTime()) { years++; }
-  let months: number = 0;
-  while (shiftMonths(start, years * 12 + months + 1).getTime() <= end.getTime()) { months++; }
-  const anchor: Date = shiftMonths(start, years * 12 + months);
-  span.years = years;
-  span.months = months;
+  // 直接按月差推算整月数，再按月末夹取（1 月 31 日 → 2 月 28/29 日）回退一次；
+  // 避免在 while 循环里反复构造 Date（列表/高频路径上的重复创建开销）。
+  let total: number = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (end.getUTCMonth() - start.getUTCMonth());
+  let anchor: Date = shiftMonths(start, total);
+  if (anchor.getTime() > end.getTime()) {
+    total -= 1;
+    anchor = shiftMonths(start, total);
+  }
+  span.years = Math.floor(total / 12);
+  span.months = total % 12;
   span.days = Math.round((end.getTime() - anchor.getTime()) / DAY_MS);
   return span;
 }
