@@ -2,6 +2,7 @@
 
 ## 当前状态
 
+- 逐条可执行的手机验收步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)：覆盖日期工具（分段入口、周期推算、倒数日）、时间戳工具与计时时长选择器，按编号回执即可定位问题。
 - 工程 API 26，开发包名 `com.example.pockettoolbox`。**发布签名前必须替换为开发者账号下的正式包名**，并核对应用名称、版本号与设备类型。
 - DevEco Studio 已在本机配置调试签名；`assembleHap` 已生成可安装的 `entry-default-signed.hap`，并在 PLR-AL00（Mate 70 Pro，HarmonyOS 7 / API 26）安装启动。`build-profile.json5` 包含本机调试签名资料且已忽略，不是发布签名。
 - 代理提醒权益尚未申请/开通，后台及进程结束后的到期提醒未验收。普通本地通知不能替代该验收项。
