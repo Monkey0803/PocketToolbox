@@ -1,10 +1,11 @@
-import { uiMaterial } from '@kit.ArkUI';
+import { uiMaterial, CapsuleSegmentButtonV2, SegmentButtonV2ItemOptions, SegmentButtonV2Items,
+  LengthMetrics } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { buildImmersiveMaterial } from '../model/Materials';
-import { todayDate, daysBetween, addDays, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
-  workingDaysBetween, addWorkingDays, CalendarSpan, AgeResult, CalendarInfo, DateToolMode,
-  DATE_TOOL_MODES } from '../model/DateTools';
+import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
+  workingDaysBetween, shiftDate, countdownAt, CalendarSpan, AgeResult, CalendarInfo, CountdownInfo,
+  DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
 
 const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -28,7 +29,7 @@ export struct DatesPage {
   @Local secondDate: string = todayDate();
   @Local dayOffset: string = '7';
   @Local dateMode: string = 'interval';
-  @Local dateShiftWorking: boolean = false;
+  @Local dateShiftUnit: string = 'day';
   @Local dateIncludeFirst: boolean = true;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
@@ -48,19 +49,50 @@ export struct DatesPage {
   private shiftedDate(): string {
     const raw: string = this.dayOffset.trim();
     const result: string | undefined = raw ? this.shiftResult(Number(raw)) : undefined;
-    return result ?? (this.dateShiftWorking ?
-      this.tr('请输入有效日期和 ±36500 内的整数工作日', 'Enter a valid date and whole working days within ±36500') :
-      this.tr('请输入有效日期和 ±365000 内的整数天数', 'Enter a valid date and whole days within ±365000'));
+    return result ?? this.tr('请输入有效日期和该单位允许范围内的整数数量',
+      'Enter a valid date and a whole count within the range of this unit');
   }
 
-  private shiftResult(offset: number): string | undefined {
-    return this.dateShiftWorking ? addWorkingDays(this.firstDate.trim(), offset) :
-      addDays(this.firstDate.trim(), offset);
+  private shiftResult(amount: number): string | undefined {
+    return shiftDate(this.firstDate.trim(), amount, this.dateShiftUnit);
   }
 
   private shiftPossible(): boolean {
     const raw: string = this.dayOffset.trim();
     return raw.length > 0 && this.shiftResult(Number(raw)) !== undefined;
+  }
+
+  private shiftUnitOptions(): SelectOption[] {
+    return DATE_SHIFT_UNITS.map((unit: DateShiftUnit): SelectOption => {
+      const option: SelectOption = { value: this.english ? unit.en : unit.zh };
+      return option;
+    });
+  }
+
+  private shiftUnitIndex(): number {
+    const index: number = DATE_SHIFT_UNITS.findIndex((unit: DateShiftUnit) => unit.id === this.dateShiftUnit);
+    return index < 0 ? 0 : index;
+  }
+
+  private shiftUnitName(): string {
+    const unit: DateShiftUnit = DATE_SHIFT_UNITS[this.shiftUnitIndex()];
+    return this.english ? unit.en : unit.zh;
+  }
+
+  private shiftPlaceholder(): string {
+    if (this.dateShiftUnit === 'working') {
+      return this.tr('工作日数，例如 -7', 'Working days, for example -7');
+    }
+    if (this.dateShiftUnit === 'week') {
+      return this.tr('周数，例如 -2', 'Weeks, for example -2');
+    }
+    if (this.dateShiftUnit === 'month') {
+      return this.tr('月数，例如 3', 'Months, for example 3');
+    }
+    if (this.dateShiftUnit === 'year') {
+      return this.tr('年数，例如 1', 'Years, for example 1');
+    }
+    return this.tr('天数，例如 -7', 'Days, for example -7');
   }
 
   // 两个日期的年/月/日细分，用于日期间隔与年龄的补充说明；同一天时留空。
@@ -70,6 +102,15 @@ export struct DatesPage {
     if (span.years === 0 && span.months === 0 && span.days === 0) { return ''; }
     return this.tr(span.years + ' 年 ' + span.months + ' 个月 ' + span.days + ' 天',
       span.years + 'y ' + span.months + 'm ' + span.days + 'd');
+  }
+
+  // 倒数日：今天落在区间内时，把区间按今天拆成「已过去 / 还剩」。
+  private countdownText(): string {
+    const info: CountdownInfo | undefined =
+      countdownAt(this.firstDate.trim(), this.secondDate.trim(), todayDate());
+    if (info === undefined) { return ''; }
+    return this.tr('已过去 ' + info.elapsedDays + ' 天 · 距目标日期还有 ' + info.remainingDays + ' 天',
+      info.elapsedDays + ' days elapsed · ' + info.remainingDays + ' days to go');
   }
 
   private ageResult(): AgeResult | undefined {
@@ -177,38 +218,56 @@ export struct DatesPage {
     }.width('100%')
   }
 
-  // 菜单项取自 model/DateTools.ets 的 DATE_TOOL_MODES 登记表：新增日期能力只需加登记项与下方分支。
-  @Builder private dateModeMenu() {
-    Menu() {
-      ForEach(DATE_TOOL_MODES, (mode: DateToolMode) => {
-        if (mode.id === this.dateMode) {
-          MenuItem({ content: this.english ? mode.en : mode.zh, startIcon: $r('sys.symbol.checkmark') })
-            .onClick(() => this.dateMode = mode.id)
-        } else {
-          MenuItem({ content: this.english ? mode.en : mode.zh })
-            .onClick(() => this.dateMode = mode.id)
-        }
-      }, (mode: DateToolMode) => mode.id + (this.english ? ':en' : ':zh'))
-    }
+  // 分段控件只在语言变化时重建，避免每次重建都换新数组触发子组件刷新。
+  @Computed
+  private get modeItems(): SegmentButtonV2Items {
+    return new SegmentButtonV2Items(DATE_TOOL_MODES.map((mode: DateToolMode): SegmentButtonV2ItemOptions => {
+      const option: SegmentButtonV2ItemOptions = { text: this.english ? mode.shortEn : mode.shortZh };
+      return option;
+    }));
+  }
+
+  private dateModeIndex(): number {
+    const index: number = DATE_TOOL_MODES.findIndex((mode: DateToolMode) => mode.id === this.dateMode);
+    return index < 0 ? 0 : index;
+  }
+
+  // 页内分段切换：分段项取自 DATE_TOOL_MODES 登记表，新增能力只需加登记项与下方分支。
+  @Builder private dateModeSegments() {
+    CapsuleSegmentButtonV2({
+      items: this.modeItems,
+      selectedIndex: this.dateModeIndex(),
+      $selectedIndex: (index: number): void => {
+        const mode: DateToolMode | undefined = DATE_TOOL_MODES[index];
+        if (mode !== undefined) { this.dateMode = mode.id; }
+      },
+      itemSpace: LengthMetrics.vp(4),
+      itemFontSize: LengthMetrics.fp(14),
+      itemSelectedFontSize: LengthMetrics.fp(14)
+    })
+      .width('100%')
   }
 
   @Builder private dateModeHeader() {
     Row({ space: 6 }) {
       Text(this.dateModeLabel()).fontSize(20).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
-      SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(18).fontColor([ToolPalette.textSubtle])
     }
-    .width('100%').height(44).alignItems(VerticalAlign.Center)
-    .accessibilityText(this.tr('选择日期计算方式，当前：', 'Choose a date tool, current: ') + this.dateModeLabel())
-    .bindMenu(this.dateModeMenu)
+    .width('100%').height(32).alignItems(VerticalAlign.Center)
+    .accessibilityText(this.tr('日期工具，当前：', 'Date tool, current: ') + this.dateModeLabel())
   }
 
-  @Builder private shiftUnitToggle() {
+  @Builder private shiftUnitSelect() {
     Row({ space: 12 }) {
-      Toggle({ type: ToggleType.Switch, isOn: this.dateShiftWorking })
-        .onChange((value: boolean) => this.dateShiftWorking = value)
-      Text(this.tr('按工作日推算（跳过周六周日）', 'Count working days (weekends skipped)'))
-        .fontSize(16).fontColor(ToolPalette.textPrimary)
-    }.width('100%').height(52)
+      Text(this.tr('单位', 'Unit')).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
+      Select(this.shiftUnitOptions())
+        .selected(this.shiftUnitIndex()).value(this.shiftUnitName()).layoutWeight(1)
+        .font({ size: 15 }).fontColor(ToolPalette.textPrimary)
+        .optionFont({ size: 15 }).optionFontColor(ToolPalette.textStrong)
+        .selectedOptionFont({ size: 15 }).selectedOptionFontColor(ToolPalette.primaryDeep)
+        .selectedOptionBgColor(ToolPalette.tintBlue).menuBackgroundColor(Color.White)
+        .accessibilityText(this.tr('推算单位', 'Offset unit'))
+        .onSelect((index: number) => this.dateShiftUnit = DATE_SHIFT_UNITS[index].id)
+    }.width('100%')
   }
 
   @Builder private includeFirstToggle() {
@@ -222,20 +281,16 @@ export struct DatesPage {
 
   build() {
     Column({ space: 14 }) {
+      this.dateModeSegments()
       this.dateModeHeader()
       if (this.dateMode === 'shift') {
         Text(this.tr('以起始日期为基准；负数表示往前推', 'Uses the start date; negative numbers go backward'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         this.dateField('起始日期', 'Start date', 'first')
-        TextInput({
-          text: this.dayOffset,
-          placeholder: this.dateShiftWorking ?
-            this.tr('工作日数，例如 -7', 'Working days, for example -7') :
-            this.tr('天数，例如 -7', 'Days, for example -7')
-        })
+        TextInput({ text: this.dayOffset, placeholder: this.shiftPlaceholder() })
           .type(InputType.Normal).onChange((value: string) => this.dayOffset = value).height(52)
           .systemMaterial(this.immersiveMaterial(false))
-        this.shiftUnitToggle()
+        this.shiftUnitSelect()
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
         }) {
@@ -301,6 +356,9 @@ export struct DatesPage {
             Text(this.dateDifference()).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
             if (this.spanText().length > 0) {
               Text(this.spanText()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            }
+            if (this.countdownText().length > 0) {
+              Text(this.countdownText()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
             }
           }.padding(16).width('100%')
         }

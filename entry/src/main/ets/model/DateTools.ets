@@ -75,6 +75,12 @@ export class AgeResult {
   totalDays: number = 0;
 }
 
+// 倒数日：以 reference（通常为今天）为界，把 [first, second] 区间拆成已过去与还剩的天数。
+export class CountdownInfo {
+  elapsedDays: number = 0;
+  remainingDays: number = 0;
+}
+
 export class CalendarInfo {
   // 1 = 周一 … 7 = 周日
   weekday: number = 1;
@@ -89,15 +95,18 @@ export class DateToolMode {
   id: string = '';
   zh: string = '';
   en: string = '';
+  // 分段控件里的短标签（长标签在内容区做标题，避免窄屏被截断）
+  shortZh: string = '';
+  shortEn: string = '';
 }
 
 // 日期工具的菜单项登记表：新增能力时在此追加一项，页面按 id 渲染对应内容。
 export const DATE_TOOL_MODES: DateToolMode[] = [
-  { id: 'interval', zh: '日期间隔', en: 'Days between dates' },
-  { id: 'shift', zh: '日期推算', en: 'Date offset' },
-  { id: 'age', zh: '年龄计算', en: 'Age' },
-  { id: 'workdays', zh: '工作日', en: 'Working days' },
-  { id: 'calendar', zh: '星期与周数', en: 'Weekday and week' }
+  { id: 'interval', zh: '日期间隔', en: 'Days between dates', shortZh: '间隔', shortEn: 'Interval' },
+  { id: 'shift', zh: '日期推算', en: 'Date offset', shortZh: '推算', shortEn: 'Offset' },
+  { id: 'age', zh: '年龄计算', en: 'Age', shortZh: '年龄', shortEn: 'Age' },
+  { id: 'workdays', zh: '工作日', en: 'Working days', shortZh: '工作日', shortEn: 'Workdays' },
+  { id: 'calendar', zh: '星期与周数', en: 'Weekday and week', shortZh: '日历', shortEn: 'Calendar' }
 ];
 
 // 纯算术求当月天数，避免在遍历/高频路径里反复创建 Date。
@@ -218,4 +227,56 @@ export function addWorkingDays(value: string, days: number): string | undefined 
   }
   if (cursor.getUTCFullYear() < 1 || cursor.getUTCFullYear() > 9999) { return undefined; }
   return formatDate(cursor);
+}
+
+// ---------- 周期推算 ----------
+
+export class DateShiftUnit {
+  id: string = '';
+  zh: string = '';
+  en: string = '';
+}
+
+// 推算单位登记表：页面用它渲染下拉选项，新增单位只需在此追加并在此文件的 shiftDate 里实现。
+export const DATE_SHIFT_UNITS: DateShiftUnit[] = [
+  { id: 'day', zh: '天', en: 'Days' },
+  { id: 'working', zh: '工作日', en: 'Working days' },
+  { id: 'week', zh: '周', en: 'Weeks' },
+  { id: 'month', zh: '月', en: 'Months' },
+  { id: 'year', zh: '年', en: 'Years' }
+];
+
+// 按单位推算日期（amount 为负表示往前推）：天/周按日推进，月/年保持月末语义
+// （1 月 31 日加一个月得 2 月 28/29 日），工作日跳过周六周日。未知单位返回 undefined。
+export function shiftDate(value: string, amount: number, unit: string): string | undefined {
+  if (!Number.isInteger(amount)) { return undefined; }
+  if (unit === 'working') { return addWorkingDays(value, amount); }
+  if (unit === 'week') { return addDays(value, amount * 7); }
+  if (unit !== 'month' && unit !== 'year') {
+    return unit === 'day' ? addDays(value, amount) : undefined;
+  }
+  const date: Date | undefined = parseDate(value);
+  if (date === undefined) { return undefined; }
+  const months: number = unit === 'year' ? amount * 12 : amount;
+  if (Math.abs(months) > 12000) { return undefined; }
+  const shifted: Date = shiftMonths(date, months);
+  if (shifted.getUTCFullYear() < 1 || shifted.getUTCFullYear() > 9999) { return undefined; }
+  return formatDate(shifted);
+}
+
+// 倒数日：以 reference（通常为今天）把 [first, second] 区间拆成已过去与还剩的天数。
+// 顺序无关；区间无效、起止同一天或 reference 落在区间之外时返回 undefined。
+export function countdownAt(first: string, second: string, reference: string): CountdownInfo | undefined {
+  const a: Date | undefined = parseDate(first);
+  const b: Date | undefined = parseDate(second);
+  const at: Date | undefined = parseDate(reference);
+  if (a === undefined || b === undefined || at === undefined) { return undefined; }
+  const start: Date = a.getTime() <= b.getTime() ? a : b;
+  const end: Date = a.getTime() <= b.getTime() ? b : a;
+  if (start.getTime() === end.getTime()) { return undefined; }
+  if (at.getTime() < start.getTime() || at.getTime() > end.getTime()) { return undefined; }
+  const info: CountdownInfo = new CountdownInfo();
+  info.elapsedDays = Math.round((at.getTime() - start.getTime()) / DAY_MS);
+  info.remainingDays = Math.round((end.getTime() - at.getTime()) / DAY_MS);
+  return info;
 }

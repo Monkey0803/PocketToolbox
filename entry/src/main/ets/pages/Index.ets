@@ -17,6 +17,7 @@ import { TextPage } from '../component/TextPage';
 import { RandomPage } from '../component/RandomPage';
 import { UnitsPage } from '../component/UnitsPage';
 import { DatesPage } from '../component/DatesPage';
+import { TimestampPage } from '../component/TimestampPage';
 import { TaxPage } from '../component/TaxPage';
 import { PasswordPage } from '../component/PasswordPage';
 import { LevelPage } from '../component/LevelPage';
@@ -483,6 +484,11 @@ struct Index {
                 materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'timestamp') {
+              TimestampPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'text') {
               TextPage({ english: this.english, immersiveSupported: this.immersiveSupported,

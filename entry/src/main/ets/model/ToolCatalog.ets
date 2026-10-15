@@ -32,6 +32,7 @@ export const TOOL_CATALOG: ToolEntry[] = [
   new ToolEntry('timers', $r('sys.symbol.timer'), '计时', 'Timers', ToolPalette.tintAmber),
   new ToolEntry('torch', $r('sys.symbol.flashlight_on'), '手电筒', 'Flashlight', ToolPalette.tintPurple),
   new ToolEntry('dates', $r('sys.symbol.calendar'), '日期计算', 'Date calculator', ToolPalette.tintRose),
+  new ToolEntry('timestamp', $r('sys.symbol.clock'), '时间戳', 'Timestamp', ToolPalette.tintSky),
   new ToolEntry('text', $r('sys.symbol.textformat'), '文本工具', 'Text tools', ToolPalette.tintIndigo),
   new ToolEntry('random', $r('sys.symbol.shuffle'), '随机选择', 'Random picker', ToolPalette.tintTeal),
   new ToolEntry('password', $r('sys.symbol.key'), '密码生成', 'Password generator', ToolPalette.tintAmber),

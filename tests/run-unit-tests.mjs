@@ -17,6 +17,7 @@ const passwords = await loadEts('../entry/src/main/ets/model/PasswordTools.ets')
 const levels = await loadEts('../entry/src/main/ets/model/LevelMath.ets');
 const barcodes = await loadEts('../entry/src/main/ets/model/BarcodeTools.ets');
 const calculators = await loadEts('../entry/src/main/ets/model/QuickCalculators.ets');
+const timeTools = await loadEts('../entry/src/main/ets/model/TimeTools.ets');
 const tax = await loadEts('../entry/src/main/ets/model/IncomeTax.ets');
 
 function category(id) {
@@ -160,12 +161,100 @@ assert.equal(dates.workingDaysBetween('2026-10-15', farWork, true), 36501);
 assert.equal(dates.addWorkingDays(farWork, -36500), '2026-10-15');
 assert.equal(dates.addWorkingDays('2026-10-15', 36501), undefined);
 
+assert.equal(dates.shiftDate('2026-10-15', 7, 'day'), '2026-10-22');
+assert.equal(dates.shiftDate('2026-10-15', -7, 'day'), '2026-10-08');
+assert.equal(dates.shiftDate('2026-10-15', 2, 'week'), '2026-10-29');
+assert.equal(dates.shiftDate('2026-10-15', -2, 'week'), '2026-10-01');
+assert.equal(dates.shiftDate('2026-10-15', 2, 'working'), '2026-10-19');
+assert.equal(dates.shiftDate('2024-01-31', 1, 'month'), '2024-02-29');
+assert.equal(dates.shiftDate('2023-01-31', 1, 'month'), '2023-02-28');
+assert.equal(dates.shiftDate('2024-01-31', 3, 'month'), '2024-04-30');
+assert.equal(dates.shiftDate('2024-03-31', -1, 'month'), '2024-02-29');
+assert.equal(dates.shiftDate('2026-10-15', 0, 'month'), '2026-10-15');
+assert.equal(dates.shiftDate('2020-02-29', 1, 'year'), '2021-02-28');
+assert.equal(dates.shiftDate('2026-10-15', -1, 'year'), '2025-10-15');
+assert.equal(dates.shiftDate('2026-10-15', 12000, 'month'), '3026-10-15');
+assert.equal(dates.shiftDate('2026-10-15', 1001, 'year'), undefined);
+assert.equal(dates.shiftDate('2026-10-15', 1, 'hour'), undefined);
+assert.equal(dates.shiftDate('2026-10-15', 1.5, 'day'), undefined);
+assert.equal(dates.shiftDate('2025-02-29', 1, 'month'), undefined);
+assert.equal(dates.shiftDate('2026-10-15', 52000, 'week'), '3023-05-22');
+assert.equal(dates.shiftDate('2026-10-15', 53000, 'week'), undefined);
+
+assert.equal(dates.DATE_SHIFT_UNITS.length, 5);
+const shiftUnitIds = new Set(dates.DATE_SHIFT_UNITS.map((unit) => unit.id));
+assert.equal(shiftUnitIds.size, dates.DATE_SHIFT_UNITS.length);
+for (const unit of dates.DATE_SHIFT_UNITS) {
+  assert.ok(unit.zh.length > 0 && unit.en.length > 0, `incomplete shift unit ${unit.id}`);
+  assert.equal(dates.shiftDate('2026-10-15', 0, unit.id), '2026-10-15');
+}
+
+const countdown = dates.countdownAt('2026-10-01', '2026-10-31', '2026-10-15');
+assert.deepEqual([countdown.elapsedDays, countdown.remainingDays], [14, 16]);
+const reversedCountdown = dates.countdownAt('2026-10-31', '2026-10-01', '2026-10-15');
+assert.deepEqual([reversedCountdown.elapsedDays, reversedCountdown.remainingDays], [14, 16]);
+assert.deepEqual([dates.countdownAt('2026-10-15', '2026-10-31', '2026-10-15').elapsedDays,
+  dates.countdownAt('2026-10-15', '2026-10-31', '2026-10-15').remainingDays], [0, 16]);
+assert.deepEqual([dates.countdownAt('2026-10-01', '2026-10-31', '2026-10-31').elapsedDays,
+  dates.countdownAt('2026-10-01', '2026-10-31', '2026-10-31').remainingDays], [30, 0]);
+assert.equal(dates.countdownAt('2026-10-01', '2026-10-31', '2026-11-01'), undefined);
+assert.equal(dates.countdownAt('2026-10-01', '2026-10-31', '2026-09-30'), undefined);
+assert.equal(dates.countdownAt('2026-10-15', '2026-10-15', '2026-10-15'), undefined);
+assert.equal(dates.countdownAt('2025-02-29', '2026-10-31', '2026-10-15'), undefined);
+
 assert.equal(dates.DATE_TOOL_MODES.length, 5);
 const modeIds = new Set(dates.DATE_TOOL_MODES.map((mode) => mode.id));
 assert.equal(modeIds.size, dates.DATE_TOOL_MODES.length);
 for (const mode of dates.DATE_TOOL_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
+  assert.ok(mode.shortZh.length > 0 && mode.shortEn.length > 0, `incomplete mode short label ${mode.id}`);
+  assert.ok(mode.shortZh.length <= mode.zh.length, `short label longer than title ${mode.id}`);
 }
+
+assert.equal(timeTools.parseStampInput('').error, 'empty');
+assert.equal(timeTools.parseStampInput('   ').error, 'empty');
+assert.equal(timeTools.parseStampInput('abc').error, 'format');
+assert.equal(timeTools.parseStampInput('2026-13-01').error, 'format');
+assert.equal(timeTools.parseStampInput('2025-02-29').error, 'format');
+assert.equal(timeTools.parseStampInput('2026-10-15 25:00:00').error, 'format');
+
+const epoch = timeTools.parseStampInput('0');
+assert.equal(epoch.ok, true);
+assert.equal(epoch.fromTimestamp, true);
+assert.equal(epoch.millis, 0);
+assert.equal(epoch.seconds, 0);
+assert.equal(epoch.utcText, '1970-01-01 00:00:00Z');
+const secondsStamp = timeTools.parseStampInput('1750000000');
+assert.equal(secondsStamp.millis, 1750000000000);
+assert.equal(secondsStamp.seconds, 1750000000);
+assert.equal(secondsStamp.fromTimestamp, true);
+assert.equal(timeTools.parseStampInput(secondsStamp.utcText).millis, 1750000000000);
+const millisStamp = timeTools.parseStampInput('1750000000123');
+assert.equal(millisStamp.millis, 1750000000123);
+assert.equal(millisStamp.seconds, 1750000000);
+assert.equal(millisStamp.fromTimestamp, true);
+const negativeStamp = timeTools.parseStampInput('-86400');
+assert.equal(negativeStamp.seconds, -86400);
+assert.equal(negativeStamp.millis, -86400000);
+assert.equal(negativeStamp.utcText, '1969-12-31 00:00:00Z');
+assert.equal(timeTools.parseStampInput('999999999999999').error, 'range');
+assert.equal(timeTools.parseStampInput('-62135596801000').error, 'range');
+
+const utcText = timeTools.parseStampInput('1970-01-01T00:00:00Z');
+assert.equal(utcText.ok, true);
+assert.equal(utcText.fromTimestamp, false);
+assert.equal(utcText.millis, 0);
+const dateOnly = timeTools.parseStampInput('2026-10-15');
+assert.equal(dateOnly.localText, '2026-10-15 00:00:00');
+assert.equal(timeTools.parseStampInput('2026-10-15 08:30').localText, '2026-10-15 08:30:00');
+const localInput = timeTools.parseStampInput('2026-10-15 08:30:45');
+assert.equal(localInput.millis, new Date(2026, 9, 15, 8, 30, 45).getTime());
+assert.equal(timeTools.parseStampInput(localInput.localText).millis, localInput.millis);
+assert.equal(timeTools.parseStampInput(localInput.utcText).millis, localInput.millis);
+assert.equal(timeTools.parseStampInput('0001-01-01T00:00:00Z').utcText, '0001-01-01 00:00:00Z');
+assert.equal(timeTools.parseStampInput('9999-12-31T23:59:59Z').utcText, '9999-12-31 23:59:59Z');
+assert.equal(typeof timeTools.currentSeconds(), 'number');
+assert.ok(timeTools.currentSeconds() > 1700000000);
 
 assert.equal(textTools.textStats('').lines, 0);
 assert.equal(textTools.textStats('A😀\n 中').characters, 5);
