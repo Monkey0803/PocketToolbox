@@ -57,13 +57,15 @@
 - 时间设置使用系统时间选择器：`getUIContext().showTimePickerDialog()` 配 `format: TimePickerFormat.HOUR_MINUTE_SECOND`、`useMilitaryTime: true`，并把同一套沉浸材质传给 `TimePickerDialogOptions.systemMaterial`。不要再用多个数字输入框拼时分秒。
 - 日期设置使用系统日期选择器：`getUIContext().showDatePickerDialog()` 配 `onDateAccept`（`onAccept` 自 API 18 起废弃）与 `systemMaterial`，出入参经 `model/DateTools.ets` 的 `pickerDate()`／`pickerDateText()` 在 `YYYY-MM-DD` 与本地 `Date` 间转换（选择器按本地时间读写，且年份 0–99 不能走 `new Date(year, ...)`）。可点区域展示当前日期，不再要求用户手输日期格式。
 - `@Builder` 按值传参不会随状态刷新：不要把会变化的状态当作 `@Builder` 参数传入，参数只放常量（图标资源、双语文案、目标页标识），会变的值在构建函数体内直接读 `this` 的状态或调用 `this` 上的方法（例如 `dateField()` 只收 `kind`，文本由 `dateFieldText(kind)` 取）。日期字段曾在真机上因此显示旧值，下方结果已更新而卡片文字未变。
-- 日期计算页的多种方式由 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表驱动：`dateModeMenu()` 用 `ForEach` 渲染菜单项并给当前项加 `checkmark`，`datesPage()` 按 `dateMode` 分支渲染。新增日期能力 = 在登记表加一项 + 加一个分支 +（如需）在 `DateTools` 加可测的纯函数，不要在构建函数里堆同构的 `if/else`。
+- 日期计算页（`component/DatesPage.ets`）的多种方式由 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表驱动：`dateModeMenu()` 用 `ForEach` 渲染菜单项并给当前项加 `checkmark`，`build()` 按 `dateMode` 分支渲染。新增日期能力 = 在登记表加一项 + 加一个分支 +（如需）在 `DateTools` 加可测的纯函数，不要在构建函数里堆同构的 `if/else`。「日期推算」的单位同样走 `DATE_SHIFT_UNITS` 登记表 + `shiftDate()`（天/工作日/周/月/年；月与年保持月末夹取语义，1 月 31 日加一个月得 2 月 28/29 日）。
 
 ## 页面导航
 
 - 根页面使用“工具、收藏、设置”三个底部 Tab。工具展示全部工具，收藏只展示已收藏工具，设置包含语言、应用图标、隐私及清空二维码历史操作。
 - 底部 Tab 优先使用 HMSymbol 图标，逐项提供中英双语无障碍名称及选中状态。工具详情和历史页返回时回到先前选中的 Tab；切换 Tab 时关闭正在使用的手电筒。
 - 工具详情页与文档扫描页是 `NavPathStack` 的 `HdsNavDestination` 路由（`toolRoutes(name)`）；`navigate()` 用 `pathStack.pushPathByName(name, '', onPop)` 入栈并在 `onPop` 里回退 `page` 到上一级。返回用系统返回键/标题栏返回，回到根 Tab 用 `pathStack.clear()`。不要再保留页面内自绘标题栏或自绘底部页签栏。
+- **标题栏避让**：`HdsNavigation`/`HdsNavDestination` 的 `HdsNavigationTitleMode.MINI` 标题栏高度固定为 56 vp，且内容区会**延伸到标题栏下方**（沉浸式）。因此可滚动内容的根容器必须让出该高度——`tabScroll` 与 `toolRoutes` 的内容列都用 `top: 20 + HDS_TITLE_BAR_HEIGHT`（`HDS_TITLE_BAR_HEIGHT = 56`）；否则每页首行会被标题栏遮住（曾在日期、二维码等页出现）。滚动时内容仍会滑到标题栏下进入模糊区域，这是预期效果。
+- 设置页是常驻 Tab 内容（`TabContent` 首次显示后保持挂载），语言/图标/历史的持久化由 `Index` 处理，`SettingsPage` 只经 `@Event` 回调；`refreshIcon()` 的时机仍由 `Index` 的 `onTabChange`/`onPageShow` 控制。
 
 ## 验证
 

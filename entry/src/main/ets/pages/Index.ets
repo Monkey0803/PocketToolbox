@@ -34,6 +34,10 @@ const HDS_MATERIAL_EFFECT: SystemMaterialParams = {
   materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
 };
 
+// HDS 的 MINI 标题栏高度固定为 56 vp；HdsNavigation/HdsNavDestination 的内容区会延伸到标题栏下方，
+// 因此可滚动内容需让出该高度，否则首行会被标题栏遮挡（滚动时仍会滑到标题栏下进入模糊区域）。
+const HDS_TITLE_BAR_HEIGHT: number = 56;
+
 function scannerConfiguration(): DocumentScannerConfig {
   const config: DocumentScannerConfig = new DocumentScannerConfig();
   config.maxShotCount = 10;
@@ -405,7 +409,8 @@ struct Index {
         if (tab === 'tools') { this.home() }
         else if (tab === 'favorites') { this.favoritesPage() }
         else { this.settingsContent() }
-      }.width('100%').constraintSize({ maxWidth: 920 }).padding({ left: 20, right: 20, top: 20, bottom: 96 })
+      }.width('100%').constraintSize({ maxWidth: 920 })
+        .padding({ left: 20, right: 20, top: 20 + HDS_TITLE_BAR_HEIGHT, bottom: 96 })
     }.width('100%').height('100%').scrollBar(BarState.Auto).align(Alignment.Top)
   }
 
@@ -511,7 +516,8 @@ struct Index {
                 onDelete: (id: string): void => { this.deleteHistoryItem(id); } })
             }
             else { this.settingsContent() }
-          }.width('100%').constraintSize({ maxWidth: 920 }).padding(20)
+          }.width('100%').constraintSize({ maxWidth: 920 })
+            .padding({ left: 20, right: 20, top: 20 + HDS_TITLE_BAR_HEIGHT, bottom: 20 })
         }.width('100%').height('100%').scrollBar(BarState.Auto).align(Alignment.Top)
       }
       .titleBar(this.titleBarOptions(this.destinationName(this.page)))
