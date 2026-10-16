@@ -10,8 +10,7 @@
     "requestPermissions": [
       { "name": "ohos.permission.PUBLISH_AGENT_REMINDER" },
       { "name": "ohos.permission.DETECT_GESTURE" },
-      { "name": "ohos.permission.ACCELEROMETER" },
-      { "name": "ohos.permission.INTERNET" }
+      { "name": "ohos.permission.ACCELEROMETER" }
     ],
     "metadata": [
       { "name": "ohos.arkui.UIMaterial.state", "value": "enable" }

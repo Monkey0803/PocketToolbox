@@ -10,7 +10,7 @@ import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt
 import { LunarDate, lunarDateText } from '../model/LunarTools';
 import { HolidayTable } from '../model/HolidayIcs';
 import { lunarOf } from '../services/LunarCalendar';
-import { loadHolidayTable, updateHolidayIcs, sourceConfigured, lastUpdated } from '../services/HolidayData';
+import { loadHolidayTable } from '../services/HolidayData';
 
 const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -39,7 +39,6 @@ export struct DatesPage {
   @Local lunarDate: LunarDate | undefined = undefined;
   @Local holidayTable: HolidayTable = new HolidayTable();
   @Local holidayUpdatedAt: string = '';
-  @Local holidayBusy: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
@@ -58,45 +57,14 @@ export struct DatesPage {
     this.lunarDate = lunarOf(this.firstDate.trim());
   }
 
-  // 载入节假日数据（内置默认 → 后台可由用户手动更新）并刷新「上次更新」时间。
+  // 载入随包的节假日数据，并记录数据日期（用于界面标注时效）。
   private async refreshHolidays(): Promise<void> {
     try {
       this.holidayTable = await loadHolidayTable(this.ctx());
     } catch (_) {
       this.holidayTable = new HolidayTable();
     }
-    let updated: Date | undefined = undefined;
-    try {
-      updated = lastUpdated(this.ctx());
-    } catch (_) {
-      updated = undefined;
-    }
-    this.holidayUpdatedAt = updated === undefined ? '' :
-      updated.getFullYear().toString().padStart(4, '0') + '-' +
-      (updated.getMonth() + 1).toString().padStart(2, '0') + '-' +
-      updated.getDate().toString().padStart(2, '0');
-  }
-
-  private async onUpdateHoliday(): Promise<void> {
-    if (this.holidayBusy) { return; }
-    if (!sourceConfigured()) {
-      this.onStatus(this.tr('未配置节假日数据源', 'Holiday data source is not configured'));
-      return;
-    }
-    this.holidayBusy = true;
-    try {
-      const ok: boolean = await updateHolidayIcs(this.ctx());
-      if (ok) {
-        await this.refreshHolidays();
-        this.onStatus(this.tr('节假日数据已更新', 'Holiday data updated'));
-      } else {
-        this.onStatus(this.tr('更新失败，已保留原有数据', 'Update failed; kept existing data'));
-      }
-    } catch (_) {
-      this.onStatus(this.tr('更新失败，已保留原有数据', 'Update failed; kept existing data'));
-    } finally {
-      this.holidayBusy = false;
-    }
+    this.holidayUpdatedAt = this.holidayTable.dataDate;
   }
 
   private lunarText(): string {
@@ -339,20 +307,14 @@ export struct DatesPage {
     }.width('100%')
   }
 
+  // 节假日数据随包内置（构建期生成，见 tools/fetch-holidays.mjs），运行时不再联网，
+  // 因此这里只如实标注数据日期与口径，没有更新入口。
   @Builder private holidayInfo() {
-    Column({ space: 6 }) {
-      Text(this.holidayTable.loaded && this.holidayUpdatedAt !== '' ?
-        this.tr('节假日数据更新于 ', 'Holiday data updated ') + this.holidayUpdatedAt :
-        this.tr('暂无节假日数据，工作日仅排除周末', 'No holiday data; only weekends excluded'))
-        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      Row() {
-        Button() {
-          SymbolGlyph($r('sys.symbol.arrow_2_circlepath')).fontSize(22).fontColor([Color.White])
-        }.width(44).height(44).backgroundColor(ToolPalette.primary).enabled(!this.holidayBusy && sourceConfigured())
-          .accessibilityText(this.tr('更新节假日数据', 'Update holiday data'))
-          .onClick(() => this.onUpdateHoliday())
-      }.width('100%').justifyContent(this.actionAlign)
-    }.width('100%')
+    Text(this.holidayTable.loaded && this.holidayUpdatedAt !== '' ?
+      this.tr('节假日数据 ' + this.holidayUpdatedAt + ' · 随应用内置',
+        'Holiday data ' + this.holidayUpdatedAt + ' · bundled with the app') :
+      this.tr('暂无节假日数据，工作日仅排除周末', 'No holiday data; only weekends excluded'))
+      .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
   }
 
   @Builder private includeFirstToggle() {

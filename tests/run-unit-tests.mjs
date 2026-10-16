@@ -456,6 +456,38 @@ assert.equal(holidayIcs.parseHolidayIcs('not a calendar').loaded, false);
 assert.equal(holidayIcs.parseHolidayIcs('').holidays.length, 0);
 assert.deepEqual(holidayIcs.parseHolidayIcs(sampleIcs.replace(/\r\n/g, '\n')).workdays, ['2026-10-10']);
 
+// 区间展开：DTEND 为「结束日不含」，单天事件缺 DTEND，调休日同样支持区间
+const rangeIcs = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0',
+  'X-POCKET-TOOLBOX-FETCHED:2026-10-16',
+  'BEGIN:VEVENT', 'SUMMARY:Sample holiday', 'DTSTART;VALUE=DATE:20261001',
+  'DTEND;VALUE=DATE:20261004', 'END:VEVENT',
+  'BEGIN:VEVENT', 'SUMMARY:Single day', 'DTSTART;VALUE=DATE:20261008', 'END:VEVENT',
+  'BEGIN:VEVENT', 'SUMMARY:Sample make-up 班', 'DTSTART;VALUE=DATE:20261010',
+  'DTEND;VALUE=DATE:20261012', 'END:VEVENT',
+  'END:VCALENDAR'
+].join('\r\n');
+const parsedRange = holidayIcs.parseHolidayIcs(rangeIcs);
+assert.deepEqual(parsedRange.holidays, ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-08']);
+assert.deepEqual(parsedRange.workdays, ['2026-10-10', '2026-10-11']);
+assert.equal(parsedRange.names['2026-10-03'], 'Sample holiday');
+assert.equal(parsedRange.dataDate, '2026-10-16');
+// 跨月/跨年边界与异常区间（DTEND 不晚于 DTSTART 时退化为单天）
+const crossIcs = [
+  'BEGIN:VCALENDAR',
+  'BEGIN:VEVENT', 'SUMMARY:Cross month', 'DTSTART;VALUE=DATE:20260131',
+  'DTEND;VALUE=DATE:20260202', 'END:VEVENT',
+  'BEGIN:VEVENT', 'SUMMARY:Cross year', 'DTSTART;VALUE=DATE:20261231',
+  'DTEND;VALUE=DATE:20270102', 'END:VEVENT',
+  'BEGIN:VEVENT', 'SUMMARY:Bad range', 'DTSTART;VALUE=DATE:20260301',
+  'DTEND;VALUE=DATE:20260301', 'END:VEVENT',
+  'END:VCALENDAR'
+].join('\r\n');
+const parsedCross = holidayIcs.parseHolidayIcs(crossIcs);
+assert.deepEqual(parsedCross.holidays, ['2026-01-31', '2026-02-01', '2026-12-31', '2027-01-01', '2026-03-01']);
+assert.equal(holidayIcs.parseHolidayIcs(rangeIcs).dataDate, '2026-10-16');
+assert.equal(holidayIcs.parseHolidayIcs(sampleIcs).dataDate, '');
+
 // --- 含法定节假日与调休的工作日 ---
 const octBase = dates.workingDaysBetween('2026-10-01', '2026-10-31', true);
 assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, [], []), octBase);

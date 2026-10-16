@@ -1,6 +1,6 @@
 # 隐私政策草案 / Privacy policy draft
 
-更新日期：2026-10-16。发布前应补充运营主体、联系邮箱、政策生效日期及可公开访问的网址，并由运营主体审核。
+更新日期：2026-10-16（节假日数据改为随包内置、移除网络权限）。发布前应补充运营主体、联系邮箱、政策生效日期及可公开访问的网址，并由运营主体审核。
 
 ## 简体中文
 
@@ -12,7 +12,7 @@
 
 个税计算在本机完成，不向开发者或第三方发送工资、社保、公积金及扣除输入。只有你主动点击页面中的官方规则或查询链接时，系统才会打开对应外部网站；网站会按自身政策处理访问数据。应用本身不向开发者服务器发送上述数据。你通过系统分享面板选择第三方应用，或主动打开扫码网址后，数据处理遵循对应服务的政策。
 
-农历换算与工作日统计默认离线完成：农历、干支与生肖由设备上的系统历法推算；工作日统计使用随应用发布的节假日日历文件。应用声明了 `ohos.permission.INTERNET`，仅用于日期页的「更新节假日数据」按钮：只有你主动点击时，应用才会从运营者配置的数据源下载该日历文件；数据源未配置时按钮不会发出任何请求。该请求只访问日历文件地址，不携带你在应用中的任何输入或个人数据，下载结果只写入应用沙箱并可由卸载删除。除此入口外，应用不发起网络请求，也不上传任何工具数据。
+农历换算与工作日统计完全离线完成：农历、干支与生肖由设备上的系统历法推算；工作日与调休统计使用随应用发布的节假日日历文件（数据来源与许可见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)）。应用**不申请任何网络权限**，不发起网络请求，也不上传任何工具数据；节假日数据由开发者在发布新版本时更新。
 
 ## English
 
@@ -24,4 +24,4 @@ QR and barcode scanning use the system Scan Kit camera and gallery interface. Th
 
 Income tax is calculated on your device; wage, social insurance, housing fund, and deduction inputs are not sent to the developer or a third party. Only when you tap an official reference or query link does the system open that external website, which handles visit data under its own policy. The app itself does not send this data to a developer server. If you choose another app from the system share sheet or open a scanned URL, that service's privacy policy applies.
 
-Lunar date conversion and working-day counts work offline by default: the lunar date, sexagenary cycle and zodiac are computed by the system calendar on your device, and working-day counts use the holiday calendar file shipped with the app. The app declares `ohos.permission.INTERNET` solely for the "Update holiday data" button on the date page: a request is made only when you tap it, from the source configured by the operator. When no source is configured, the button sends nothing. That request only fetches the calendar file and carries none of your inputs or personal data; the download is written to the app sandbox and is removed when you uninstall. Apart from this entry point the app makes no network requests and uploads no tool data.
+Lunar date conversion and working-day counts are fully offline: the lunar date, sexagenary cycle and zodiac are computed by the system calendar on your device, and working-day, holiday and make-up workday counts use the holiday calendar file shipped with the app (source and licence: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). The app requests **no network permission** and makes no network requests, and it uploads no tool data; the holiday file is refreshed by the developer in new app versions.
