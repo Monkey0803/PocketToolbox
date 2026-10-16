@@ -1,6 +1,6 @@
 # 隐私政策草案 / Privacy policy draft
 
-更新日期：2026-10-12。发布前应补充运营主体、联系邮箱、政策生效日期及可公开访问的网址，并由运营主体审核。
+更新日期：2026-10-16。发布前应补充运营主体、联系邮箱、政策生效日期及可公开访问的网址，并由运营主体审核。
 
 ## 简体中文
 
@@ -12,6 +12,8 @@
 
 个税计算在本机完成，不向开发者或第三方发送工资、社保、公积金及扣除输入。只有你主动点击页面中的官方规则或查询链接时，系统才会打开对应外部网站；网站会按自身政策处理访问数据。应用本身不向开发者服务器发送上述数据。你通过系统分享面板选择第三方应用，或主动打开扫码网址后，数据处理遵循对应服务的政策。
 
+农历换算与工作日统计默认离线完成：农历、干支与生肖由设备上的系统历法推算；工作日统计使用随应用发布的节假日日历文件。应用声明了 `ohos.permission.INTERNET`，仅用于日期页的「更新节假日数据」按钮：只有你主动点击时，应用才会从运营者配置的数据源下载该日历文件；数据源未配置时按钮不会发出任何请求。该请求只访问日历文件地址，不携带你在应用中的任何输入或个人数据，下载结果只写入应用沙箱并可由卸载删除。除此入口外，应用不发起网络请求，也不上传任何工具数据。
+
 ## English
 
 Pocket Toolbox requires no account and includes no ads, analytics, or cloud sync. It stores QR creation and scan history (up to 50 entries), timers, stopwatch state, tool favorites, and language preference on your device. Income tax, barcode, calculator, date, text, random picker, and password inputs and results remain in memory only while the app runs; leaving the password page clears its generated password. Copying content places it on the system clipboard. You can delete individual QR entries or clear the history in Settings, and remove favorites with the star on each tool card. Uninstalling the app removes its sandbox data.
@@ -21,3 +23,5 @@ The app may read the hand holding or operating the device to place frequent cont
 QR and barcode scanning use the system Scan Kit camera and gallery interface. The app receives the QR content you choose to scan to show it and store local history; it does not open URLs automatically. Barcode scan results remain in memory only. A generated QR or barcode image leaves the app only when you choose Save or Share; you can also choose to save a barcode to the system gallery. Document scanning uses the system control to process photos you capture or select. Returned file URIs remain in memory until you export or share from the system control. The spirit level reads the accelerometer only while its page is open, stops when you leave or background the app, and does not store measurements. The flashlight uses the device light only when you turn it on and turns it off when you leave the page or the app enters the background. When you start a countdown, the app asks for notification access and attempts to create a system reminder; if unavailable, the interface says background alerts are unavailable.
 
 Income tax is calculated on your device; wage, social insurance, housing fund, and deduction inputs are not sent to the developer or a third party. Only when you tap an official reference or query link does the system open that external website, which handles visit data under its own policy. The app itself does not send this data to a developer server. If you choose another app from the system share sheet or open a scanned URL, that service's privacy policy applies.
+
+Lunar date conversion and working-day counts work offline by default: the lunar date, sexagenary cycle and zodiac are computed by the system calendar on your device, and working-day counts use the holiday calendar file shipped with the app. The app declares `ohos.permission.INTERNET` solely for the "Update holiday data" button on the date page: a request is made only when you tap it, from the source configured by the operator. When no source is configured, the button sends nothing. That request only fetches the calendar file and carries none of your inputs or personal data; the download is written to the app sandbox and is removed when you uninstall. Apart from this entry point the app makes no network requests and uploads no tool data.

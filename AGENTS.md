@@ -22,7 +22,7 @@
 
 ## 纯逻辑与测试
 
-- `model/*.ets` 中不依赖 `@kit.*` 的文件会被单元测试直接加载：`Units`、`TimerMath`、`DateTools`、`TextTools`、`RandomTools`、`PasswordTools`、`LevelMath`、`BarcodeTools`、`QuickCalculators`、`IncomeTax`。给这些文件加逻辑时不要引入 `@kit.*` 或 UI 装饰器，否则测试加载失败。`model/Materials.ets`、`model/LocalData.ets` 含 `@kit` 依赖，`model/ToolCatalog.ets` 含 `$r` 资源引用，三者不参与测试。
+- `model/*.ets` 中不依赖 `@kit.*` 的文件会被单元测试直接加载：`Units`、`TimerMath`、`DateTools`、`TextTools`、`RandomTools`、`PasswordTools`、`LevelMath`、`BarcodeTools`、`QuickCalculators`、`IncomeTax`、`TimeTools`、`LunarTools`、`HolidayIcs`。给这些文件加逻辑时不要引入 `@kit.*` 或 UI 装饰器，否则测试加载失败。`model/Materials.ets`、`model/LocalData.ets` 含 `@kit` 依赖，`model/ToolCatalog.ets` 含 `$r` 资源引用，三者不参与测试。
 - 工具清单的单一数据源是 `model/ToolCatalog.ets` 的 `TOOL_CATALOG`：工具网格（`toolGrid()`）与详情页标题（`destinationName()`）都由它驱动。新增工具在此登记一项，并在 `Index.toolRoutes(name)` 分支链补对应页面构建器。
 - 逻辑测试：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs`（本机 Node.js 26）。`tests/run-unit-tests.mjs` 用 `stripTypeScriptTypes` 加载 `.ets` 并对模型做断言，只覆盖模型、不覆盖 UI。
 
@@ -35,6 +35,8 @@
 ## 系统能力坑位
 
 - `@kit.VisionKit` 必须用 `import lazy`：静态 import 会让缺少 `SystemCapability.AI.Component.DocScan` 的设备（含部分模拟器镜像）在页面模块链接阶段抛错、启动即退出。用 `canIUse('SystemCapability.AI.Component.DocScan')` 门控，能力缺失时按钮置灰并显示中英说明，配置对象延迟到进入扫描页再创建。
+- 农历与公历互转由系统历法负责，不要自写历表：`services/LunarCalendar.ets` 用 `i18n.getCalendar('zh-Hans', 'chinese')` 换算并返回纯数据 `LunarDate`（范围 1901–2099，越界返回 `undefined`）；干支、生肖与中英双语文案在 `model/LunarTools.ets`（纯逻辑、参与单测）。注意 `chinese` 历法的 `get('year')` 是干支序数 1–60，不是公历年（公历年为 `extended_year - 2637`）。
+- 节假日数据走「随包默认 + 用户手动更新」：`model/HolidayIcs.ets` 只做 `.ics` 纯解析（参与单测），`services/HolidayData.ets` 负责把 `resources/rawfile/holidays.ics` 落到沙箱、按用户点击下载覆盖缓存，法定节假日判定交给 `i18n.HolidayManager`（异常回退解析表）。工作日统计一律用 `DateTools.workingDaysBetweenWithHolidays()`（无数据时自然退化为「仅排除周末」），界面必须如实标注当前口径。`HOLIDAY_ICS_SOURCE_URL` 是占位空串，不得写死未授权的第三方地址；`ohos.permission.INTERNET` 只服务于这个用户主动触发的入口，若取消入口须同步移除权限并更新 `docs/PRIVACY.md`、`docs/RELEASE_CHECKLIST.md`、`docs/STORE_LISTING.md`。
 - 一次性反馈（复制、保存、收藏、校验失败、扫码取消等）统一经 `@Local status` 转成系统 toast（`getUIContext().getPromptAction().showToast()`），消费方是 `@Monitor('status') onStatusChange()`（V2 的 `@Monitor` 只能装饰方法，不能写在属性上；回调里清空 `status` 后第二次回调看到空值直接返回）。不要再加会撑开页面的内联横幅；只有需要持续显示的错误才写 `fatalError`。
 
 ## HMSymbol 与界面文字
@@ -53,11 +55,12 @@
 - 材质等级由系统按设备算力决定。用 `getGlobalMaterialLevel()` 选择适合的 `ImmersiveStyle`，不要把 `MaterialLevel` 当作应用可写配置。不要在同一个节点上同时设置 `systemMaterial` 和 `backgroundColor`；用外层容器提供退化底色。检查图标对比度、性能和不支持材质的退化效果。
 - **沉浸材质分两套体系，不要混用**：外壳标题栏/底部页签用 UI Design Kit 的 `hdsMaterial`（`HdsNavigation.titleBar` 的 `TitleBarStyleOptions.systemMaterialEffect`、`HdsTabs.barFloatingStyle` 的 `systemMaterialEffect`；统一取 `HDS_MATERIAL_EFFECT = { materialType: ADAPTIVE, materialLevel: ADAPTIVE }`，由系统按设备算力自适应，需要自定义时先用 `hdsMaterial.getSystemMaterialTypes()` 查询是否支持 `IMMERSIVE`）。内容卡片/输入框沿用 ArkUI 的 `uiMaterial`（`MaterialSurface` + `buildImmersiveMaterial()`）。两套材质不可互换。
 - **ArkUI 沉浸材质的生效区域是硬约束**（见 ArkUI 沉浸光感简介）：弹窗类组件（`AlertDialog`/`ActionSheet`/`CustomDialog`/`TimePickerDialog`/`DatePickerDialog`/`TextPickerDialog`/菜单/PromptAction 等）与 `Slider`、`Toggle`、`Select` 在应用级 `enable` 时全页面自动生效；其余组件设置 `systemMaterial` **只在 `Navigation`/`NavDestination` 标题栏或 `barPosition: BarPosition.End` 的横向 `Tabs` 底部 TabBar 中才会渲染**，在其他区域不生效。因此内容区的 `MaterialSurface` 属于退化的普通背景，不要指望它在内容区显示材质（避免材质嵌套、控制材质面积与功耗）。
-- 应用内可支持沉浸光感的组件都要接入：输入框、多行文本框、结果卡片、列表行等可滚内容表面统一用 `entry/src/main/ets/component/MaterialSurface.ets` 包裹（外层 `Stack` 提供退化底色与圆角，内层内容设置 `systemMaterial`），材质参数由 `entry/src/main/ets/model/Materials.ets` 的 `buildImmersiveMaterial()` 按开关与设备等级生成。带品牌底色的操作按钮、需要纯白底才能识别的码图，以及 `Dialog`、`Toast`、`Select`、`Toggle`、`Menu` 等应用级 `enable` 时已默认启用材质的组件不重复处理。
+- 应用内可支持沉浸光感的组件都要接入：输入框、多行文本框、结果卡片、列表行等可滚内容表面统一用 `entry/src/main/ets/component/MaterialSurface.ets` 包裹（外层 `Stack` 提供退化底色与圆角，内层内容设置 `systemMaterial`），材质参数由 `entry/src/main/ets/model/Materials.ets` 的 `buildImmersiveMaterial()` 按开关与设备等级生成。**包裹后不要再给被包裹的输入框设置 `.systemMaterial(...)`**，否则形成材质嵌套。带品牌底色的操作按钮、需要纯白底才能识别的码图，以及 `Dialog`、`Toast`、`Select`、`Toggle`、`Menu` 等应用级 `enable` 时已默认启用材质的组件不重复处理。
+- **行内输入框的包裹方式**：与其它控件同处一行、需要共享行宽的输入框，要把 `MaterialSurface` 放进一个**带 `.layoutWeight()` 的普通 `Column`**，再让该 `Column` 作为 `Row` 的直接子项；**不要给 `MaterialSurface` 本身加 `.layoutWeight()` 等通用属性**（给自定义组件加通用属性在本工程没有先例），也不要让 `MaterialSurface` 直接做 `Row` 的子项（它根节点固定 `width('100%')`，会把整行撑坏）。参考 `CalculatorPage` 的百分数行与 `RandomPage` 的最小/最大值行。
 - 时间设置使用系统时间选择器：`getUIContext().showTimePickerDialog()` 配 `format: TimePickerFormat.HOUR_MINUTE_SECOND`、`useMilitaryTime: true`，并把同一套沉浸材质传给 `TimePickerDialogOptions.systemMaterial`。不要再用多个数字输入框拼时分秒。
 - 日期设置使用系统日期选择器：`getUIContext().showDatePickerDialog()` 配 `onDateAccept`（`onAccept` 自 API 18 起废弃）与 `systemMaterial`，出入参经 `model/DateTools.ets` 的 `pickerDate()`／`pickerDateText()` 在 `YYYY-MM-DD` 与本地 `Date` 间转换（选择器按本地时间读写，且年份 0–99 不能走 `new Date(year, ...)`）。可点区域展示当前日期，不再要求用户手输日期格式。
-- `@Builder` 按值传参不会随状态刷新：不要把会变化的状态当作 `@Builder` 参数传入，参数只放常量（图标资源、双语文案、目标页标识），会变的值在构建函数体内直接读 `this` 的状态或调用 `this` 上的方法（例如 `dateField()` 只收 `kind`，文本由 `dateFieldText(kind)` 取）。日期字段曾在真机上因此显示旧值，下方结果已更新而卡片文字未变。
-- 日期计算已是独立工具页（`component/DatesPage.ets`），页内用系统分段控件 `CapsuleSegmentButtonV2`（`@kit.ArkUI`）切换方式，不再用下拉菜单：`dateModeSegments()` 从 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表取短标签（`shortZh`/`shortEn`，避免窄屏截断，长标签在内容区做标题），`@Computed` 缓存 `SegmentButtonV2Items` 只在语言变化时重建，`build()` 按 `dateMode`（id，不是下标）分支渲染。新增日期能力 = 在登记表加一项（含短标签）+ 加一个分支 +（如需）在 `DateTools` 加可测的纯函数，不要在构建函数里堆同构的 `if/else`。「日期推算」的单位同样走 `DATE_SHIFT_UNITS` 登记表 + `shiftDate()`（天/工作日/周/月/年；月与年保持月末夹取语义，1 月 31 日加一个月得 2 月 28/29 日）。
+- `@Builder` 按值传参不会随状态刷新：不要把会变化的状态当作 `@Builder` 参数传入，参数只放常量（图标资源、目标页标识），会变的值在构建函数体内直接读 `this` 的状态或调用 `this` 上的方法（例如 `dateField()` 只收 `kind`，文本由 `dateFieldText(kind)` 取；工具卡片 `card()` 只收 `tool.id`，标题由 `toolTitle(id)` 取）。日期字段曾在真机上因此显示旧值（下方结果已更新而卡片文字未变）；工具卡片标题也曾在模拟器上因此不跟随语言切换（标题栏与底部页签已变英文、14 张卡片仍是中文）。双语文本因此不要当作 `@Builder` 参数传。
+- 日期计算已是独立工具页（`component/DatesPage.ets`），页内用系统分段控件 `CapsuleSegmentButtonV2`（`@kit.ArkUI`）切换方式，不再用下拉菜单：`dateModeSegments()` 从 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表取短标签（`shortZh`/`shortEn`，避免窄屏截断，长标签在内容区做标题），`@Computed` 缓存 `SegmentButtonV2Items` 只在语言变化时重建，`build()` 按 `dateMode`（id，不是下标）分支渲染。**英文短标签必须压到 4–5 个字符**：约 366 vp 窄屏上每段只有约 50 vp，且选中态会加粗，`Interval`/`Calendar` 这类 8 字符标签会被系统显示成 `Inte…`/`Cal…`（模拟器实测），故英文用 `Days`/`Offset`/`Age`/`Work`/`Week`/`Lunar`。新增日期能力 = 在登记表加一项（含短标签）+ 加一个分支 +（如需）在 `DateTools` 加可测的纯函数，不要在构建函数里堆同构的 `if/else`。「日期推算」的单位同样走 `DATE_SHIFT_UNITS` 登记表 + `shiftDate()`（天/工作日/周/月/年；月与年保持月末夹取语义，1 月 31 日加一个月得 2 月 28/29 日）。
 
 ## 页面导航
 
@@ -65,10 +68,12 @@
 - 底部 Tab 优先使用 HMSymbol 图标，逐项提供中英双语无障碍名称及选中状态。工具详情和历史页返回时回到先前选中的 Tab；切换 Tab 时关闭正在使用的手电筒。
 - 工具详情页与文档扫描页是 `NavPathStack` 的 `HdsNavDestination` 路由（`toolRoutes(name)`）；`navigate()` 用 `pathStack.pushPathByName(name, '', onPop)` 入栈并在 `onPop` 里回退 `page` 到上一级。返回用系统返回键/标题栏返回，回到根 Tab 用 `pathStack.clear()`。不要再保留页面内自绘标题栏或自绘底部页签栏。
 - **标题栏避让**：`HdsNavigation`/`HdsNavDestination` 的 `HdsNavigationTitleMode.MINI` 标题栏高度固定为 56 vp，且内容区会**延伸到标题栏下方**（沉浸式）。因此可滚动内容的根容器必须让出该高度——`tabScroll` 与 `toolRoutes` 的内容列都用 `top: 20 + HDS_TITLE_BAR_HEIGHT`（`HDS_TITLE_BAR_HEIGHT = 56`）；否则每页首行会被标题栏遮住（曾在日期、二维码等页出现）。滚动时内容仍会滑到标题栏下进入模糊区域，这是预期效果。
+- **返回键**：根页 `HdsNavigation` 用 `.hideBackButton(true)` 隐藏返回键（返回键仅在 `MINI` 标题栏下生效，首页无上一级不需要）；工具详情页的 `HdsNavDestination` 保留返回键。
 - 设置页是常驻 Tab 内容（`TabContent` 首次显示后保持挂载），语言/图标/历史的持久化由 `Index` 处理，`SettingsPage` 只经 `@Event` 回调；`refreshIcon()` 的时机仍由 `Index` 的 `onTabChange`/`onPageShow` 控制。
 
 ## 验证
 
 - 修改 ArkTS 后运行 `hvigorw assembleHap --mode module -p product=default`，并运行 `node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs`。
 - 界面改动需检查手机布局和实际点击状态；涉及平板、折叠屏或硬件能力时，只有在对应设备验证后才能标记为真机验收通过。
+- **模拟器可跑交互与刷新类验收**（不能替代材质观感、握姿、闪光灯、传感器与真机形态）：`hdc install -r entry/build/default/outputs/default/entry-default-signed.hap` → `hdc shell aa start -a EntryAbility -b com.example.pockettoolbox`；用 `hdc shell uitest dumpLayout -p /data/local/tmp/layout.json` + `hdc file recv` 读控件文本与 `bounds`（注意 `dumpLayout` 不导出 `accessibilityText`），用 `uitest uiInput click/swipe/keyEvent/text` 驱动点击、滚轮与输入（滚轮一行约 126 px，长距离滑动一次约 3–4 行，小幅 110 px 滑动约 1 行），用 `hdc shell snapshot_display -f /tmp/x.jpeg` + `file recv` 截图；`uitest uiInput keyEvent 2055` 是退格，用于清空输入框。`aa start` 之后若停在桌面，多半是屏幕已锁，先滑动解锁再启动。
 - 智感握姿至少核对左手、右手、双手或未知状态，及不支持或权限失败时的布局；沉浸光感核对材质开关、设备等级下的视觉效果和普通背景退化路径。模拟器或静态检查不能代替握姿与光感的真机验收。

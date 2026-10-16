@@ -11,7 +11,10 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+/.deveco
 .DS_Store
+hs_err_pid*.log
+replay_pid*.log
 *.p12
 *.p7b
 *.cer
