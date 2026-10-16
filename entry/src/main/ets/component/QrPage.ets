@@ -3,7 +3,6 @@ import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { makeQr, scanQr, saveQr, shareQr } from '../services/SystemTools';
 
 /**
@@ -27,10 +26,6 @@ export struct QrPage {
   @Local qrPixel: image.PixelMap | undefined = undefined;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
 
@@ -80,9 +75,16 @@ export struct QrPage {
   build() {
     Column({ space: 14 }) {
       Text(this.tr('输入文本或网址', 'Enter text or a URL')).fontSize(16).width('100%')
-      TextInput({ text: this.qrInput, placeholder: this.tr('要生成的内容', 'Content to encode') })
-        .onChange((value: string) => this.qrInput = value).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.qrInput, placeholder: this.tr('要生成的内容', 'Content to encode') })
+          .onChange((value: string) => this.qrInput = value).height(52)
+      }
       Row({ space: 8 }) {
         Button() {
           SymbolGlyph($r('sys.symbol.qrcode')).fontSize(24).fontColor([Color.White])

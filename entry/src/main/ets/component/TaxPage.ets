@@ -2,7 +2,6 @@ import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { TaxResult, WageInput, parseMoney, moneyText, contributionFromBase, wageTax, oneOffTax,
   severanceTax, reverseOneOff, reverseWage } from '../model/IncomeTax';
 
@@ -50,10 +49,6 @@ export struct TaxPage {
   @Local taxResult: TaxResult | undefined = undefined;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
 
@@ -137,11 +132,18 @@ export struct TaxPage {
   @Builder private taxField(zh: string, en: string, value: string, update: (value: string) => void) {
     Column({ space: 6 }) {
       Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
-      TextInput({ text: value, placeholder: zh.includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
-        this.tr('金额（元）', 'Amount (CNY)') })
-        .type(InputType.Normal).height(48).accessibilityText(this.tr(zh, en))
-        .systemMaterial(this.immersiveMaterial(false))
-        .onChange((next: string) => { update(next); this.taxResult = undefined; })
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: value, placeholder: zh.includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
+          this.tr('金额（元）', 'Amount (CNY)') })
+          .type(InputType.Normal).height(48).accessibilityText(this.tr(zh, en))
+          .onChange((next: string) => { update(next); this.taxResult = undefined; })
+      }
     }.width('100%')
   }
 
@@ -190,10 +192,17 @@ export struct TaxPage {
         Column({ space: 6 }) {
           Text(this.tr('本年任职受雇期数（1–12）', 'Employment period this year (1–12)'))
             .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
-          TextInput({ text: this.taxPeriod, placeholder: '1' }).type(InputType.Number).height(48)
-            .accessibilityText(this.tr('本年任职受雇期数', 'Employment period this year'))
-            .systemMaterial(this.immersiveMaterial(false))
-            .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.taxPeriod, placeholder: '1' }).type(InputType.Number).height(48)
+              .accessibilityText(this.tr('本年任职受雇期数', 'Employment period this year'))
+              .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
+          }
         }.width('100%')
         Row({ space: 8 }) {
           Button(this.tr('社保实缴额', 'Social amount')).layoutWeight(1).height(44)

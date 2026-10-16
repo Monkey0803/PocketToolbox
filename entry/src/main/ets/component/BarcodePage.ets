@@ -3,7 +3,6 @@ import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { BarcodeKind, barcodeInput, barcodeDisplayValue } from '../model/BarcodeTools';
 import { makeBarcode, scanOneDimensionalBarcode, saveCodeImage, saveCodeToGallery,
   shareCodeImage } from '../services/SystemTools';
@@ -29,10 +28,6 @@ export struct BarcodePage {
   @Local barcodeBusy: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
 
@@ -120,11 +115,18 @@ export struct BarcodePage {
           this.tr('输入 7 位数字；也可输入含正确校验位的 8 位完整码',
             'Enter 7 digits, or a valid 8-digit code with check digit'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      TextInput({ text: this.barcodeText, placeholder: this.tr('条形码内容', 'Barcode content') })
-        .onChange((value: string) => { this.barcodeText = value; this.barcodePixel = undefined; this.barcodeResult = ''; })
-        .type(this.barcodeKind === 'code128' ? InputType.Normal : InputType.Number)
-        .enabled(!this.barcodeBusy).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.barcodeText, placeholder: this.tr('条形码内容', 'Barcode content') })
+          .onChange((value: string) => { this.barcodeText = value; this.barcodePixel = undefined; this.barcodeResult = ''; })
+          .type(this.barcodeKind === 'code128' ? InputType.Normal : InputType.Number)
+          .enabled(!this.barcodeBusy).height(52)
+      }
       Row({ space: 8 }) {
         Button() {
           SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([Color.White])

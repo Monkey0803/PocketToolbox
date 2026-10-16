@@ -1,7 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { TextStats, textStats, removeBlankLines, uniqueLines } from '../model/TextTools';
 
 /**
@@ -24,10 +23,6 @@ export struct TextPage {
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
-
   private updateTextInput(value: string): void {
     const stats: TextStats = textStats(value);
     this.textInput = value;
@@ -40,10 +35,17 @@ export struct TextPage {
   build() {
     Column({ space: 14 }) {
       Text(this.tr('输入文本', 'Input text')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
-      TextArea({ text: this.textInput, placeholder: this.tr('输入或粘贴文本', 'Type or paste text') })
-        .onChange((value: string) => this.updateTextInput(value))
-        .height(180)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextArea({ text: this.textInput, placeholder: this.tr('输入或粘贴文本', 'Type or paste text') })
+          .onChange((value: string) => this.updateTextInput(value))
+          .height(180)
+      }
       Text(this.tr('字符 ' + this.textCharacters + ' · 非空白字符 ' + this.textNonSpace + ' · 行数 ' + this.textLines,
         'Characters ' + this.textCharacters + ' · Non-space ' + this.textNonSpace + ' · Lines ' + this.textLines))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')

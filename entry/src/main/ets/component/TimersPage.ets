@@ -106,7 +106,9 @@ export struct TimersPage {
   }
 
   private async addTimer(): Promise<void> {
-    let duration: number = parseDuration(this.hours, this.minutes, this.seconds);
+    // 与 durationLabel() 使用同一套 clamp，避免出现「卡片显示 23:00:00、提交的却是 24:00:00」这类显示与提交不一致。
+    let duration: number = parseDuration(clampDurationPart(this.hours, 23).toString(),
+      clampDurationPart(this.minutes, 59).toString(), clampDurationPart(this.seconds, 59).toString());
     if (duration === 0 || this.timers.length >= 30) {
       this.onStatus(this.tr('请输入 1 秒至 23 小时 59 分 59 秒的时长，最多 30 组',
         'Enter 1 second to 23:59:59; maximum 30 timers')); return;
@@ -235,9 +237,16 @@ export struct TimersPage {
   build() {
     Column({ space: 14 }) {
       Text(this.tr('新建倒计时', 'New countdown')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
-      TextInput({ text: this.timerName, placeholder: this.tr('名称，可选', 'Name, optional') })
-        .onChange((value: string) => this.timerName = value)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.timerName, placeholder: this.tr('名称，可选', 'Name, optional') })
+          .onChange((value: string) => this.timerName = value)
+      }
       MaterialSurface({
         supported: this.immersiveSupported,
         level: this.materialLevel,
@@ -308,6 +317,8 @@ export struct TimersPage {
           }.width('100%').justifyContent(this.actionAlign)
         }.padding(16).width('100%')
         }
+      // key 里的秒级 this.now 疑似承载刷新职责，不要当作性能问题直接删掉：ArkUI 的 ForEach 在 key 不变时
+      // 会复用已创建的子树、不再执行 itemGenerator，运行中的倒计时很可能正是靠每秒换 key 才刷新数字。
       }, (timer: CountdownItem) => timer.id + ':' + timer.state + ':' +
         (timer.state === 'running' ? Math.floor(this.now / 1000).toString() : timer.remainingMs.toString()))
       Text(this.tr('秒表', 'Stopwatch')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')

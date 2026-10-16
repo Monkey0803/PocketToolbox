@@ -11,7 +11,6 @@ import lazy { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, HistoryItem } from '../model/LocalData';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { CalculatorPage } from '../component/CalculatorPage';
 import { TextPage } from '../component/TextPage';
 import { RandomPage } from '../component/RandomPage';
@@ -159,10 +158,6 @@ struct Index {
     return side < 0 ? FlexAlign.Start : side > 0 ? FlexAlign.End : fallback;
   }
 
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
-
   private async load(): Promise<void> {
     try {
       this.data = await LocalData.open(this.ctx());
@@ -274,8 +269,12 @@ struct Index {
 
   private async copy(value: string): Promise<void> {
     if (!value) { return; }
-    await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value));
-    this.status = this.tr('已复制', 'Copied');
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value));
+      this.status = this.tr('已复制', 'Copied');
+    } catch (_) {
+      this.status = this.tr('复制失败', 'Copy failed');
+    }
   }
 
   private async deleteHistoryItem(id: string): Promise<void> {
@@ -322,11 +321,18 @@ struct Index {
     }
   }
 
-  @Builder private card(icon: Resource, title: string, color: string, target: string) {
+  // 工具卡片标题必须在这里按 id 现取：@Builder 的按值参数不随状态刷新，
+  // 若把 this.tr(...) 的结果当参数传进 card()，切换语言后卡片标题会停在旧语言（模拟器实测）。
+  private toolTitle(id: string): string {
+    const tool: ToolEntry | undefined = toolById(id);
+    return tool !== undefined ? this.tr(tool.titleZh, tool.titleEn) : id;
+  }
+
+  @Builder private card(icon: Resource, color: string, target: string) {
     Row({ space: 4 }) {
       Column({ space: 10 }) {
         SymbolGlyph(icon).fontSize(32).fontColor([ToolPalette.textPrimary])
-        Text(title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
+        Text(this.toolTitle(target)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
       }.alignItems(HorizontalAlign.Start).justifyContent(FlexAlign.Center).layoutWeight(1).height('100%')
         .onClick(() => this.navigate(target))
       Button() {
@@ -346,7 +352,7 @@ struct Index {
     Grid() {
       ForEach(TOOL_CATALOG, (tool: ToolEntry) => {
         if (!favoriteOnly || this.isFavorite(tool.id)) {
-          GridItem() { this.card(tool.icon, this.tr(tool.titleZh, tool.titleEn), tool.color, tool.id) }
+          GridItem() { this.card(tool.icon, tool.color, tool.id) }
         }
       }, (tool: ToolEntry): string => tool.id)
     }.columnsTemplate(this.widthVp >= 840 ? '1fr 1fr 1fr 1fr' : this.widthVp >= 600 ? '1fr 1fr 1fr' :
@@ -559,6 +565,7 @@ struct Index {
     }
     .titleBar(this.titleBarOptions(this.homeTabName()))
     .titleMode(HdsNavigationTitleMode.MINI)
+    .hideBackButton(true)
     .mode(NavigationMode.Stack)
     .navDestination(this.toolRoutes)
     .backgroundColor(ToolPalette.background)

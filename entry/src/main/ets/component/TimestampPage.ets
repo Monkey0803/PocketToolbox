@@ -1,7 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { StampResult, parseStampInput, currentSeconds } from '../model/TimeTools';
 
 /**
@@ -22,10 +21,6 @@ export struct TimestampPage {
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
-
   private result(): StampResult {
     return parseStampInput(this.input);
   }
@@ -36,7 +31,7 @@ export struct TimestampPage {
       return this.tr('请输入时间戳或日期时间', 'Enter a timestamp or a date and time');
     }
     if (error === 'range') {
-      return this.tr('超出可表示范围（公元 1–9999 年）', 'Out of range (years 1–9999)');
+      return this.tr('超出可表示范围（按 UTC 公元 1–9999 年）', 'Out of range (years 1–9999 UTC)');
     }
     return this.tr('无法识别：请用时间戳，或 YYYY-MM-DD HH:mm:ss（末尾 Z 表示 UTC）',
       'Unrecognized: use a timestamp, or YYYY-MM-DD HH:mm:ss (a trailing Z means UTC)');
@@ -46,10 +41,12 @@ export struct TimestampPage {
     this.input = currentSeconds().toString();
   }
 
-  @Builder private valueLine(zh: string, en: string, value: string) {
+  // @Builder 的按值参数不随状态刷新：这里只传 utc 常量，文本在函数体内直接读 this.result()。
+  @Builder private valueLine(zh: string, en: string, utc: boolean) {
     Column({ space: 4 }) {
       Text(this.tr(zh, en)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      Text(value).fontSize(20).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary).width('100%')
+      Text(utc ? this.result().utcText : this.result().localText)
+        .fontSize(20).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary).width('100%')
     }.width('100%')
   }
 
@@ -61,7 +58,7 @@ export struct TimestampPage {
       Button() {
         SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(22).fontColor([Color.White])
       }.width(44).height(44).backgroundColor(ToolPalette.primary)
-        .accessibilityText(this.tr(zh, en))
+        .accessibilityText(this.english ? 'Copy ' + en : '复制' + zh)
         .onClick(() => this.onCopy(secondsLine ? this.result().seconds.toString() :
           this.result().millis.toString()))
     }.width('100%')
@@ -72,9 +69,16 @@ export struct TimestampPage {
       Text(this.tr('支持秒或毫秒级 Unix 时间戳，也支持 YYYY-MM-DD HH:mm:ss；日期时间按本地时间解释，末尾加 Z 表示 UTC。',
         'Accepts a Unix timestamp in seconds or milliseconds, or YYYY-MM-DD HH:mm:ss interpreted as local time; a trailing Z means UTC.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      TextInput({ text: this.input, placeholder: this.tr('时间戳或日期时间', 'Timestamp or date and time') })
-        .onChange((value: string) => this.input = value).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.input, placeholder: this.tr('时间戳或日期时间', 'Timestamp or date and time') })
+          .onChange((value: string) => this.input = value).height(52)
+      }
       Row({ space: 8 }) {
         Button() {
           SymbolGlyph($r('sys.symbol.clock')).fontSize(24).fontColor([Color.White])
@@ -89,8 +93,8 @@ export struct TimestampPage {
           if (!this.result().ok) {
             Text(this.errorText()).fontSize(15).fontColor(ToolPalette.warning).width('100%')
           } else {
-            this.valueLine('本地时间', 'Local time', this.result().localText)
-            this.valueLine('UTC 时间', 'UTC time', this.result().utcText)
+            this.valueLine('本地时间', 'Local time', false)
+            this.valueLine('UTC 时间', 'UTC time', true)
             this.stampLine('秒级时间戳', 'Seconds timestamp', true)
             this.stampLine('毫秒级时间戳', 'Milliseconds timestamp', false)
           }

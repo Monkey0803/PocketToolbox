@@ -1,7 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { CATEGORIES, UnitCategory, UnitDef, convert, formatValue } from '../model/Units';
 
 /**
@@ -22,10 +21,6 @@ export struct UnitsPage {
   @Local unitInput: string = '1';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private currentCategory(): UnitCategory { return CATEGORIES[this.category]; }
 
@@ -73,9 +68,16 @@ export struct UnitsPage {
           .accessibilityText(this.tr('换算类别', 'Conversion category'))
           .onSelect((index: number) => { this.category = index; this.fromUnit = 0; this.toUnit = 1; })
       }.width('100%')
-      TextInput({ text: this.unitInput, placeholder: '0' }).type(InputType.Normal)
-        .onChange((value: string) => this.unitInput = value).height(54)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.unitInput, placeholder: '0' }).type(InputType.Normal)
+          .onChange((value: string) => this.unitInput = value).height(54)
+      }
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18
       }) {

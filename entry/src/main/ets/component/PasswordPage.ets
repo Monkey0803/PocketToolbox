@@ -1,7 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { PasswordOptions, validPasswordOptions } from '../model/PasswordTools';
 import { createPassword } from '../services/PasswordGenerator';
 
@@ -36,10 +35,6 @@ export struct PasswordPage {
   }
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private async makePassword(): Promise<void> {
     if (this.passwordBusy) { return; }
@@ -99,9 +94,16 @@ export struct PasswordPage {
     Column({ space: 14 }) {
       Text(this.tr('密码长度（8–64）', 'Password length (8–64)'))
         .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
-      TextInput({ text: this.passwordLength, placeholder: '16' }).type(InputType.Number)
-        .onChange((value: string) => { this.passwordLength = value; this.invalidatePassword(); }).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.passwordLength, placeholder: '16' }).type(InputType.Number)
+          .onChange((value: string) => { this.passwordLength = value; this.invalidatePassword(); }).height(52)
+      }
       Text(this.tr('选择字符类型', 'Character sets')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       this.passwordGroup(this.tr('大写字母', 'Uppercase letters'), this.passwordUpper, 'upper')
       this.passwordGroup(this.tr('小写字母', 'Lowercase letters'), this.passwordLower, 'lower')

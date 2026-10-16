@@ -1,7 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { randomInteger, chooseCandidate } from '../model/RandomTools';
 
 /**
@@ -24,10 +23,6 @@ export struct RandomPage {
   @Local randomChoiceResult: string = '';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private drawNumber(): void {
     const minText: string = this.randomMin.trim();
@@ -57,15 +52,35 @@ export struct RandomPage {
     Column({ space: 14 }) {
       Text(this.tr('随机整数', 'Random integer')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Row({ space: 8 }) {
-        TextInput({ text: this.randomMin, placeholder: this.tr('最小值', 'Minimum') })
-          .type(InputType.Normal).onChange((value: string) => {
-            this.randomMin = value; this.randomNumberResult = '';
-          }).layoutWeight(1).height(52).systemMaterial(this.immersiveMaterial(false))
+        Column() {
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.randomMin, placeholder: this.tr('最小值', 'Minimum') })
+              .type(InputType.Normal).onChange((value: string) => {
+                this.randomMin = value; this.randomNumberResult = '';
+              }).height(52)
+          }
+        }.layoutWeight(1)
         Text('—')
-        TextInput({ text: this.randomMax, placeholder: this.tr('最大值', 'Maximum') })
-          .type(InputType.Normal).onChange((value: string) => {
-            this.randomMax = value; this.randomNumberResult = '';
-          }).layoutWeight(1).height(52).systemMaterial(this.immersiveMaterial(false))
+        Column() {
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.randomMax, placeholder: this.tr('最大值', 'Maximum') })
+              .type(InputType.Normal).onChange((value: string) => {
+                this.randomMax = value; this.randomNumberResult = '';
+              }).height(52)
+          }
+        }.layoutWeight(1)
       }.width('100%')
       Button(this.tr('生成随机数', 'Draw a number')).height(48).backgroundColor(ToolPalette.success)
         .onClick(() => this.drawNumber())
@@ -85,9 +100,16 @@ export struct RandomPage {
       Text(this.tr('每行一个候选项，也可用逗号或分号分隔；重复项只算一次',
         'One choice per line, or separate with commas or semicolons; duplicates count once'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
-        .onChange((value: string) => { this.randomItems = value; this.randomChoiceResult = ''; }).height(150)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
+          .onChange((value: string) => { this.randomItems = value; this.randomChoiceResult = ''; }).height(150)
+      }
       Button(this.tr('随机抽取', 'Pick one')).height(48).backgroundColor(ToolPalette.primary)
         .onClick(() => this.drawChoice())
       if (this.randomChoiceResult) {

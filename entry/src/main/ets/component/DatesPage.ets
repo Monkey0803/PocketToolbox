@@ -1,11 +1,16 @@
+import { common } from '@kit.AbilityKit';
 import { uiMaterial, CapsuleSegmentButtonV2, SegmentButtonV2ItemOptions, SegmentButtonV2Items,
   LengthMetrics } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
-  workingDaysBetween, shiftDate, countdownAt, CalendarSpan, AgeResult, CalendarInfo, CountdownInfo,
+  workingDaysBetweenWithHolidays, shiftDate, countdownAt, CalendarSpan, AgeResult, CalendarInfo, CountdownInfo,
   DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
+import { LunarDate, lunarDateText } from '../model/LunarTools';
+import { HolidayTable } from '../model/HolidayIcs';
+import { lunarOf } from '../services/LunarCalendar';
+import { loadHolidayTable, updateHolidayIcs, sourceConfigured, lastUpdated } from '../services/HolidayData';
 
 const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -31,11 +36,71 @@ export struct DatesPage {
   @Local dateMode: string = 'interval';
   @Local dateShiftUnit: string = 'day';
   @Local dateIncludeFirst: boolean = true;
+  @Local lunarDate: LunarDate | undefined = undefined;
+  @Local holidayTable: HolidayTable = new HolidayTable();
+  @Local holidayUpdatedAt: string = '';
+  @Local holidayBusy: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
   private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
     return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
+  }
+
+  aboutToAppear(): void {
+    this.refreshLunar();
+    this.refreshHolidays();
+  }
+
+  private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
+
+  private refreshLunar(): void {
+    this.lunarDate = lunarOf(this.firstDate.trim());
+  }
+
+  // 载入节假日数据（内置默认 → 后台可由用户手动更新）并刷新「上次更新」时间。
+  private async refreshHolidays(): Promise<void> {
+    try {
+      this.holidayTable = await loadHolidayTable(this.ctx());
+    } catch (_) {
+      this.holidayTable = new HolidayTable();
+    }
+    let updated: Date | undefined = undefined;
+    try {
+      updated = lastUpdated(this.ctx());
+    } catch (_) {
+      updated = undefined;
+    }
+    this.holidayUpdatedAt = updated === undefined ? '' :
+      updated.getFullYear().toString().padStart(4, '0') + '-' +
+      (updated.getMonth() + 1).toString().padStart(2, '0') + '-' +
+      updated.getDate().toString().padStart(2, '0');
+  }
+
+  private async onUpdateHoliday(): Promise<void> {
+    if (this.holidayBusy) { return; }
+    if (!sourceConfigured()) {
+      this.onStatus(this.tr('未配置节假日数据源', 'Holiday data source is not configured'));
+      return;
+    }
+    this.holidayBusy = true;
+    try {
+      const ok: boolean = await updateHolidayIcs(this.ctx());
+      if (ok) {
+        await this.refreshHolidays();
+        this.onStatus(this.tr('节假日数据已更新', 'Holiday data updated'));
+      } else {
+        this.onStatus(this.tr('更新失败，已保留原有数据', 'Update failed; kept existing data'));
+      }
+    } catch (_) {
+      this.onStatus(this.tr('更新失败，已保留原有数据', 'Update failed; kept existing data'));
+    } finally {
+      this.holidayBusy = false;
+    }
+  }
+
+  private lunarText(): string {
+    return this.lunarDate === undefined ? '' : lunarDateText(this.lunarDate, this.english);
   }
 
   private dateDifference(): string {
@@ -153,8 +218,8 @@ export struct DatesPage {
   }
 
   private workdaysText(): string {
-    const days: number | undefined = workingDaysBetween(this.firstDate.trim(), this.secondDate.trim(),
-      this.dateIncludeFirst);
+    const days: number | undefined = workingDaysBetweenWithHolidays(this.firstDate.trim(), this.secondDate.trim(),
+      this.dateIncludeFirst, this.holidayTable.holidays, this.holidayTable.workdays);
     if (days === undefined) { return this.tr('请输入有效日期', 'Enter a valid date'); }
     return this.tr('工作日 ' + days + ' 天', days === 1 ? '1 working day' : days + ' working days');
   }
@@ -162,8 +227,12 @@ export struct DatesPage {
   private workdaysCalendar(): string {
     const days: number | undefined = daysBetween(this.firstDate.trim(), this.secondDate.trim());
     if (days === undefined) { return ''; }
-    return this.tr('自然日 ' + Math.abs(days) + ' 天 · 仅排除周六周日，不含法定节假日',
-      Math.abs(days) + ' calendar days · weekends excluded, public holidays are not');
+    if (this.holidayTable.loaded) {
+      return this.tr('自然日 ' + Math.abs(days) + ' 天 · 已排除周末与法定节假日，并计入调休上班日',
+        Math.abs(days) + ' calendar days · weekends and public holidays excluded, make-up workdays included');
+    }
+    return this.tr('自然日 ' + Math.abs(days) + ' 天 · 仅排除周六周日，暂无节假日数据',
+      Math.abs(days) + ' calendar days · weekends excluded, no holiday data');
   }
 
   // 日期字段改用系统日期选择器：打开时定位到当前值，确认后按本地日期写回 'YYYY-MM-DD'。
@@ -176,7 +245,7 @@ export struct DatesPage {
         systemMaterial: this.immersiveMaterial(true),
         onDateAccept: (value: Date) => {
           const text: string = pickerDateText(value);
-          if (kind === 'first') { this.firstDate = text; } else { this.secondDate = text; }
+          if (kind === 'first') { this.firstDate = text; this.refreshLunar(); } else { this.secondDate = text; }
         }
       });
     } catch (_) {
@@ -212,7 +281,7 @@ export struct DatesPage {
             .fontColor(ToolPalette.textPrimary).layoutWeight(1)
         }
         .width('100%').padding(16)
-        .accessibilityText(this.tr(zh, en) + '，' + this.dateFieldText(kind))
+        .accessibilityText(this.tr(zh, en) + (this.english ? ', ' : '，') + this.dateFieldText(kind))
         .onClick(() => this.openDatePicker(kind))
       }
     }.width('100%')
@@ -242,8 +311,8 @@ export struct DatesPage {
         if (mode !== undefined) { this.dateMode = mode.id; }
       },
       itemSpace: LengthMetrics.vp(4),
-      itemFontSize: LengthMetrics.fp(14),
-      itemSelectedFontSize: LengthMetrics.fp(14)
+      itemFontSize: LengthMetrics.fp(12),
+      itemSelectedFontSize: LengthMetrics.fp(12)
     })
       .width('100%')
   }
@@ -270,6 +339,22 @@ export struct DatesPage {
     }.width('100%')
   }
 
+  @Builder private holidayInfo() {
+    Column({ space: 6 }) {
+      Text(this.holidayTable.loaded && this.holidayUpdatedAt !== '' ?
+        this.tr('节假日数据更新于 ', 'Holiday data updated ') + this.holidayUpdatedAt :
+        this.tr('暂无节假日数据，工作日仅排除周末', 'No holiday data; only weekends excluded'))
+        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      Row() {
+        Button() {
+          SymbolGlyph($r('sys.symbol.arrow_2_circlepath')).fontSize(22).fontColor([Color.White])
+        }.width(44).height(44).backgroundColor(ToolPalette.primary).enabled(!this.holidayBusy && sourceConfigured())
+          .accessibilityText(this.tr('更新节假日数据', 'Update holiday data'))
+          .onClick(() => this.onUpdateHoliday())
+      }.width('100%').justifyContent(this.actionAlign)
+    }.width('100%')
+  }
+
   @Builder private includeFirstToggle() {
     Row({ space: 12 }) {
       Toggle({ type: ToggleType.Switch, isOn: this.dateIncludeFirst })
@@ -287,9 +372,16 @@ export struct DatesPage {
         Text(this.tr('以起始日期为基准；负数表示往前推', 'Uses the start date; negative numbers go backward'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         this.dateField('起始日期', 'Start date', 'first')
-        TextInput({ text: this.dayOffset, placeholder: this.shiftPlaceholder() })
-          .type(InputType.Normal).onChange((value: string) => this.dayOffset = value).height(52)
-          .systemMaterial(this.immersiveMaterial(false))
+        MaterialSurface({
+          supported: this.immersiveSupported,
+          level: this.materialLevel,
+          fallback: ToolPalette.surface,
+          corner: 16,
+          interactive: true
+        }) {
+          TextInput({ text: this.dayOffset, placeholder: this.shiftPlaceholder() })
+            .type(InputType.Normal).onChange((value: string) => this.dayOffset = value).height(52)
+        }
         this.shiftUnitSelect()
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
@@ -324,6 +416,7 @@ export struct DatesPage {
         this.dateField('起始日期', 'Start date', 'first')
         this.dateField('目标日期', 'End date', 'second')
         this.includeFirstToggle()
+        this.holidayInfo()
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
         }) {
@@ -344,6 +437,21 @@ export struct DatesPage {
             if (this.calendarDetail().length > 0) {
               Text(this.calendarDetail()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
             }
+            if (this.lunarText().length > 0) {
+              Text(this.lunarText()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            }
+          }.padding(16).width('100%')
+        }
+      } else if (this.dateMode === 'lunar') {
+        this.dateField('日期', 'Date', 'first')
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        }) {
+          Column({ space: 6 }) {
+            Text(this.lunarText() !== '' ? this.lunarText() : this.tr('农历日期不可用', 'Lunar date unavailable'))
+              .fontSize(22).fontWeight(FontWeight.Bold).width('100%')
+            Text(this.tr('农历由系统历法在本机计算', 'Lunar date computed on device'))
+              .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
           }.padding(16).width('100%')
         }
       } else {

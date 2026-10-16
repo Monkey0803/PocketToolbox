@@ -2,7 +2,6 @@ import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { formatValue } from '../model/Units';
-import { buildImmersiveMaterial } from '../model/Materials';
 import { DiscountResult, SplitResult, discountPrice, percentageOf, percentageRatio, splitBill,
   formatMoney } from '../model/QuickCalculators';
 
@@ -29,10 +28,6 @@ export struct CalculatorPage {
   @Local splitTip: string = '0';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
-
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
-  }
 
   private discountFinal(): string {
     let result: DiscountResult | undefined = discountPrice(this.discountAmount, this.discountFold);
@@ -76,14 +71,28 @@ export struct CalculatorPage {
     Column({ space: 16 }) {
       Text(this.tr('折扣计算', 'Discount')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.tr('原价', 'Original price')).fontSize(14).width('100%')
-      TextInput({ text: this.discountAmount, placeholder: '100.00' }).type(InputType.Normal)
-        .onChange((value: string) => this.discountAmount = value).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.discountAmount, placeholder: '100.00' }).type(InputType.Normal)
+          .onChange((value: string) => this.discountAmount = value).height(52)
+      }
       Text(this.tr('折数（0–10；8 表示八折）', 'Price factor (0–10; 8 means 20% off)'))
         .fontSize(14).width('100%')
-      TextInput({ text: this.discountFold, placeholder: '8' }).type(InputType.Normal)
-        .onChange((value: string) => this.discountFold = value).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.discountFold, placeholder: '8' }).type(InputType.Normal)
+          .onChange((value: string) => this.discountFold = value).height(52)
+      }
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
       }) {
@@ -95,14 +104,32 @@ export struct CalculatorPage {
       Text(this.tr('百分比计算', 'Percentage')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.tr('求一个数的百分之几', 'Find a percentage of a number')).fontSize(14).width('100%')
       Row({ space: 8 }) {
-        TextInput({ text: this.percentBase, placeholder: this.tr('基数', 'Base') }).type(InputType.Normal)
-          .onChange((value: string) => this.percentBase = value).layoutWeight(1).height(52)
-          .systemMaterial(this.immersiveMaterial(false))
+        Column() {
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.percentBase, placeholder: this.tr('基数', 'Base') }).type(InputType.Normal)
+              .onChange((value: string) => this.percentBase = value).height(52)
+          }
+        }.layoutWeight(1)
         SymbolGlyph($r('sys.symbol.multiply')).fontSize(18).fontColor([ToolPalette.textPrimary])
           .accessibilityText(this.tr('乘', 'Multiply'))
-        TextInput({ text: this.percentRate, placeholder: '%' }).type(InputType.Normal)
-          .onChange((value: string) => this.percentRate = value).layoutWeight(1).height(52)
-          .systemMaterial(this.immersiveMaterial(false))
+        Column() {
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.percentRate, placeholder: '%' }).type(InputType.Normal)
+              .onChange((value: string) => this.percentRate = value).height(52)
+          }
+        }.layoutWeight(1)
         Text('%').fontSize(18)
       }.width('100%')
       MaterialSurface({
@@ -115,17 +142,31 @@ export struct CalculatorPage {
       Row({ space: 8 }) {
         Column({ space: 6 }) {
           Text(this.tr('部分', 'Part')).fontSize(13).width('100%')
-          TextInput({ text: this.ratioPart, placeholder: '0' }).type(InputType.Normal)
-            .onChange((value: string) => this.ratioPart = value).height(52)
-            .systemMaterial(this.immersiveMaterial(false))
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.ratioPart, placeholder: '0' }).type(InputType.Normal)
+              .onChange((value: string) => this.ratioPart = value).height(52)
+          }
         }.layoutWeight(1)
         SymbolGlyph($r('sys.symbol.divide_square_fill')).fontSize(18).fontColor([ToolPalette.textPrimary])
           .accessibilityText(this.tr('除以', 'Divide'))
         Column({ space: 6 }) {
           Text(this.tr('整体（非零）', 'Whole (nonzero)')).fontSize(13).width('100%')
-          TextInput({ text: this.ratioWhole, placeholder: '1' }).type(InputType.Normal)
-            .onChange((value: string) => this.ratioWhole = value).height(52)
-            .systemMaterial(this.immersiveMaterial(false))
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.ratioWhole, placeholder: '1' }).type(InputType.Normal)
+              .onChange((value: string) => this.ratioWhole = value).height(52)
+          }
         }.layoutWeight(1)
       }.width('100%')
       MaterialSurface({
@@ -136,21 +177,42 @@ export struct CalculatorPage {
 
       Text(this.tr('均摊计算', 'Split a bill')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.tr('总金额', 'Bill amount')).fontSize(14).width('100%')
-      TextInput({ text: this.splitAmount, placeholder: '100.00' }).type(InputType.Normal)
-        .onChange((value: string) => this.splitAmount = value).height(52)
-        .systemMaterial(this.immersiveMaterial(false))
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.splitAmount, placeholder: '100.00' }).type(InputType.Normal)
+          .onChange((value: string) => this.splitAmount = value).height(52)
+      }
       Row({ space: 8 }) {
         Column({ space: 6 }) {
           Text(this.tr('人数', 'People')).fontSize(13).width('100%')
-          TextInput({ text: this.splitPeople, placeholder: '2' }).type(InputType.Number)
-            .onChange((value: string) => this.splitPeople = value).height(52)
-            .systemMaterial(this.immersiveMaterial(false))
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.splitPeople, placeholder: '2' }).type(InputType.Number)
+              .onChange((value: string) => this.splitPeople = value).height(52)
+          }
         }.layoutWeight(1)
         Column({ space: 6 }) {
           Text(this.tr('小费（%）', 'Tip (%)')).fontSize(13).width('100%')
-          TextInput({ text: this.splitTip, placeholder: '0' }).type(InputType.Normal)
-            .onChange((value: string) => this.splitTip = value).height(52)
-            .systemMaterial(this.immersiveMaterial(false))
+          MaterialSurface({
+            supported: this.immersiveSupported,
+            level: this.materialLevel,
+            fallback: ToolPalette.surface,
+            corner: 16,
+            interactive: true
+          }) {
+            TextInput({ text: this.splitTip, placeholder: '0' }).type(InputType.Normal)
+              .onChange((value: string) => this.splitTip = value).height(52)
+          }
         }.layoutWeight(1)
       }.width('100%')
       Text(this.tr('含小费合计 ', 'Total with tip ') + this.splitTotal())
