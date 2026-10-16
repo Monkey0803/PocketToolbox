@@ -19,6 +19,8 @@ const barcodes = await loadEts('../entry/src/main/ets/model/BarcodeTools.ets');
 const calculators = await loadEts('../entry/src/main/ets/model/QuickCalculators.ets');
 const timeTools = await loadEts('../entry/src/main/ets/model/TimeTools.ets');
 const tax = await loadEts('../entry/src/main/ets/model/IncomeTax.ets');
+const lunarTools = await loadEts('../entry/src/main/ets/model/LunarTools.ets');
+const holidayIcs = await loadEts('../entry/src/main/ets/model/HolidayIcs.ets');
 
 function category(id) {
   return units.CATEGORIES.find((entry) => entry.id === id);
@@ -58,7 +60,8 @@ assert.equal(units.CATEGORIES.length, 8);
 
 assert.equal(timers.parseDuration('0', '0', '1'), 1000);
 assert.equal(timers.parseDuration('1', '2', '3'), 3723000);
-assert.equal(timers.parseDuration('24', '0', '0'), 86400000);
+assert.equal(timers.parseDuration('23', '59', '59'), 86399000);
+assert.equal(timers.parseDuration('24', '0', '0'), 0);
 assert.equal(timers.parseDuration('0', '60', '0'), 0);
 assert.equal(timers.parseDuration('-1', '0', '0'), 0);
 assert.equal(timers.parseDuration('0', '0', '0.5'), 0);
@@ -202,7 +205,7 @@ assert.equal(dates.countdownAt('2026-10-01', '2026-10-31', '2026-09-30'), undefi
 assert.equal(dates.countdownAt('2026-10-15', '2026-10-15', '2026-10-15'), undefined);
 assert.equal(dates.countdownAt('2025-02-29', '2026-10-31', '2026-10-15'), undefined);
 
-assert.equal(dates.DATE_TOOL_MODES.length, 5);
+assert.equal(dates.DATE_TOOL_MODES.length, 6);
 const modeIds = new Set(dates.DATE_TOOL_MODES.map((mode) => mode.id));
 assert.equal(modeIds.size, dates.DATE_TOOL_MODES.length);
 for (const mode of dates.DATE_TOOL_MODES) {
@@ -402,5 +405,65 @@ for (const kind of ['labor', 'royalty']) {
   assert.ok(reversed.netCents >= 1000000);
   assert.ok(tax.oneOffTax(kind, reversed.grossCents - 1).netCents < 1000000);
 }
+
+// --- 农历名称与格式化（纯逻辑；公历↔农历换算由系统历法负责，见 services/LunarCalendar.ets）---
+assert.equal(lunarTools.ganZhiOfYear(2026), '丙午');
+assert.equal(lunarTools.ganZhiOfYear(1984), '甲子');
+assert.equal(lunarTools.zodiacOfYear(2026), '马');
+assert.equal(lunarTools.zodiacOfYear(1984), '鼠');
+assert.equal(lunarTools.zodiacEnOfYear(2026), 'Horse');
+assert.equal(lunarTools.lunarMonthText(1, false, false), '正月');
+assert.equal(lunarTools.lunarMonthText(6, true, false), '闰六月');
+assert.equal(lunarTools.lunarMonthText(6, false, true), '6th month');
+assert.equal(lunarTools.lunarDayText(1, false), '初一');
+assert.equal(lunarTools.lunarDayText(20, false), '二十');
+assert.equal(lunarTools.lunarDayText(30, false), '三十');
+assert.equal(lunarTools.lunarDayText(1, true), '1st');
+assert.equal(lunarTools.ganZhiOfCyclic(43), '丙午');
+assert.equal(lunarTools.ganZhiOfCyclic(1), '甲子');
+assert.equal(lunarTools.zodiacOfCyclic(43), '马');
+assert.equal(lunarTools.zodiacEnOfCyclic(43), 'Horse');
+const lunarSample = new lunarTools.LunarDate();
+lunarSample.cyclicYear = 43;
+lunarSample.month = 8;
+lunarSample.day = 26;
+assert.equal(lunarTools.lunarDateText(lunarSample, false), '农历丙午年八月廿六 · 马年');
+assert.equal(lunarTools.lunarDateText(lunarSample, true), 'Lunar 8th month 26th · Year of the Horse');
+const leapSample = new lunarTools.LunarDate();
+leapSample.cyclicYear = 42;
+leapSample.month = 6;
+leapSample.day = 15;
+leapSample.isLeapMonth = true;
+assert.ok(lunarTools.lunarDateText(leapSample, false).includes('闰六月'));
+assert.equal(lunarTools.lunarDateText(new lunarTools.LunarDate(), false), '');
+
+// --- 节假日 ICS 解析（纯逻辑；使用合成日历，不代表任何真实日期或真实节假日）---
+const sampleIcs = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0',
+  'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261001', 'SUMMARY:Sample holiday', 'END:VEVENT',
+  'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261010', 'SUMMARY:Sample make-up workday 班', 'END:VEVENT',
+  'END:VCALENDAR'
+].join('\r\n');
+const parsedIcs = holidayIcs.parseHolidayIcs(sampleIcs);
+assert.equal(parsedIcs.loaded, true);
+assert.deepEqual(parsedIcs.holidays, ['2026-10-01']);
+assert.deepEqual(parsedIcs.workdays, ['2026-10-10']);
+assert.equal(parsedIcs.names['2026-10-01'], 'Sample holiday');
+assert.equal(holidayIcs.isHolidayDate(parsedIcs, '2026-10-01'), true);
+assert.equal(holidayIcs.isHolidayDate(parsedIcs, '2026-10-02'), false);
+assert.equal(holidayIcs.isMakeUpWorkday(parsedIcs, '2026-10-10'), true);
+assert.equal(holidayIcs.parseHolidayIcs('not a calendar').loaded, false);
+assert.equal(holidayIcs.parseHolidayIcs('').holidays.length, 0);
+assert.deepEqual(holidayIcs.parseHolidayIcs(sampleIcs.replace(/\r\n/g, '\n')).workdays, ['2026-10-10']);
+
+// --- 含法定节假日与调休的工作日 ---
+const octBase = dates.workingDaysBetween('2026-10-01', '2026-10-31', true);
+assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, [], []), octBase);
+assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, ['2026-10-01'], []), octBase - 1);
+assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, [], ['2026-10-03']), octBase + 1);
+assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, ['2026-10-03'], []), octBase);
+assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, [], ['2026-10-01']), octBase);
+assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-01', false, [], []), 0);
+assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', true, [], []), undefined);
 
 console.log('All toolbox model assertions passed');

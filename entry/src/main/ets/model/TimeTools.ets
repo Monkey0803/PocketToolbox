@@ -10,8 +10,10 @@ const STAMP_PATTERN: RegExp = new RegExp('^-?\\d{1,15}$');
 const TEXT_PATTERN: RegExp =
   new RegExp('^(\\d{4})-(\\d{2})-(\\d{2})(?:[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?)?(Z)?$');
 // 10 位及以下按秒，11 位及以上按毫秒（13 位毫秒时间戳与 10 位秒级时间戳都能正确识别）。
-const MILLIS_THRESHOLD: number = 100000000000;
-// 允许的单位与值域：秒级时间戳对应 1–9999 年。
+const MILLIS_THRESHOLD: number = 10000000000;
+// 允许的值域按 **UTC** 计算：MAX_SECONDS 是 9999-12-31T23:59:59Z，MIN_SECONDS 是 0001-01-01T00:00:00Z。
+// 因此本地时间的展示可能跨出 1–9999 年：例如东八区会把 9999-12-31T23:59:59Z 显示为本地 10000-01-01 07:59:59。
+// 这是正确的即时时刻换算，不是缺陷；界面文案已注明该范围按 UTC 计算。
 const MAX_SECONDS: number = 253402300799;
 const MIN_SECONDS: number = -62135596800;
 

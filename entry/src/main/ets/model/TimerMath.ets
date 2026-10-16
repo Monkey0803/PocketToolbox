@@ -7,7 +7,8 @@ export function parseDuration(hours: string, minutes: string, seconds: string): 
     return 0;
   }
   let ms: number = (h * 3600 + m * 60 + s) * 1000;
-  return ms >= 1000 && ms <= 86400000 ? ms : 0;
+  // 上限 23:59:59（86399 秒），与界面文案「1 秒至 23 小时 59 分 59 秒」一致。
+  return ms >= 1000 && ms <= 86399000 ? ms : 0;
 }
 
 // 时间选择器回填或编辑既有计时器时，把字符串片段收敛到该位的合法范围（时 0–23，分/秒 0–59）。
