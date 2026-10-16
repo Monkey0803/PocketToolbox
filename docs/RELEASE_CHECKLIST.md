@@ -51,11 +51,23 @@
 
 按顺序执行；前 3 步需要开发者账号资料，仓库里已能自动化的部分已标注命令。
 
+**本次发版状态（2026-10-16 决策）**：包名与 `vendor` **暂不改**（仍为占位 `com.example.pockettoolbox` / `example`），版本号**保持 1.0.0**（AGC 尚无该应用），发布签名**已加好骨架待填凭据**，`PRIVACY.md` 的运营主体、联系邮箱与公开网址**稍后补**。因此当前只能产出调试签名的 release 冒烟包；补齐上面两项后即可按下面步骤出可上架的包。
+
 1. **确定发布身份**（需要决策，不能由代码推断）
    - 正式包名：当前是占位 `com.example.pockettoolbox`，必须改成开发者账号下已创建应用的包名，并同步 `AppScope/app.json5` 的 `bundleName`。
    - `vendor` 由 `example` 改为运营主体名称。
    - 版本号：`versionCode` 当前 `1000000`、`versionName` 当前 `1.0.0`。若 AGC 里已有 1.0.0，则本次改为 `1000001` / `1.0.1`（或按功能升 `1.1.0`）。
 2. **配置发布签名**：在 AppGallery Connect 生成发布证书（`.cer`）与应用 Profile（`.p7b`），或在 DevEco Studio 里用「自动签名」并勾选 release。把对应的 `signingConfigs`（`material.certpath` / `profile` / `storeFile` / 口令）加到**本地** `build-profile.json5`（该文件已 gitignore，不要提交凭据），并让产品引用它。
+   - 本机 `build-profile.json5` 已预置一份名为 `release` 的**骨架**（占位路径与 `<发布证书口令>` 等占位口令），产品当前仍引用 `default` 调试签名，因此本地构建与装机冒烟不受影响；拿到凭据后填进骨架、把 `products[0].signingConfig` 改成 `"release"` 即可。
+   - 换到发布签名后的产物才是可上架的包；用调试签名构建的 release 包（`bundleType`/profile 为 debug）AGC 会拒绝，只能用于本机冒烟。
+   - 骨架结构（换机器时照此补，逐字替换路径与口令）：
+     ```json5
+     { "name": "release", "type": "HarmonyOS",
+       "material": { "certpath": "…\\release.cer", "keyAlias": "releaseKey", "keyPassword": "…",
+         "profile": "…\\release.p7b", "signAlg": "SHA256withECDSA",
+         "storeFile": "…\\release.p12", "storePassword": "…" } }
+     ```
+   - **改 `bundleName` 会让现有调试 Profile 失效**（它按旧包名申请）：改包名后需在 DevEco 对新包名重新「自动签名」，否则本机构建会报签名/Profile 不匹配。
 3. **构建发布包**（本机已验证该命令可跑通；未换正式签名前只能得到调试签名的包，仅供冒烟）
    ```sh
    export DEVECO_SDK_HOME="…/sdk"; export JAVA_HOME="…/jbr"
