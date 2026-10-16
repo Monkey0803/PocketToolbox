@@ -52,6 +52,7 @@
 - **详情页返回上一级标题栏不刷新（本轮新发现并修复）**：二维码页 → 历史页 → 返回，内容回到二维码页但标题栏仍是「历史记录」。原因是 `HdsNavDestination.titleBar` 只在目的地创建时应用一次；`onPop` 回调与本机的 `onHidden` 都不会为「被返回的目的地」触发，只有 `onShown` 会。修法是详情页 `onShown`/`onHidden` 维护 `Index` 的 `@Local shownRoute`，根 `HdsNavigation.titleBar` 读 `currentTitle()`。复验矩阵（中英文各一遍）：根页 `Tools`/`工具` → `QR code` → `History` → 返回 `QR code` → 返回 `Tools` → `Timers` → `Tools` → `Spirit level` → `Tools`，全部正确；文档扫描能力缺失页标题与各工具页标题正常。
 - **倒计时 `ForEach` key 的秒级 `this.now` 确认可以去掉**：删掉后重新构建装机，运行中的 5 分钟倒计时 4 次采样为 `00:04:58 → 00:04:54 → 00:04:50 → 00:04:46`，数字仍在每秒递减，说明刷新来自子树内 `timerTime(timer)` 对 `this.now` 的读取，key 换秒只是多余的全量重建。原先「删掉可能让数字停住」的担心不成立，已按实测结论改写代码注释。
 - 本轮同时确认：计时页名称输入框已由 `MaterialSurface` 包裹（与其余工具页一致），此前「未包裹」的记录作废。
+- **深色模式对比度核查（0.6 的最后一项）**：把系统切到深色（模拟器设置 → 显示和亮度 → 深色）后逐一截图核对工具网格、快捷计算（含百分数行内输入框）、日期计算（分段控件 + 日期卡片 + 结果卡）、时间戳结果卡、设置页，以及系统的日期选择器对话框。结论：应用只使用 `model/ToolPalette.ets` 的固定浅色板并显式设置背景与文字颜色，**深色模式下外观与浅色模式完全一致、文字与卡片底色对比度不变**（深色主题未实现，属既有设计）；系统对话框与状态栏也照常可读。证据见 `screenshots/emulator/darkmode-tools-zh.jpeg`、`darkmode-quick-calculator-zh.jpeg`、`darkmode-timestamp-zh.jpeg`、`darkmode-date-picker-dialog.jpeg`。核查后已把模拟器系统改回浅色。
 
 ## 0. 本轮改动专项复验（先跑这一节）
 
