@@ -16,6 +16,22 @@
 
 **Suggested keywords**: QR code, barcode, income tax, wage calculator, discount calculator, document scanner, offline tools
 
+## 版本更新说明 / Release notes
+
+**中文（v1.0.0 首个上架版本）**
+
+- 新增：日期工具支持农历（干支、生肖、闰月）、工作日（排除法定节假日并计入调休上班日）、按天/工作日/周/月/年推算、倒数日；新增「时间戳」工具（秒/毫秒与本地、UTC 文本互转）。
+- 新增：二维码页可直接查看本机历史记录。
+- 改进：日期与时间改用系统选择器；输入框、结果卡与列表统一接入系统沉浸材质；工具卡片与详情页标题随中英切换即时更新。
+- 隐私：应用不再申请网络权限，节假日日历随包内置，全部功能离线可用、不收集任何数据。
+
+**English (v1.0.0, first release)**
+
+- New: lunar dates (sexagenary cycle, zodiac, leap months), working-day counts that skip public holidays and include make-up workdays, date offset by days/working days/weeks/months/years, and a countdown line; a new Timestamp tool (seconds or milliseconds to local and UTC text and back).
+- New: the QR page can open the on-device history directly.
+- Improved: system date and time pickers; immersive material on inputs, result cards and list rows; tool card titles and detail titles now follow the language switch immediately.
+- Privacy: the app requests no network permission, the holiday calendar ships with the app, and every feature works offline without collecting data.
+
 ## 截图清单 / Screenshot checklist
 
 实际签名安装后，分别截取中文和英文：①首页彩色工具卡片；②二维码和条形码生成结果及保存/分享按钮；③折扣、百分比与均摊结果；④个税计算结果与说明；⑤单位换算、多计时器与秒表；⑥日期（含农历与工作日）、文本和随机工具的结果；⑦密码生成、文档扫描和水平仪；⑧手电筒可用状态；⑨设置。手机、平板、折叠屏展开态均需核对布局后再选图。截图不得使用模拟图冒充设备截图。应用不申请任何网络权限，商店的权限说明只需覆盖 `PUBLISH_AGENT_REMINDER`（倒计时到期提醒）、`DETECT_GESTURE`（握姿适配）与 `ACCELEROMETER`（水平仪），表述与 `PRIVACY.md`、`RELEASE_CHECKLIST.md` 保持一致。

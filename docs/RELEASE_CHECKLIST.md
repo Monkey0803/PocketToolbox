@@ -47,12 +47,31 @@
 
 - 日期工具的农历期望值已用**外部权威数据**核对（香港天文台《公历与农历日期对照表》2026 年与 2025 年文本版）：2026-10-16 为**九月初七**（清单原稿误写「八月廿六」，八月廿六实为 10-06）、2026-10-10 九月初一、2026-02-17 正月初一、2026-09-25 八月十五、2026 年为丙午·马年、2026-10-15 为周四；2025-07-24 为六月三十、2025-07-25 为**闰六月初一**。该对照表只覆盖农历与星期，ISO 周序号仍由代码推演核对（2026-10-15 第 42 周、2021-01-01 第 53 周（2020）、2024-12-30 第 1 周（2025））。
 
-## 账号与签名
+## 发版步骤（HarmonyOS / AppGallery Connect）
 
-1. 在 AppGallery Connect 为正式包名创建应用，按 DevEco Studio 的“自动签名”或华为发布证书流程配置该应用的发布签名。私钥、证书密码和账号令牌只保存在开发者安全位置，不提交到工程。
-2. 在 `build-profile.json5` 添加与开发者账号一致的 `signingConfigs` 和产品引用。确认正式包名后更新 `AppScope/app.json5`，再构建 release HAP。
-3. 对签名产物核对证书、包名、版本与安装启动。对手机、平板、折叠和展开态分别做截图和交互验收，填入商店材料。
-4. 发布前补全 `PRIVACY.md` 中的运营主体、联系渠道和公开网址，核对商店隐私声明与实际能力一致。
+按顺序执行；前 3 步需要开发者账号资料，仓库里已能自动化的部分已标注命令。
+
+1. **确定发布身份**（需要决策，不能由代码推断）
+   - 正式包名：当前是占位 `com.example.pockettoolbox`，必须改成开发者账号下已创建应用的包名，并同步 `AppScope/app.json5` 的 `bundleName`。
+   - `vendor` 由 `example` 改为运营主体名称。
+   - 版本号：`versionCode` 当前 `1000000`、`versionName` 当前 `1.0.0`。若 AGC 里已有 1.0.0，则本次改为 `1000001` / `1.0.1`（或按功能升 `1.1.0`）。
+2. **配置发布签名**：在 AppGallery Connect 生成发布证书（`.cer`）与应用 Profile（`.p7b`），或在 DevEco Studio 里用「自动签名」并勾选 release。把对应的 `signingConfigs`（`material.certpath` / `profile` / `storeFile` / 口令）加到**本地** `build-profile.json5`（该文件已 gitignore，不要提交凭据），并让产品引用它。
+3. **构建发布包**（本机已验证该命令可跑通；未换正式签名前只能得到调试签名的包，仅供冒烟）
+   ```sh
+   export DEVECO_SDK_HOME="…/sdk"; export JAVA_HOME="…/jbr"
+   hvigorw assembleHap --mode module -p product=default -p buildMode=release
+   ```
+   产物：`entry/build/default/outputs/default/entry-default-signed.hap`。
+4. **产物自检**（每次发版都做）
+   - `hdc install -r <hap>` 覆盖安装后启动，逐项冒烟：工具网格、日期（工作日应显示「已排除周末与法定节假日，并计入调休上班日」与数据日期）、时间戳、二维码、计时、设置。
+   - 核对包名、`versionCode`/`versionName`、权限列表（应只有 3 项，无网络权限）。
+   - 用 DevEco Studio 的 CodeLinter 跑一次推荐规则（历史上为 0 错误 0 警告 1 建议：启动图标建议 ≤ 256×256）。
+5. **上传与商店资料**
+   - AGC 上传 HAP → 填写应用信息（文案取自 [`STORE_LISTING.md`](STORE_LISTING.md)）→ 隐私政策需**可公网访问的网址**（`PRIVACY.md` 补运营主体、联系邮箱、生效日期与网址）。
+   - 权限说明只覆盖 `PUBLISH_AGENT_REMINDER` / `DETECT_GESTURE` / `ACCELEROMETER`（应用不申请网络权限）。
+   - 截图：手机、平板、折叠屏（展开/折叠）分别提供，中文与英文各一套；不得用模拟图冒充设备截图。
+   - 第三方数据声明随仓库分发：见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+6. **提交审核**后按审核意见修正；真机未覆盖项（握姿、光感等级、无闪光灯设备、代理提醒权益）在发布说明里如实标注。
 
 ## 权限用途
 
