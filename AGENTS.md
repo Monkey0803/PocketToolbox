@@ -69,6 +69,8 @@
 - 工具详情页与文档扫描页是 `NavPathStack` 的 `HdsNavDestination` 路由（`toolRoutes(name)`）；`navigate()` 用 `pathStack.pushPathByName(name, '', onPop)` 入栈并在 `onPop` 里回退 `page` 到上一级。返回用系统返回键/标题栏返回，回到根 Tab 用 `pathStack.clear()`。不要再保留页面内自绘标题栏或自绘底部页签栏。
 - **标题栏避让**：`HdsNavigation`/`HdsNavDestination` 的 `HdsNavigationTitleMode.MINI` 标题栏高度固定为 56 vp，且内容区会**延伸到标题栏下方**（沉浸式）。因此可滚动内容的根容器必须让出该高度——`tabScroll` 与 `toolRoutes` 的内容列都用 `top: 20 + HDS_TITLE_BAR_HEIGHT`（`HDS_TITLE_BAR_HEIGHT = 56`）；否则每页首行会被标题栏遮住（曾在日期、二维码等页出现）。滚动时内容仍会滑到标题栏下进入模糊区域，这是预期效果。
 - **返回键**：根页 `HdsNavigation` 用 `.hideBackButton(true)` 隐藏返回键（返回键仅在 `MINI` 标题栏下生效，首页无上一级不需要）；工具详情页的 `HdsNavDestination` 保留返回键。
+- **详情页标题栏只在创建时应用一次**：`HdsNavDestination.titleBar(options)` 不会随状态变化重算，从详情页再推一层详情页、返回后标题栏会停在**被关闭那页**的名称上（模拟器实测：二维码页 → 历史页 → 返回，内容回到二维码页但标题仍是「历史记录」）。`onPop` 回调与 `onHidden` 都不会为「被返回的那个目的地」触发，只有 `onShown` 会在重新显示时触发。因此：标题栏文案由 `Index` 的 `@Local shownRoute` 统一维护——详情页 `.onShown(() => { this.page = name; this.shownRoute = name; })`、`.onHidden(() => { if (this.shownRoute === name) { this.shownRoute = ''; } })`，根 `HdsNavigation.titleBar` 读 `currentTitle()`（根 Tab 或 `destinationName(shownRoute)`），清栈处（`navigate('home')`、`onTabChange()`）把 `shownRoute` 置空。新增「从详情页再推一层」的入口时照此接；`onHidden` 的相等判断是为了不受「新页 onShown / 旧页 onHidden」先后顺序影响。
+- 二维码历史页没有独立工具卡片：入口是 `QrPage` 操作行的第三个纯图标按钮（`sys.symbol.clock_arrow_2_circlepath`，`@Event onOpenHistory` → `Index.navigate('history')`），工具数保持 14。
 - 设置页是常驻 Tab 内容（`TabContent` 首次显示后保持挂载），语言/图标/历史的持久化由 `Index` 处理，`SettingsPage` 只经 `@Event` 回调；`refreshIcon()` 的时机仍由 `Index` 的 `onTabChange`/`onPageShow` 控制。
 
 ## 验证

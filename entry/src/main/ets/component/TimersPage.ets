@@ -317,10 +317,10 @@ export struct TimersPage {
           }.width('100%').justifyContent(this.actionAlign)
         }.padding(16).width('100%')
         }
-      // key 里的秒级 this.now 疑似承载刷新职责，不要当作性能问题直接删掉：ArkUI 的 ForEach 在 key 不变时
-      // 会复用已创建的子树、不再执行 itemGenerator，运行中的倒计时很可能正是靠每秒换 key 才刷新数字。
-      }, (timer: CountdownItem) => timer.id + ':' + timer.state + ':' +
-        (timer.state === 'running' ? Math.floor(this.now / 1000).toString() : timer.remainingMs.toString()))
+      // key 只由「身份 + 状态 + 已冻结的剩余时长」组成，刻意不含每秒变化的 this.now：
+      // 运行中数字的刷新来自 itemGenerator 子树内 `timerTime(timer)` 对 this.now 的读取，
+      // key 里再塞秒级时间戳只是多余的全量重建（2026-10-16 模拟器实测：去掉后数字仍每秒递减）。
+      }, (timer: CountdownItem) => timer.id + ':' + timer.state + ':' + timer.remainingMs.toString())
       Text(this.tr('秒表', 'Stopwatch')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.watchTime()).fontSize(36).fontWeight(FontWeight.Bold).width('100%')
       Row({ space: 8 }) {

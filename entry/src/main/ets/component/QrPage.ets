@@ -20,6 +20,7 @@ export struct QrPage {
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
   @Event onRecord: (kind: string, content: string) => void = () => {};
+  @Event onOpenHistory: () => void = () => {};
 
   @Local qrInput: string = '';
   @Local qrResult: string = '';
@@ -95,6 +96,11 @@ export struct QrPage {
         }.width(48).height(48).backgroundColor(ToolPalette.success)
           .accessibilityText(this.tr('扫描二维码或从相册选择', 'Scan QR code or choose from gallery'))
           .onClick(() => this.scan())
+        // 历史入口放在产生历史数据的页面上：生成/扫码会记录到本机历史，之前只有「清空」没有「查看」。
+        Button() {
+          SymbolGlyph($r('sys.symbol.clock_arrow_2_circlepath')).fontSize(24).fontColor([Color.White])
+        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
+          .accessibilityText(this.tr('二维码历史', 'QR history')).onClick(() => this.onOpenHistory())
       }.width('100%').justifyContent(this.actionAlign)
       if (this.qrPixel) {
         Image(this.qrPixel).width(240).height(240).objectFit(ImageFit.Contain).backgroundColor(Color.White)

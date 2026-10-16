@@ -52,6 +52,8 @@ function scannerConfiguration(): DocumentScannerConfig {
 @ComponentV2
 struct Index {
   @Local page: string = 'home';
+  // 当前可见的详情页路由（由 HdsNavDestination.onShown 维护），用于返回上一级后重算标题栏。
+  @Local shownRoute: string = '';
   @Local selectedTab: string = 'tools';
   @Local english: boolean = false;
   @Local activeIconName: string = '';
@@ -223,6 +225,7 @@ struct Index {
       this.pathStack.clear();
       this.routeStack = ['home'];
       this.page = 'home';
+      this.shownRoute = '';
       return;
     }
     this.routeStack.push(destination);
@@ -238,6 +241,7 @@ struct Index {
     this.pathStack.clear();
     this.routeStack = ['home'];
     this.page = 'home';
+    this.shownRoute = '';
     this.status = '';
     if (this.selectedTab === 'settings') { this.refreshIcon(); }
   }
@@ -366,6 +370,19 @@ struct Index {
       this.selectedTab === 'favorites' ? this.tr('收藏', 'Favorites') : this.tr('设置', 'Settings');
   }
 
+  // 标题栏文案的统一来源：根 Tab 或当前可见的详情页（shownRoute 由详情页 onShown 维护）。
+  // HdsNavDestination.titleBar 只在目的地创建时应用一次，从详情页返回上一级详情页时不会重算
+  // （模拟器实测：二维码页 → 历史 → 返回，页面内容回到二维码但标题仍停在「历史记录」）。
+  // 因此根 HdsNavigation 的标题栏读 shownRoute 负责重算；详情页自己的 titleBar 仍保留，
+  // 用于首次创建时立即显示正确标题。
+  private currentTitle(): string {
+    // 文档扫描页自带 hideTitleBar(true)，这里退回根 Tab 标题做占位，避免落到 destinationName() 的兜底文案。
+    if (this.shownRoute === '' || this.shownRoute === 'home' || this.shownRoute === 'scanner') {
+      return this.homeTabName();
+    }
+    return this.destinationName(this.shownRoute);
+  }
+
   // HDS 标题栏配置：标题内容 + 标题栏沉浸光感材质。
   private titleBarOptions(mainTitle: string): HdsNavigationTitleBarOptions {
     return {
@@ -453,7 +470,8 @@ struct Index {
                 materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; },
-                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
+                onOpenHistory: (): void => { this.navigate('history'); } })
             }
             else if (name === 'barcode') {
               BarcodePage({ english: this.english, immersiveSupported: this.immersiveSupported,
@@ -534,6 +552,12 @@ struct Index {
       }
       .titleBar(this.titleBarOptions(this.destinationName(this.page)))
       .titleMode(HdsNavDestinationTitleMode.MINI)
+      // 每次页面显示都记录可见路由：HdsNavDestination.titleBar 只在创建时应用，从详情页返回上一级
+      // 详情页时不会重算标题栏，靠 shownRoute 驱动根 HdsNavigation 的标题栏重新求值。
+      .onShown(() => { this.page = name; this.shownRoute = name; })
+      // 隐藏时清空：返回根页不会再触发任何 onShown，必须在这里把标题交还给根 Tab。
+      // 只在「隐藏的正是当前标题来源」时清空，避免与新页 onShown 的先后顺序打架。
+      .onHidden(() => { if (this.shownRoute === name) { this.shownRoute = ''; } })
       .onBackPressed(() => false)
       .backgroundColor(ToolPalette.background)
     }
@@ -563,7 +587,7 @@ struct Index {
         .onChange((index: number) => this.onTabChange(index))
       }.width('100%').height('100%').alignItems(HorizontalAlign.Center)
     }
-    .titleBar(this.titleBarOptions(this.homeTabName()))
+    .titleBar(this.titleBarOptions(this.currentTitle()))
     .titleMode(HdsNavigationTitleMode.MINI)
     .hideBackButton(true)
     .mode(NavigationMode.Stack)
