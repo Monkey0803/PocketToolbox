@@ -2,6 +2,13 @@
 
 ## 当前状态
 
+- **启动页 logo 圆角修复（2026-10-19，已完成构建、单测与模拟器复验）**：冷启动时启动页居中显示的 logo 是硬直角方图（`splash-icon-square-corner-before-fix.jpeg`），与桌面/最近任务里被系统遮罩出圆角的应用图标不一致。
+  ① 原因是 `startWindowIcon` 由系统**原样居中显示**、不做圆角遮罩（遮罩只发生在启动器画应用图标时），而 `toolbox_icon.png` 本身是满幅方角图（实测四角像素不透明、无弧度）。
+  ② 修复：新增 `entry/src/main/resources/base/media/splash_icon.png`（同一份素材预置圆角、四角透明，圆角半径 = 边长的 26%），`module.json5` 的 `startWindowIcon` 改指 `$media:splash_icon`；桌面图标、四款备选图标与设置页图标网格不动（继续由系统遮罩）。
+  ③ 尺寸口径：启动页按**打包后的图片像素 1:1** 显示（实测 1024 px 素材显示 1022 px、512 px 素材显示 512 px；hvigor 打包应用图标时本来就会把素材降到 512×512），因此素材定为 **512×512**——圆角化不会连带把 logo 放大。HAP 由 3.47 MB 增至 3.71 MB。
+  ④ 验证：`assembleHap` `BUILD SUCCESSFUL`、单测全绿；模拟器冷启动复验圆角（`splash-icon-rounded-after-fix.jpeg`），量得显示边长 512 px、圆角半径/边长 ≈ 0.257，与启动器遮罩实测的 ≈ 0.26 对齐。
+  - **未覆盖（真机必做）**：高密度真机上的启动页图标显示尺寸与清晰度、深色启动背景观感；改 `toolbox_icon.png` 时必须同步重做 `splash_icon.png`。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第四轮追加回执。
+
 - **设置页语言新增「跟随系统」（2026-10-19，已完成单测、构建与模拟器复验）**：语言下拉由两项（简体中文 / English）扩为三项，**「跟随系统」排在最前且是默认值**。
   ① 新增纯逻辑 `model/LanguagePreference.ets`：登记表 `LANGUAGE_OPTIONS`（`system`/`zh`/`en`）、`normalizeLanguagePreference()`（大小写/空白不敏感，旧版本写入的 `zh`/`en` 仍有效，未知值回退默认）、`languagePreferenceIndex()`/`languagePreferenceAt()`、`languagePreferenceLabel()`、`isEnglishLanguage()`（只看主子标签，`en`/`en-US`/`en_US` 算英文、`eng` 不算）、`englishFromPreference()`（显式选择优先；`system` 交给系统语言，取不到回退中文）。
   ② 持久化的 `language` 键从布尔语义改成**偏好 id**（默认 `system`）；`Index` 新增 `@Local languagePreference` 与 `applyLanguagePreference()` / `setLanguagePreference()`，把偏好解析成 `@Local english`（各工具页仍只认布尔值，不认识偏好 id）；「跟随系统」时在 `onPageShow()` 重新求值，覆盖「系统语言变了 → 应用重建/回前台」的路径。

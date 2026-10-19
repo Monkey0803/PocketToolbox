@@ -6,24 +6,39 @@
  * 以及与本机时区快慢的文案。这样换算与文案都能脱离系统 API 断言，界面只做「取偏移 → 调这里」。
  *
  * 注意：这里按「某一瞬间的偏移」计算，**已包含夏令时**（偏移由系统给出），不要改成固定偏移表。
+ * 唯一的例外是下面登记表末尾的 `UTC±HH:MM` 条目——它们本来就是「只按固定偏移换算、不含夏令时」，
+ * 因此 `fixedOffsetMinutes` 有值，页面直接用它而不再问系统。
  */
 
 export class TimeZoneEntry {
   readonly id: string;
   readonly zh: string;
   readonly en: string;
+  /**
+   * 固定偏移（分钟）。**只有**「按偏移直选」的 `UTC±HH:MM` 条目有值，IANA 城市条目一律为 `NaN`——
+   * 城市条目的偏移必须由系统按该瞬间给出（含夏令时），写死会在夏令时出错。
+   */
+  readonly fixedOffsetMinutes: number;
 
-  constructor(id: string, zh: string, en: string) {
+  constructor(id: string, zh: string, en: string, fixedOffsetMinutes: number = Number.NaN) {
     this.id = id;
     this.zh = zh;
     this.en = en;
+    this.fixedOffsetMinutes = fixedOffsetMinutes;
   }
 }
 
-/** `local` 不是 IANA 时区，代表「跟随本机时区」，偏移由页面用本地时间求。 */
+/** `local` 不是 IANA 时区，代表「跟随本机时区」，偏移由页面用本地时间/系统时区 id 求。 */
 export const LOCAL_ZONE_ID: string = 'local';
 
-/** 常用时区（覆盖亚太、欧洲、美洲主要城市；IANA id 交给系统解析，含夏令时）。 */
+/**
+ * 常用时区：先城市（覆盖亚太、欧洲、美洲主要城市；IANA id 交给系统解析，含夏令时），
+ * 再是「按偏移直选」的固定偏移条目。
+ *
+ * 固定偏移条目只列出**城市表覆盖不到的整点偏移**（+05:00、+06:00、+10:00、+11:00、+14:00、
+ * -09:00、-10:00、-11:00、-12:00），供「只知道偏移、不知道城市」时使用；
+ * 不要为了凑数把城市已覆盖的偏移（+08:00、-03:00 等）再写一遍，否则同一下拉里会出现两个等效项。
+ */
 export const TIME_ZONES: TimeZoneEntry[] = [
   new TimeZoneEntry(LOCAL_ZONE_ID, '本机', 'Local'),
   new TimeZoneEntry('Asia/Shanghai', '北京', 'Beijing'),
@@ -42,7 +57,16 @@ export const TIME_ZONES: TimeZoneEntry[] = [
   new TimeZoneEntry('America/Chicago', '芝加哥', 'Chicago'),
   new TimeZoneEntry('America/Los_Angeles', '洛杉矶', 'Los Angeles'),
   new TimeZoneEntry('America/Sao_Paulo', '圣保罗', 'São Paulo'),
-  new TimeZoneEntry('Pacific/Auckland', '奥克兰', 'Auckland')
+  new TimeZoneEntry('Pacific/Auckland', '奥克兰', 'Auckland'),
+  new TimeZoneEntry('UTC-12:00', 'UTC-12:00', 'UTC-12:00', -720),
+  new TimeZoneEntry('UTC-11:00', 'UTC-11:00', 'UTC-11:00', -660),
+  new TimeZoneEntry('UTC-10:00', 'UTC-10:00', 'UTC-10:00', -600),
+  new TimeZoneEntry('UTC-09:00', 'UTC-09:00', 'UTC-09:00', -540),
+  new TimeZoneEntry('UTC+05:00', 'UTC+05:00', 'UTC+05:00', 300),
+  new TimeZoneEntry('UTC+06:00', 'UTC+06:00', 'UTC+06:00', 360),
+  new TimeZoneEntry('UTC+10:00', 'UTC+10:00', 'UTC+10:00', 600),
+  new TimeZoneEntry('UTC+11:00', 'UTC+11:00', 'UTC+11:00', 660),
+  new TimeZoneEntry('UTC+14:00', 'UTC+14:00', 'UTC+14:00', 840)
 ];
 
 export function timeZoneIndex(id: string): number {
@@ -58,6 +82,20 @@ export function timeZoneLabel(id: string, english: boolean): string {
   const entry: TimeZoneEntry | undefined = timeZoneEntry(id);
   if (entry === undefined) { return english ? 'Local' : '本机'; }
   return english ? entry.en : entry.zh;
+}
+
+/**
+ * 「本机」这一项在界面上的名称：系统时区 id 能对上登记表里的城市时，补一个城市名
+ * （例如上海设备显示「本机 · 北京」），让用户知道当前到底在哪个时区；对不上或取不到就只显示「本机」。
+ *
+ * 之所以不直接显示 IANA id：界面一直避免把 `Asia/Shanghai` 这类内部标识暴露给用户。
+ */
+export function localZoneDisplay(localZoneId: string, english: boolean): string {
+  const base: string = english ? 'Local' : '本机';
+  if (localZoneId.length === 0 || localZoneId === LOCAL_ZONE_ID) { return base; }
+  const entry: TimeZoneEntry | undefined = timeZoneEntry(localZoneId);
+  if (entry === undefined || entry.id === LOCAL_ZONE_ID) { return base; }
+  return base + ' · ' + (english ? entry.en : entry.zh);
 }
 
 function pad2(value: number): string {

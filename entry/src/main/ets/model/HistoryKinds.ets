@@ -82,7 +82,9 @@ export function historyTargetRoute(kind: string): string {
 /**
  * 点击历史条目时要回填到工具输入框的内容。
  * - 被截断过的内容（结尾是省略号）不回填：把半截文本塞回输入框比不回填更误导。
- * - 时间戳记录的是「本地时间 · 秒级时间戳」，只回填可再次使用的秒级时间戳。
+ * - 时间戳记录的是「来源 · 实际复制的值」（例如 `sec · 1792396081`、`local · 2026-10-19 08:30:45`、
+ *   早期版本写的 `本地时间  ·  秒级时间戳`），统一取**最后一个 `·` 之后**的部分——那就是用户当时复制的内容，
+ *   也正是可以再次解析的内容；没有 `·` 的（纯数字或纯日期时间）整条就是可回填值。
  * - 其它类别原样回填。
  */
 export function historyRefill(kind: string, content: string): string {
@@ -90,7 +92,7 @@ export function historyRefill(kind: string, content: string): string {
   if (value.length === 0 || value.endsWith('…')) { return ''; }
   if (kind === 'timestamp') {
     const index: number = value.lastIndexOf('·');
-    return index < 0 ? '' : value.substring(index + 1).trim();
+    return index < 0 ? value : value.substring(index + 1).trim();
   }
   return value;
 }

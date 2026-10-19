@@ -27,7 +27,9 @@
         "description": "$string:EntryAbility_desc",
         "icon": "$media:toolbox_icon",
         "label": "$string:EntryAbility_label",
-        "startWindowIcon": "$media:toolbox_icon",
+        // 启动页图标必须自带圆角：系统只对桌面图标做圆角遮罩，startWindowIcon 是原样居中显示的，
+        // 直接用方角满幅的 toolbox_icon 会在启动页出现硬直角方图（模拟器实测）。
+        "startWindowIcon": "$media:splash_icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "skills": [

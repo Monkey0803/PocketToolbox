@@ -342,28 +342,55 @@ for (const mode of dates.DATE_TOOL_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
 }
 
+// --- 时间戳：错误码（empty/format/date/range）、秒毫秒口径、精度、时区偏移、渲染辅助函数 ---
 assert.equal(timeTools.parseStampInput('').error, 'empty');
 assert.equal(timeTools.parseStampInput('   ').error, 'empty');
 assert.equal(timeTools.parseStampInput('abc').error, 'format');
-assert.equal(timeTools.parseStampInput('2026-13-01').error, 'format');
-assert.equal(timeTools.parseStampInput('2025-02-29').error, 'format');
-assert.equal(timeTools.parseStampInput('2026-10-15 25:00:00').error, 'format');
+// 字段越界/日期不存在归为 `date`，与「完全看不懂」的 `format` 区分
+assert.equal(timeTools.parseStampInput('2026-13-01').error, 'date');
+assert.equal(timeTools.parseStampInput('2025-02-29').error, 'date');
+assert.equal(timeTools.parseStampInput('2026-10-15 25:00:00').error, 'date');
+assert.equal(timeTools.parseStampInput('2026/13/01').error, 'date');
+assert.equal(timeTools.parseStampInput('2026-10-15 08:70:00').error, 'date');
+
+// 解释方式登记表：自动 / 按秒 / 按毫秒
+assert.equal(timeTools.STAMP_MODES.length, 3);
+assert.equal(new Set(timeTools.STAMP_MODES.map((entry) => entry.id)).size, 3);
+for (const entry of timeTools.STAMP_MODES) {
+  assert.ok(entry.id.length > 0 && entry.zh.length > 0 && entry.en.length > 0, `incomplete mode ${entry.id}`);
+}
+assert.equal(timeTools.stampModeIndex('auto'), 0);
+assert.equal(timeTools.stampModeIndex('ms'), 2);
+assert.equal(timeTools.stampModeIndex('nope'), -1);
+assert.equal(timeTools.stampModeLabel('s', false), '按秒');
+assert.equal(timeTools.stampModeLabel('s', true), 'Seconds');
+assert.equal(timeTools.stampModeLabel('nope', false), '自动');
 
 const epoch = timeTools.parseStampInput('0');
 assert.equal(epoch.ok, true);
 assert.equal(epoch.fromTimestamp, true);
+assert.equal(epoch.unit, 'seconds');
 assert.equal(epoch.millis, 0);
 assert.equal(epoch.seconds, 0);
 assert.equal(epoch.utcText, '1970-01-01 00:00:00Z');
+assert.equal(epoch.isoUtcText, '1970-01-01T00:00:00.000Z');
 const secondsStamp = timeTools.parseStampInput('1750000000');
 assert.equal(secondsStamp.millis, 1750000000000);
 assert.equal(secondsStamp.seconds, 1750000000);
 assert.equal(secondsStamp.fromTimestamp, true);
+assert.equal(secondsStamp.unit, 'seconds');
 assert.equal(timeTools.parseStampInput(secondsStamp.utcText).millis, 1750000000000);
 const millisStamp = timeTools.parseStampInput('1750000000123');
 assert.equal(millisStamp.millis, 1750000000123);
 assert.equal(millisStamp.seconds, 1750000000);
 assert.equal(millisStamp.fromTimestamp, true);
+assert.equal(millisStamp.unit, 'milliseconds');
+// 毫秒精度必须可见：ISO 输出保留 .123，且两种 ISO 写法都能解析回同一瞬间
+assert.equal(millisStamp.isoUtcText, '2025-06-15T15:06:40.123Z');
+assert.equal(timeTools.parseStampInput(millisStamp.isoUtcText).millis, 1750000000123);
+assert.equal(timeTools.parseStampInput(millisStamp.isoLocalText).millis, 1750000000123);
+assert.ok(millisStamp.isoLocalText.endsWith('.123' + timeTools.parseStampInput('0').isoLocalText.slice(-6)),
+  'local ISO must keep milliseconds and a numeric offset');
 const negativeStamp = timeTools.parseStampInput('-86400');
 assert.equal(negativeStamp.seconds, -86400);
 assert.equal(negativeStamp.millis, -86400000);
@@ -371,12 +398,33 @@ assert.equal(negativeStamp.utcText, '1969-12-31 00:00:00Z');
 assert.equal(timeTools.parseStampInput('999999999999999').error, 'range');
 assert.equal(timeTools.parseStampInput('-62135596801000').error, 'range');
 
+// 手动指定口径：11 位自动按毫秒，手动「按秒」按秒；10 位手动「按毫秒」按毫秒
+const autoEleven = timeTools.parseStampInput('17500000001');
+assert.equal(autoEleven.unit, 'milliseconds');
+assert.equal(autoEleven.millis, 17500000001);
+const forcedSeconds = timeTools.parseStampInput('17500000001', 's');
+assert.equal(forcedSeconds.unit, 'seconds');
+assert.equal(forcedSeconds.millis, 17500000001000);
+const forcedMillis = timeTools.parseStampInput('1750000000', 'ms');
+assert.equal(forcedMillis.unit, 'milliseconds');
+assert.equal(forcedMillis.millis, 1750000000);
+assert.equal(forcedMillis.seconds, 1750000);
+
+// 本地字段回读判定（DST 空档纯函数；抽出来才能在无夏令时的机器上单测）
+const probeDate = new Date(2026, 0, 15, 10, 0, 0);
+assert.equal(timeTools.localFieldsCode(probeDate, 2026, 1, 15, 10, 0, 0), 'ok');
+assert.equal(timeTools.localFieldsCode(probeDate, 2026, 1, 15, 11, 0, 0), 'dst');
+assert.equal(timeTools.localFieldsCode(probeDate, 2026, 1, 15, 10, 30, 0), 'dst');
+assert.equal(timeTools.localFieldsCode(probeDate, 2026, 1, 16, 10, 0, 0), 'date');
+
 const utcText = timeTools.parseStampInput('1970-01-01T00:00:00Z');
 assert.equal(utcText.ok, true);
 assert.equal(utcText.fromTimestamp, false);
+assert.equal(utcText.unit, '');
 assert.equal(utcText.millis, 0);
 const dateOnly = timeTools.parseStampInput('2026-10-15');
 assert.equal(dateOnly.localText, '2026-10-15 00:00:00');
+assert.equal(timeTools.parseStampInput('2026/10/15').localText, '2026-10-15 00:00:00');
 assert.equal(timeTools.parseStampInput('2026-10-15 08:30').localText, '2026-10-15 08:30:00');
 const localInput = timeTools.parseStampInput('2026-10-15 08:30:45');
 assert.equal(localInput.millis, new Date(2026, 9, 15, 8, 30, 45).getTime());
@@ -384,8 +432,77 @@ assert.equal(timeTools.parseStampInput(localInput.localText).millis, localInput.
 assert.equal(timeTools.parseStampInput(localInput.utcText).millis, localInput.millis);
 assert.equal(timeTools.parseStampInput('0001-01-01T00:00:00Z').utcText, '0001-01-01 00:00:00Z');
 assert.equal(timeTools.parseStampInput('9999-12-31T23:59:59Z').utcText, '9999-12-31 23:59:59Z');
+
+// 小数秒（右补零语义：.5 = 500 ms、.12 = 120 ms）
+assert.equal(timeTools.parseStampInput('1970-01-01T00:00:00.5Z').millis, 500);
+assert.equal(timeTools.parseStampInput('1970-01-01T00:00:00.12Z').millis, 120);
+assert.equal(timeTools.parseStampInput('1970-01-01T00:00:00.123Z').millis, 123);
+
+// 显式时区偏移：+08:00 与 Z 表示同一绝对时刻；非法偏移仍算「无法识别」
+const beijingIso = timeTools.parseStampInput('2026-10-19T08:30:05+08:00');
+assert.equal(beijingIso.ok, true);
+assert.equal(beijingIso.millis, Date.UTC(2026, 9, 19, 0, 30, 5));
+assert.equal(timeTools.parseStampInput('2026-10-19T08:30:05+0800').millis, beijingIso.millis);
+assert.equal(timeTools.parseStampInput('2026-10-19T00:30:05Z').millis, beijingIso.millis);
+assert.equal(timeTools.parseStampInput('2026-10-19T00:30:05-05:00').millis, Date.UTC(2026, 9, 19, 5, 30, 5));
+assert.equal(timeTools.parseStampInput('2026-10-19T08:30:05+25:00').error, 'format');
+assert.equal(timeTools.parseStampInput('2026-10-19T08:30:05+08:70').error, 'format');
+// 带偏移后越过可表示范围仍要报 range（不能靠 Date 悄悄滚到 10000 年）
+assert.equal(timeTools.parseStampInput('9999-12-31T23:59:59-14:00').error, 'range');
+
 assert.equal(typeof timeTools.currentSeconds(), 'number');
 assert.ok(timeTools.currentSeconds() > 1700000000);
+assert.equal(typeof timeTools.currentMillis(), 'number');
+assert.ok(timeTools.currentMillis() > 1700000000000);
+
+// 星期几与相对时间（用本机构造的 Date，断言与运行机器时区无关）
+const monday = new Date(2026, 9, 19, 12, 0, 0).getTime();
+assert.equal(timeTools.weekdayText(monday, false), '星期一');
+assert.equal(timeTools.weekdayText(monday, true), 'Monday');
+assert.equal(timeTools.weekdayText(NaN, false), '');
+const nowMs = 1750000000000;
+assert.equal(timeTools.relativeTimeText(nowMs, nowMs, false), '刚刚');
+assert.equal(timeTools.relativeTimeText(nowMs, nowMs, true), 'Just now');
+assert.equal(timeTools.relativeTimeText(nowMs - 5 * 60000, nowMs, false), '5 分钟前');
+assert.equal(timeTools.relativeTimeText(nowMs - 5 * 60000, nowMs, true), '5 minutes ago');
+assert.equal(timeTools.relativeTimeText(nowMs + 2 * 3600000, nowMs, false), '2 小时后');
+assert.equal(timeTools.relativeTimeText(nowMs + 2 * 3600000, nowMs, true), 'in 2 hours');
+assert.equal(timeTools.relativeTimeText(nowMs - 86400000, nowMs, false), '1 天前');
+assert.equal(timeTools.relativeTimeText(nowMs - 86400000, nowMs, true), '1 day ago');
+assert.equal(timeTools.relativeTimeText(nowMs - 3 * 86400000, nowMs, false), '3 天前');
+assert.equal(timeTools.relativeTimeText(nowMs - 3 * 86400000, nowMs, true), '3 days ago');
+assert.equal(timeTools.relativeTimeText(nowMs - 60 * 86400000, nowMs, false), '2 个月前');
+assert.equal(timeTools.relativeTimeText(nowMs - 60 * 86400000, nowMs, true), '2 months ago');
+assert.equal(timeTools.relativeTimeText(nowMs - 400 * 86400000, nowMs, false), '1 年前');
+assert.equal(timeTools.relativeTimeText(nowMs - 400 * 86400000, nowMs, true), '1 year ago');
+assert.equal(timeTools.relativeTimeText(NaN, nowMs, false), '');
+assert.equal(timeTools.relativeTimeText(nowMs, NaN, false), '');
+
+// --- 夏令时空档回归（TS-01）---
+// 本机（Asia/Shanghai）没有夏令时，所以临时把进程时区切到纽约（Node 运行时改 `process.env.TZ` 即生效），
+// 跑完立刻恢复：否则后面所有断言都会在错误的时区下执行。
+const originalTimeZone = process.env.TZ;
+process.env.TZ = 'America/New_York';
+try {
+  // 前跳当天：01:30 还是 EST、03:30 已是 EDT，中间那一小时在当地不存在
+  assert.equal(timeTools.parseStampInput('2026-03-08 01:30:00').utcText, '2026-03-08 06:30:00Z');
+  assert.equal(timeTools.parseStampInput('2026-03-08 03:30:00').utcText, '2026-03-08 07:30:00Z');
+  assert.equal(timeTools.parseStampInput('2026-03-08 02:30:00').error, 'dst');
+  assert.equal(timeTools.parseStampInput('2026/03/08 02:30:00').error, 'dst');
+  // 回跳当天：01:30 出现两次，取较早的那个偏移（EDT）
+  assert.equal(timeTools.parseStampInput('2026-11-01 01:30:00').ok, true);
+  assert.equal(timeTools.parseStampInput('2026-11-01 01:30:00').utcText, '2026-11-01 05:30:00Z');
+  // 字段越界与空档必须区分开
+  assert.equal(timeTools.parseStampInput('2026-02-30').error, 'date');
+} finally {
+  if (originalTimeZone === undefined) {
+    delete process.env.TZ;
+  } else {
+    process.env.TZ = originalTimeZone;
+  }
+}
+// 恢复后必须回到本机时区，证明上面没有污染后续断言
+assert.equal(timeTools.parseStampInput('2026-10-15').localText, '2026-10-15 00:00:00');
 
 assert.equal(textTools.textStats('').lines, 0);
 assert.equal(textTools.textStats('A😀\n 中').characters, 5);
@@ -854,6 +971,10 @@ assert.deepEqual(toolMeta.matchTools('qrcode'), ['qr']);
 assert.deepEqual(toolMeta.matchTools('二维码'), ['qr']);
 assert.deepEqual(toolMeta.matchTools('timestamp'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('时间戳'), ['timestamp']);
+// 别名关键词：标题里没有、但用户会用来搜的词
+assert.deepEqual(toolMeta.matchTools('epoch'), ['timestamp']);
+assert.deepEqual(toolMeta.matchTools('毫秒'), ['timestamp']);
+assert.deepEqual(toolMeta.matchTools('millisecond'), ['timestamp']);
 // 'cal' 现在还会命中 Loan calculator 与 Health calculator（英文标题含 calculator）
 assert.deepEqual(toolMeta.matchTools('cal'), ['calculator', 'dates', 'loan', 'health', 'science']);
 assert.deepEqual(toolMeta.matchTools('计算'), ['tax', 'dates', 'loan', 'health', 'science']);
@@ -1107,13 +1228,24 @@ assert.equal(historyKinds.historyTargetRoute('timestamp'), 'timestamp');
 assert.equal(historyKinds.historyTargetRoute('units'), '');
 assert.equal(historyKinds.historyTargetRoute('nope'), '');
 
-// 回填内容：截断过的条目不回填；时间戳只回填秒级时间戳
+// 回填内容：截断过的条目不回填；时间戳取「最后一个 · 之后」的部分（那是实际复制、可再次解析的值）
 assert.equal(historyKinds.historyRefill('text', '  hello  '), 'hello');
 assert.equal(historyKinds.historyRefill('generated', 'https://example.com'), 'https://example.com');
 assert.equal(historyKinds.historyRefill('text', 'x'.repeat(500) + '…'), '');
 assert.equal(historyKinds.historyRefill('text', ''), '');
+// 旧格式（本地时间 · 秒级时间戳）
 assert.equal(historyKinds.historyRefill('timestamp', '2026-10-19 15:48:01  ·  1792396081'), '1792396081');
-assert.equal(historyKinds.historyRefill('timestamp', '2026-10-19 15:48:01'), '');
+// 新格式：来源 · 实际复制的值
+assert.equal(historyKinds.historyRefill('timestamp', 'sec · 1792396081'), '1792396081');
+assert.equal(historyKinds.historyRefill('timestamp', 'ms · 1750000000123'), '1750000000123');
+assert.equal(historyKinds.historyRefill('timestamp', 'local · 2026-10-19 08:30:45'), '2026-10-19 08:30:45');
+assert.equal(historyKinds.historyRefill('timestamp', 'utc · 2026-10-19 00:30:45Z'), '2026-10-19 00:30:45Z');
+assert.equal(historyKinds.historyRefill('timestamp', 'iso-local · 2026-10-19T08:30:45.123+08:00'),
+  '2026-10-19T08:30:45.123+08:00');
+assert.equal(historyKinds.historyRefill('timestamp', 'zone · 2026-10-19 16:30:45'), '2026-10-19 16:30:45');
+// 没有 `·` 的整条就是可解析的值；截断过的仍不回填
+assert.equal(historyKinds.historyRefill('timestamp', '2026-10-19 15:48:01'), '2026-10-19 15:48:01');
+assert.equal(historyKinds.historyRefill('timestamp', 'sec · 1792396081…'), '');
 
 // --- 时区换算：登记表、偏移文案、按偏移换算瞬间、与本机差值 ---
 assert.ok(timeZones.TIME_ZONES.length >= 15, 'time zone registry is too small');
@@ -1129,6 +1261,34 @@ assert.equal(timeZones.timeZoneLabel('Asia/Tokyo', true), 'Tokyo');
 assert.equal(timeZones.timeZoneLabel('nope', true), 'Local');
 assert.equal(timeZones.timeZoneLabel('nope', false), '本机');
 assert.equal(timeZones.timeZoneEntry('Europe/London').en, 'London');
+
+// 固定偏移条目：只有 `UTC±HH:MM` 有固定偏移，城市条目必须交给系统算（含夏令时）
+assert.equal(timeZones.TIME_ZONES.length, 27);
+const fixedZone = timeZones.timeZoneEntry('UTC+10:00');
+assert.equal(fixedZone.fixedOffsetMinutes, 600);
+assert.equal(fixedZone.en, 'UTC+10:00');
+assert.equal(fixedZone.zh, 'UTC+10:00');
+assert.equal(timeZones.timeZoneEntry('UTC-12:00').fixedOffsetMinutes, -720);
+assert.equal(timeZones.timeZoneEntry('UTC+05:00').fixedOffsetMinutes, 300);
+assert.equal(Number.isNaN(timeZones.timeZoneEntry('Asia/Tokyo').fixedOffsetMinutes), true);
+assert.equal(Number.isNaN(timeZones.timeZoneEntry(timeZones.LOCAL_ZONE_ID).fixedOffsetMinutes), true);
+for (const entry of timeZones.TIME_ZONES) {
+  if (!Number.isFinite(entry.fixedOffsetMinutes)) {
+    continue;
+  }
+  // 固定偏移条目必须是整刻、在 ±14:00 内，且 id 就是偏移文案（页面直接拿它当标签）
+  assert.ok(Math.abs(entry.fixedOffsetMinutes) <= 14 * 60, `offset out of range ${entry.id}`);
+  assert.equal(Math.abs(entry.fixedOffsetMinutes % 15), 0, `offset must be a quarter hour ${entry.id}`);
+  assert.equal(entry.id, timeZones.formatOffsetText(entry.fixedOffsetMinutes), `id must match offset ${entry.id}`);
+}
+
+// 「本机」显示名：能对上登记表就补城市名，否则保持「本机」，不暴露 IANA id
+assert.equal(timeZones.localZoneDisplay('', false), '本机');
+assert.equal(timeZones.localZoneDisplay('local', false), '本机');
+assert.equal(timeZones.localZoneDisplay('Asia/Chongqing', false), '本机');
+assert.equal(timeZones.localZoneDisplay('Asia/Tokyo', false), '本机 · 东京');
+assert.equal(timeZones.localZoneDisplay('Asia/Tokyo', true), 'Local · Tokyo');
+assert.equal(timeZones.localZoneDisplay('UTC+10:00', false), '本机 · UTC+10:00');
 
 // 偏移文案
 assert.equal(timeZones.formatOffsetText(480), 'UTC+08:00');

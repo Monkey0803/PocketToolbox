@@ -59,10 +59,106 @@ export struct TextPage {
     Text(this.tr(zh, en)).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
   }
 
-  @Builder private action(labelZh: string, labelEn: string, apply: (value: string) => string) {
-    Button(this.tr(labelZh, labelEn)).fontSize(15).height(44).layoutWeight(1)
-      .backgroundColor(ToolPalette.primary).enabled(this.textInput.length > 0)
-      .onClick(() => { this.textOutput = apply(this.textInput); })
+  /**
+   * 一个分组的菜单入口：整行（与工具卡片同底色）都挂系统 `bindMenu`，点开就是这一组的动作。
+   *
+   * 只收**常量**分组 id，标题与菜单条目都在构建函数体内经 `this.menuTitle(id)`/`this.menuItems(id)`
+   * 现取——`@Builder` 按值传参不随状态刷新，传字符串会让切换语言后菜单标题停在中/英旧值。
+   */
+  @Builder private menuEntry(id: string) {
+    Button() {
+      Row({ space: 8 }) {
+        Text(this.menuTitle(id)).fontSize(16).fontWeight(FontWeight.Medium)
+          .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+        SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(20).fontColor([ToolPalette.primaryDeep])
+      }.width('100%')
+    }
+    .width('100%').height(48).padding({ left: 16, right: 16 })
+    .backgroundColor(ToolPalette.surface).borderRadius(12)
+    .bindMenu(this.menuItems(id))
+    .accessibilityText(this.menuAccessibility(id))
+  }
+
+  private menuTitle(id: string): string {
+    if (id === 'clean') { return this.tr('整理', 'Clean up'); }
+    if (id === 'sort') { return this.tr('去重与排序', 'Deduplicate and sort'); }
+    if (id === 'case') { return this.tr('大小写', 'Letter case'); }
+    return this.tr('编码与摘要', 'Encoding and digests');
+  }
+
+  private menuAccessibility(id: string): string {
+    const title: string = this.menuTitle(id);
+    return this.english ? 'Open ' + title + ' menu' : '打开「' + title + '」菜单';
+  }
+
+  /** 分组 id → 菜单条目（纯动作，选了就执行；输入为空时置灰）。 */
+  private menuItems(id: string): MenuElement[] {
+    if (id === 'clean') {
+      return [
+        this.textMenuItem('去空行', 'Remove blanks', removeBlankLines),
+        this.textMenuItem('去首尾空格', 'Trim lines', trimLines),
+        this.textMenuItem('压缩空白', 'Collapse spaces', collapseSpaces),
+        this.textMenuItem('合并为一行', 'One line', joinLines)
+      ];
+    }
+    if (id === 'sort') {
+      return [
+        this.textMenuItem('行去重', 'Unique lines', uniqueLines),
+        this.textMenuItem('忽略大小写去重', 'Unique, ignore case', uniqueLinesIgnoreCase),
+        this.textMenuItem('只看重复行', 'Duplicates only', duplicateLines),
+        this.textMenuItem('行倒序', 'Reverse lines', reverseLines),
+        this.textMenuItem('升序', 'Sort A-Z', (value: string): string => sortLines(value, true, true)),
+        this.textMenuItem('降序', 'Sort Z-A', (value: string): string => sortLines(value, false, true))
+      ];
+    }
+    if (id === 'case') {
+      return [
+        this.textMenuItem('转大写', 'Uppercase', (value: string): string => value.toUpperCase()),
+        this.textMenuItem('转小写', 'Lowercase', (value: string): string => value.toLowerCase()),
+        this.textMenuItem('首字母大写', 'Title Case', titleCase)
+      ];
+    }
+    return [
+      this.textMenuItem('Base64 编码', 'Base64 encode', base64Encode),
+      this.codecMenuItem('Base64 解码', 'Base64 decode', base64Decode),
+      this.textMenuItem('URL 编码', 'URL encode', urlEncode),
+      this.codecMenuItem('URL 解码', 'URL decode', urlDecode),
+      this.textMenuItem('MD5 摘要', 'MD5 digest', md5),
+      this.textMenuItem('SHA-1 摘要', 'SHA-1 digest', sha1),
+      this.textMenuItem('SHA-256 摘要', 'SHA-256 digest', sha256)
+    ];
+  }
+
+  private textMenuItem(zh: string, en: string, apply: (value: string) => string): MenuElement {
+    return {
+      value: this.tr(zh, en),
+      enabled: this.textInput.length > 0,
+      action: (): void => { this.runAction(apply); }
+    };
+  }
+
+  // 解码类操作可能失败：失败走一次性 toast，成功才写结果卡。
+  private codecMenuItem(zh: string, en: string, decode: (value: string) => CodecResult): MenuElement {
+    return {
+      value: this.tr(zh, en),
+      enabled: this.textInput.length > 0,
+      action: (): void => { this.runCodec(decode); }
+    };
+  }
+
+  private runAction(apply: (value: string) => string): void {
+    if (this.textInput.length === 0) { return; }
+    this.textOutput = apply(this.textInput);
+  }
+
+  private runCodec(decode: (value: string) => CodecResult): void {
+    if (this.textInput.length === 0) { return; }
+    const result: CodecResult = decode(this.textInput);
+    if (!result.ok) {
+      this.onStatus(codecErrorText(result.error, this.english));
+      return;
+    }
+    this.textOutput = result.text;
   }
 
   @Builder private iconAction(icon: Resource, zh: string, en: string, enabled: boolean, action: () => void) {
@@ -70,20 +166,6 @@ export struct TextPage {
       SymbolGlyph(icon).fontSize(24).fontColor([Color.White])
     }.width(48).height(48).backgroundColor(ToolPalette.neutralDark).enabled(enabled)
       .accessibilityText(this.tr(zh, en)).onClick(action)
-  }
-
-  // 解码类操作可能失败：失败走一次性 toast，成功才写结果卡。
-  @Builder private codecAction(labelZh: string, labelEn: string, decode: (value: string) => CodecResult) {
-    Button(this.tr(labelZh, labelEn)).fontSize(15).height(44).layoutWeight(1)
-      .backgroundColor(ToolPalette.accentOrange).enabled(this.textInput.length > 0)
-      .onClick(() => {
-        const result: CodecResult = decode(this.textInput);
-        if (!result.ok) {
-          this.onStatus(codecErrorText(result.error, this.english));
-          return;
-        }
-        this.textOutput = result.text;
-      })
   }
 
   build() {
@@ -107,55 +189,12 @@ export struct TextPage {
         'Words ' + this.textWords + ' · CJK ' + this.textCjk + ' · Paragraphs ' + this.textParagraphs))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
 
-      this.sectionTitle('整理', 'Clean up')
-      Row({ space: 8 }) {
-        this.action('去空行', 'Remove blanks', removeBlankLines)
-        this.action('去首尾空格', 'Trim lines', trimLines)
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('压缩空白', 'Collapse spaces', collapseSpaces)
-        this.action('合并为一行', 'One line', joinLines)
-      }.width('100%')
-
-      this.sectionTitle('去重与排序', 'Deduplicate and sort')
-      Row({ space: 8 }) {
-        this.action('行去重', 'Unique lines', uniqueLines)
-        this.action('忽略大小写去重', 'Unique, ignore case', uniqueLinesIgnoreCase)
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('只看重复行', 'Duplicates only', duplicateLines)
-        this.action('行倒序', 'Reverse lines', reverseLines)
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('升序', 'Sort A-Z', (value: string): string => sortLines(value, true, true))
-        this.action('降序', 'Sort Z-A', (value: string): string => sortLines(value, false, true))
-      }.width('100%')
-
-      this.sectionTitle('大小写', 'Letter case')
-      Row({ space: 8 }) {
-        this.action('转大写', 'Uppercase', (value: string): string => value.toUpperCase())
-        this.action('转小写', 'Lowercase', (value: string): string => value.toLowerCase())
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('首字母大写', 'Title Case', titleCase)
-      }.width('100%')
-
-      this.sectionTitle('编码与摘要', 'Encoding and digests')
-      Row({ space: 8 }) {
-        this.action('Base64 编码', 'Base64 encode', base64Encode)
-        this.codecAction('Base64 解码', 'Base64 decode', base64Decode)
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('URL 编码', 'URL encode', urlEncode)
-        this.codecAction('URL 解码', 'URL decode', urlDecode)
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('MD5 摘要', 'MD5 digest', md5)
-        this.action('SHA-1 摘要', 'SHA-1 digest', sha1)
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.action('SHA-256 摘要', 'SHA-256 digest', sha256)
-      }.width('100%')
+      // 每组动作收进系统菜单（点整行展开），页面不再铺满按钮。
+      this.sectionTitle('文本操作', 'Text actions')
+      this.menuEntry('clean')
+      this.menuEntry('sort')
+      this.menuEntry('case')
+      this.menuEntry('codec')
 
       Text(this.tr('处理结果', 'Result')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({

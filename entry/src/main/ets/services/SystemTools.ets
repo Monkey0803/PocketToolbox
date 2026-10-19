@@ -26,6 +26,24 @@ export function timeZoneOffsetMinutes(zoneId: string, instant: number): number {
 }
 
 /**
+ * 设备（应用）当前时区的 IANA id，例如 `Asia/Shanghai`。
+ *
+ * 用途有两个：① 界面把「本机」补成「本机 · 北京」，让用户知道自己在哪个时区；
+ * ② 让本机偏移也走 `i18n` 的同一套数据，与其它时区口径一致（取不到时页面回退
+ * `new Date().getTimezoneOffset()`，因此这里失败返回空串即可，不要猜一个值）。
+ *
+ * `getAppDefaultTimeZone()` 是 API 26 的静态方法；系统未实现时会被 catch 住。
+ */
+export function localTimeZoneId(): string {
+  try {
+    const zone: i18n.TimeZone = i18n.TimeZone.getAppDefaultTimeZone();
+    return zone.getID();
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
  * 系统（或应用）当前使用的语言标签，供「跟随系统」的界面语言使用。
  *
  * 优先 `getAppPreferredLanguage()`——它已经考虑应用自己的语言配置（含系统里的「应用语言」设置）；
