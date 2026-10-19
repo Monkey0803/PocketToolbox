@@ -2,7 +2,22 @@
 
 ## 当前状态
 
-- 逐条可执行的手机验收步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)：覆盖日期工具（分段入口、周期推算、倒数日、农历、节假日与调休）、时间戳工具与计时时长选择器，按编号回执即可定位问题。
+- **设置页「应用图标」改为无文字的图标网格（2026-10-19，已完成构建与模拟器复验）**：原来的五张图标卡片（预览缩略图 + 中文/英文名称 + 「已选择」文字）改成**只显示图标本身的方形缩略图网格**（`Flex` + `FlexWrap.Wrap`，76 vp 格子、56 vp 缩略图，一行放不下自动换行），**不再显示任何图标名称**；选中态用 `tintBlue` 底色 + `primary` 描边 + 右上角 `sys.symbol.checkmark_circle_fill` 对勾表示。名称没有丢：仍在每个格子的 `accessibilityText` 里（`默认图标/折叠工具/拼接模块/工具抽屉/工具网格`，选中时追加「已选择」），屏幕朗读仍能念出。**因为是固定尺寸的格子，没有用 `MaterialSurface`**（它的根节点固定 `width('100%')`，会把固定尺寸的格子撑变形），改由外层 `Stack` 提供退化底色与圆角——这一点已写进 `AGENTS.md` 的「多个互斥选项统一走 `OptionSelect`」例外说明。
+  - **验证**：`assembleHap` `BUILD SUCCESSFUL`（`Flex.space` 需要 `LengthMetrics.vp()`，第一版写成数字后编译报错 `Type 'number' is not assignable to type 'LengthMetrics'`，已修正）；模拟器（约 853 vp 宽形态）复验：设置页只出现 5 个方形缩略图、**文本层已无 `默认图标`/`工具网格`/`已选择` 等名称**；点第 5 个（工具网格）后底色从默认的 `#FFFFFFFF` 变为 `#FFDDEDFE`(tintBlue)、右上角出现对勾、应用图标随之切换为网格款（截图 `docs/screenshots/emulator/settings-icon-grid-zh.jpeg`、`settings-icon-grid-selected-zh.jpeg`）。
+  - **未覆盖**：① 窄屏（约 366 vp 手机）下的换行排布——本机连的是 853 vp 宽形态，5 个格子一行放得下（5×76 + 4×12 = 428 vp），窄屏会挤成 3 + 2 两行，需在真机复核；② `accessibilityText` 与屏幕朗读（`uitest dumpLayout` 不导出 `accessibilityText`，仅静态核对）；③ 深色模式下的格子底色与对勾对比度。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 22 节。
+
+- **指南针工具 + 快捷方式直达修复（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 19 个工具卡片**，仍不新增权限、不引入联网：
+  ① 页面 `component/CompassPage.ets` 订阅系统方向传感器 `sensor.SensorId.ORIENTATION`（当前 SDK 的 `@ohos.sensor.d.ts` 里该订阅**没有** `@permission` 标注，因此**权限仍只有 3 项**；`ACCELEROMETER` 仍是水平仪在用），按水平仪同一套生命周期订阅/取消（进入页面订阅、离开或退后台取消、读数不落盘）；盘面 24 格刻度与四个方位字按 `-heading` 反向旋转，顶部固定三角指示「手机顶部所指方向」，下方显示一位小数方位角与十六方位名。
+  ② 纯逻辑 `model/CompassMath.ets` 在既有归一化/十六方位/最短弧平滑之上补 `isCompassFlat()`（`beta`/`gamma` 容差 25°）、`compassTiltHint()`、`compassCalibrationHint()`；取不到传感器时显示 `headingErrorText()` 的双语说明而**不显示 0°**（0 会被误读成正北），斜着拿时显示「请放平」提示但读数照常显示。
+  ③ **快捷方式直达修复**：`resources/base/profile/shortcuts_config.json` 的 `wants` 原先写的是 `targetBundle`/`targetClass`，而当前 SDK 的 `toolchains/modulecheck/shortcuts.json` 只允许 `bundleName`/`moduleName`/`abilityName`/`parameters`（该 schema 的 description 里还留着旧名 `targetBundle`/`targetClass`，**不能照它写**）；现按 schema 改写，并给每个快捷方式的 `wants[].parameters` 显式登记 `{"tool":"<工具 id>"}`——目标工具 id 不再依赖启动器「自动注入 shortcutId」这一 SDK 里查不到的假设。`model/StartupIntent.ets` 新增可单测的 `pickStartupTool()`（先读 `tool` 参数，再兜底三个可能的 shortcutId 键名），`EntryAbility` 除 `onCreate` 外**新增 `onNewWant`**（热启动）落意图并用 `emitter` 叫醒首屏，`Index` 在 `aboutToAppear`/`onPageShow` 消费意图、`onPageHide` 清掉未被消费的残留意图。
+  - **验证**：单测全绿（新增 30+ 条：`pickStartupTool` 的键优先级/非字符串/空值与 4 个快捷方式 id 的映射、`isCompassFlat` 边界与 NaN/Infinity、两条新提示文案、工具登记表 18→19 的条数与唯一性、`指南针`/`compass`/`方位角`/`磁力计` 的搜索命中）；`assembleHap` `BUILD SUCCESSFUL`。
+  - **模拟器复验（API 26）**：`aa force-stop` 后 `aa start … --ps tool compass` 冷启动**直达指南针页**（标题「指南针」、盘面刻度与方位字、`0.0°` / `北`、校准提示）；应用运行中再 `--ps tool timers` 热启动直达「计时」页；用旧键名 `--ps ohos.extra.param.key.shortcutId barcode` 也能直达条形码页（兜底键生效）；不带参数的正常启动仍停在工具页、无残留意图乱跳；工具网格出现第 19 张卡片「指南针」（截图 `docs/screenshots/emulator/compass-page-zh.jpeg`、`compass-page-en.jpeg`）。
+  - **未覆盖（真机必做）**：① **桌面长按图标是否真的出现这 4 个快捷方式、点击是否直达工具页**——模拟器启动器的长按菜单只有「卸载」，这条只能在真机验收；配置键名已按 SDK schema 修正，但启动器行为无法在模拟器验证（步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 20 节）。② 真实磁力计读数与 `alpha` 的方向约定（SDK 只写「绕 z 轴转角 0–360」，**是「正北 0°、顺时针」还是相反必须真机核对**）、指针跟手与平滑手感、倾斜提示、磁场干扰与画「8」字校准、以及**无磁力计设备**的「读不到方向传感器」退化路径（本机模拟器有虚拟方向传感器且恒为 0°，动态旋转与缺失分支都验证不了）——逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 21 节。
+  - **隐私/商店文案已同步**：`docs/PRIVACY.md` 补了「指南针仅在该页面打开时读取方向传感器、不保存读数、无需权限」，`docs/STORE_LISTING.md` 的更新说明补了指南针与快捷方式两条（中英）。
+
+- **多个互斥选项统一为「选项行」（2026-10-19）**：散落的一排 `Button` 分段控件与 `Flex`/`Row` 自绘互斥按钮，统一改走新增的 `component/OptionSelect.ets`（与单位换算页「类别」同款：72 vp 标签 + 系统 `Select`，选中态 `primaryDeep`/`tintBlue`）。涉及单位换算（类别/从/到/精度）、日期工具（方式，原 `CapsuleSegmentButtonV2` 分段控件）、条形码（码制）、个税（计税类型/计算方向/社保与公积金录入方式）、设置（语言）、二维码（类型/WiFi 加密方式）、随机选择（骰子颗数与分组组数）。码制与计税类型补了纯逻辑登记表 `BarcodeTools.BARCODE_KINDS`/`IncomeTax.TAX_KINDS`（含下标查找，单测断言条数与唯一性）；`DATE_TOOL_MODES` 删掉只服务于分段控件的 `shortZh`/`shortEn`。`assembleHap` 与单测通过；模拟器已复验各页下拉的弹出、切换与语言刷新（见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 9 节），真机上的下拉菜单宽度/位置、平板与折叠屏形态仍未验收。
+
+- 逐条可执行的手机验收步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)：覆盖日期工具（方式选项行、周期推算、倒数日、农历、节假日与调休）、多选项统一为「选项行」的重构（第 9 节）、时间戳工具与计时时长选择器，按编号回执即可定位问题。
 - 工程 API 26，开发包名 `com.example.pockettoolbox`。**发布签名前必须替换为开发者账号下的正式包名**，并核对应用名称、版本号与设备类型。
 - DevEco Studio 已在本机配置调试签名；`assembleHap` 已生成可安装的 `entry-default-signed.hap`，并在 PLR-AL00（Mate 70 Pro，HarmonyOS 7 / API 26）安装启动。`build-profile.json5` 包含本机调试签名资料且已忽略，不是发布签名。
 - 代理提醒权益尚未申请/开通，后台及进程结束后的到期提醒未验收。普通本地通知不能替代该验收项。
@@ -11,7 +26,7 @@
 - 新增日期计算、文本工具、随机选择已通过逻辑测试和手机模拟器基础交互；正式签名包的真机交互、英文界面以及平板和折叠屏布局仍需验收。
 - 密码生成、文档扫描和水平仪已接入；密码逻辑与水平仪计算测试通过，模拟器已验证密码生成/显示/复制及水平仪读数。PLR-AL00 已验证文档扫描相机拍摄、JPG/PDF 生成与导出，以及水平仪实时倾角和气泡显示。扫描样本是桌面物品，纸张自动裁切效果仍待验收；水平仪不同姿态及退后台订阅状态仍待验收。
 - 倒计时时长改用系统时间选择器：`getUIContext().showTimePickerDialog()` 配 `TimePickerFormat.HOUR_MINUTE_SECOND` 和 24 小时制，对话框按应用级沉浸光感传入 `TimePickerDialogOptions.systemMaterial`；时分秒不再由三个数字输入框拼装，可选时长上限因此为 23:59:59。沉浸材质同时扩展到输入框、多行文本框、结果卡片、列表行和图标选择行，统一走 `component/MaterialSurface.ets`（外层容器提供退化底色）与 `model/Materials.ets`。新增片段时间收敛断言已通过，`assembleHap` 通过；选择器交互、材质观感与不支持材质时的退化路径仍需真机验收。
-- 日期计算页的入口从下拉菜单升级为页内分段控件：`CapsuleSegmentButtonV2`（系统组件，应用级 `enable` 时自带沉浸材质）直接铺出五种方式的短标签，选中项由组件自身高亮，内容区标题显示完整名称；短标签与标题都来自 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表（新增 `shortZh`/`shortEn` 字段），新增日期能力只需加登记项与分支。`assembleHap` 通过；真机上的分段控件宽度（窄屏是否截断）、选中态与切换后的内容刷新仍需验收。
+- 日期计算页的入口从下拉菜单升级为页内分段控件：`CapsuleSegmentButtonV2`（系统组件，应用级 `enable` 时自带沉浸材质）直接铺出五种方式的短标签，选中项由组件自身高亮，内容区标题显示完整名称；短标签与标题都来自 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表（新增 `shortZh`/`shortEn` 字段），新增日期能力只需加登记项与分支。`assembleHap` 通过；真机上的分段控件宽度（窄屏是否截断）、选中态与切换后的内容刷新仍需验收。**（已被 2026-10-19 的「多个互斥选项统一为选项行」取代：现在是与单位换算页「类别」同款的 `OptionSelect` 下拉，`shortZh`/`shortEn` 已删除；本条的实测结论仅对旧版分段控件有效。）**
 - 日期计算新增四种方式（全部为纯逻辑 + 断言，逻辑集中在 `model/DateTools.ets`）：① 日期间隔追加年/月/日的细分差值（月末与闰日按夹取语义，`calendarSpan()`）；② 年龄计算（出生日期到参考日期的周岁、月龄、总天数，`ageAt()`）；③ 工作日（仅排除周六周日，可切换是否计入起始日期，`workingDaysBetween()`；并给出自然日天数作对照）；④ 星期与周数（星期几、年内第几天、ISO 8601 周序号与周历年，`calendarInfo()`）。「日期推算」新增「按工作日推算」开关，走 `addWorkingDays()`。工作日一律不含中国法定节假日与调休数据，界面已注明。新增 52 条模型断言与构建均通过；真机上的菜单选择、开关切换、切换语言后的文案与结果刷新仍需验收。
 - 日期计算的起始与目标日期改用系统日期选择器：`showDatePickerDialog()` 配 `onDateAccept` 与 `systemMaterial`，字段只展示当前日期并可点击，不再手输 `YYYY-MM-DD`；`model/DateTools.ets` 新增 `pickerDate()`／`pickerDateText()` 做本地时间往返（含年份 0–99 与闰日断言）。日期选择器默认可选范围约 1900–2100 年，比原先手输的 0001–9999 窄。真机首轮发现：选择日期后下方结果已更新而日期卡片仍显示旧值，原因是日期值作为 `@Builder` 按值参数传入、不随状态刷新；现改为只传 `kind` 常量并在构建函数体内读取状态，构建通过。选择器交互、年月日滚动与修复后的刷新仍需真机复验。
 - 「日期推算」扩展为周期推算：单位下拉（系统 `Select`）取 `model/DateTools.ets` 的 `DATE_SHIFT_UNITS`（天/工作日/周/月/年），统一走 `shiftDate()`。月与年保持月末夹取语义（1 月 31 日加一个月得 2 月 28/29 日，2020-02-29 加一年得 2021-02-28），工作日跳过周六周日；输入框占位符随单位切换。原来的「按工作日推算」开关被该下拉取代。新增 22 条断言（含周数上限、未知单位、非法数量）与构建均通过；真机上的下拉菜单弹出、单位切换与结果刷新待测。
@@ -46,6 +61,99 @@
 - 模拟器验收轮（2026-10-16，API 26）按 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 逐条跑完，并修掉跑出来的两个 UI 缺陷与一处过期断言：① **工具卡片标题不跟随语言切换**——`Index.ets` 的 `toolGrid()` 把 `this.tr(...)` 的结果按值传给 `@Builder card(...)`，切到 English 后标题栏与底部页签变了、14 张工具卡片仍是中文；现改为只传 `tool.id`，标题由新增的 `toolTitle(id)` 在构建函数体内读取 `this.english`（前后对比见 `docs/screenshots/emulator/tools-grid-language-stale-before-fix.jpeg` 与 `tools-grid-language-fixed-en.jpeg`）；② **日期工具英文分段标签截断**——约 366 vp 窄屏下 `Interval`/`Calendar` 被系统显示成 `Inte…`/`Cal…`，现把 `model/DateTools.ets` 的 `shortEn` 改为 `Days`/`Week`（完整名称仍在内容区标题显示，对比见 `date-tool-en-segments-truncated-before-fix.jpeg` 与 `date-tool-en-segments-after-fix.jpeg`）；③ `tests/run-unit-tests.mjs` 中 `parseDuration('24','0','0')` 的过期断言改为 `23:59:59 = 86399000` 与 `24 小时 = 0`，单测恢复全绿。同日还顺手核对了 1.2 日期选择器刷新（2027-01-16 卡片与结果同时更新）、1.2 倒数日、1.5 工作日开关（2 天 ↔ 1 天）、1.7 ISO 周、2.x 时间戳全量用例与 3 时长选择器；模拟器形态覆盖约 366 vp（2 列）与约 853 vp（4 列，内容列居中）。
 
 - 日期工具的农历期望值已用**外部权威数据**核对（香港天文台《公历与农历日期对照表》2026 年与 2025 年文本版）：2026-10-16 为**九月初七**（清单原稿误写「八月廿六」，八月廿六实为 10-06）、2026-10-10 九月初一、2026-02-17 正月初一、2026-09-25 八月十五、2026 年为丙午·马年、2026-10-15 为周四；2025-07-24 为六月三十、2025-07-25 为**闰六月初一**。该对照表只覆盖农历与星期，ISO 周序号仍由代码推演核对（2026-10-15 第 42 周、2021-01-01 第 53 周（2020）、2024-12-30 第 1 周（2025））。
+
+- **指南针（纯逻辑层，2026-10-19；页面与真机验收未做）**：新增 `model/CompassMath.ets`：`normalizeHeading()`（任意角度折进 `[0,360)`）、`directionIndex()`/`directionLabel()`（十六方位，每 22.5° 四舍五入，中英双名如 `北`/`N`、`北北东`/`NNE`）、`headingText()`（一位小数；359.96° 显示 `0.0°` 而不是 `360.0°`）、`smoothHeading()`（**最短弧**指数平滑，359°→1° 不会平均成 180°）、`headingDelta()`（最短夹角）、`headingErrorText()`（读不到传感器时显示双语说明，**不显示 0°**，以免被误读成正北）。
+  - **验证**：单测全绿（新增 50+ 条：归一化的负数/超 360/NaN/Infinity、十六方位全部切点与中英命名、角度文本的进位回绕、平滑的 alpha 夹取与首次采样、跨 0° 平滑不回跳到 180°、最短夹角边界）。`assembleHap` 未受影响。
+  - **未做**：传感器订阅页（`motion`/roto 传感器读数、权限与不支持时的降级、真机校准与磁场干扰提示）与真机验收——模拟器无法验证磁力计。
+
+- **系统入口启动意图 + OCR 能力核查（2026-10-19）**：
+  ① 已落地：纯逻辑 `model/StartupIntent.ets`（`setStartupTool()`/`consumeStartupTool()`/`peekStartupTool()`/`clearStartupTool()`，`TOOL_IDS` 白名单 + 一次性消费）；`resources/base/profile/shortcuts_config.json`（4 个快捷方式：生成二维码 / 生成条形码 / 科学计算器 / 计时与秒表，标签走 `$string:shortcut_*`，中英各一份）；`module.json5` 的 `metadata` 增加 `{ "name": "ohos.ability.shortcuts", "resource": "$profile:shortcuts_config" }`；`EntryAbility.onCreate` 读 want 参数（`ohos.extra.param.key.shortcutId` 加两个兜底键）后写入意图；`Index.aboutToAppear()` 消费意图并 `navigate()` 直达工具页。`assembleHap` `BUILD SUCCESSFUL`，单测全绿（意图通道 10+ 条断言）。
+  ② **端到端未复现（模拟器实测）**：`aa force-stop` 后用 `aa start -b com.example.pockettoolbox -a EntryAbility --ps ohos.extra.param.key.shortcutId science` 启动，应用**停在「工具」页**而不是科学计算器页——说明该键名下参数没有送达 `setStartupTool()`（或 `--ps` 的传递形式与 onCreate 读取方式不匹配）。**因此「长按图标快捷方式直达工具」尚未验收通过**，下一步要先核对华为官方文档里的快捷方式 want 键名与 `shortcuts` 配置字段，再用真机启动器长按验证；在确认之前不要对外宣称该功能可用。
+  ③ **文档扫描 OCR 暂不可行**：当前 DevEco SDK（API 26）里检索不到 Core Vision Kit / `textRecognition` 声明（`openharmony/ets/api` 与 `ets/kits` 均无命中）。
+
+- **设备信息（设置页，2026-10-19，已完成构建与模拟器复验）**：设置页新增「设备信息」区块，显示**设备型号、产品名称（与型号不同时）、系统版本、API 版本、应用版本、设备类型**，并注明「只在本机读取并显示，不写入存储、不联网」。**不新增权限**：只用 `@kit.BasicServicesKit` 的 `deviceInfo` 只读属性与 `bundleManager.getBundleInfoForSelfSync()`；取不到的字段返回空串并跳过该行（不臆造值）。取代了原来写死的「版本 1.0.0」文案。
+  - **验证**：`assembleHap` `BUILD SUCCESSFUL`；模拟器复验设置页出现 5 行真实值：`emulator`、`OpenHarmony-7.0.0.105`、`1000000`（API 版本）、`1.0.0 (1000000)`、`phone`（[settings-device-info-zh.jpeg](screenshots/emulator/settings-device-info-zh.jpeg)）。
+  - **未覆盖（真机）**：真机的型号/市场名与平板、折叠屏的设备类型显示；深色下的对比度。
+
+- **科学计算器（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 18 个工具卡片**，不新增权限、不引入联网。
+  ① 纯逻辑 `model/ScientificCalc.ets`：递归下降解析（expression→term→unary→power→primary），支持 `+ - * / ^ mod`、括号、常量 `pi`/`e`、函数 `sin/cos/tan/asin/acos/atan/ln/log/sqrt/abs`；`^` 右结合、三角函数按 DEG/RAD、`mod` 左结合；错误以**错误码**返回（`empty`/`syntax`/`unknown`/`domain`/`divzero`/`overflow`），界面用 `calcErrorText()` 转双语提示；结果格式化复用 `Units.formatValue(value, 10)`。
+  ② 页面 `component/SciencePage.ets`：一行表达式输入、DEG/RAD 走 `OptionSelect`、常用键（`pi`/`e`/`sqrt(`/`ln(`/`^`/`mod`）快捷插入、结果卡与复制/清空。结果行按「只传常量、体内现取」渲染（`resultText()`）。
+  - **验证**：单测全绿（新增 60+ 条：优先级与左/右结合、一元负号、`mod`、常量大小写、DEG/RAD 各三角函数与反函数、`ln`/`log`/`sqrt`/`abs`、六类错误码（含 `1/0`、`5 mod 0`、`sqrt(-1)`、`ln(0)`、`asin(2)`、`tan(90)`、`2^10000`）、格式化与登记表文案）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验工具网格出现「科学计算器」（第 18 张）、页面打开、`1+2*3` 求值得到 **7**（[science-calculator-zh.jpeg](screenshots/emulator/science-calculator-zh.jpeg)）。
+  - **已知约定与限制**：不支持隐式乘法（`2pi` 要写 `2*pi`）；`mod` 必须与数字分开写（标识符会贪婪吞数字，`7mod3` 报语法错误）；`tan(90)` 判为定义域错误而不是巨大数值。
+
+- **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
+  ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
+  ② **工具搜索支持关键词**：`model/ToolMeta.ets` 的 `ToolMeta` 增加可选 `keywords`（别名/缩写，只参与搜索不显示），`matchTools()` 一并匹配；已为二维码/条码/计算/个税/单位/计时/日期/时间戳/文本/随机/密码/贷款/颜色/健康/文档扫描/水平仪补齐关键词（如「健康计算」可用 `BMI`/`BMR`/`基础代谢` 搜到，`房贷` 命中贷款计算）。
+  - **验证**：单测全绿（新增 60+ 条：BMI 已知值与四个切点、正常体重范围、BMR 男女两例精确值、TDEE 五档、解析与错误文案、关键词搜索与「关键词不污染标题匹配」）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验工具网格出现「健康计算」、输入 175/70 得到 `BMI 22.9 · 正常`、`正常体重范围 56.7 – 73.2 kg`，年龄非法（0 或 >120）时 BMR/TDEE 行自动隐藏且不崩。
+  - **同时修掉一个真缺陷（模拟器验收发现）**：三个新页面（健康/贷款/颜色）把 `formatMoney(...)`、`toHex(...)`、`xxxText()` 这类**算好的值当参数传给 `@Builder`**，导致数值不随状态刷新——健康页输入从「7」变「70」后 BMI 行仍显示 2.3（实际应为 22.9）。三处值行已改为**只传常量 `kind`、在构建函数体内现取**（`valueText(kind)` / `moneyText(kind)`），复验后 BMI 正确显示 22.9。
+  - **未覆盖（真机）**：`keywords` 的真机搜索手感；健康结果与体检口径的差异说明仅作估算提示，见 `DEVICE_ACCEPTANCE.md` 第 17 节。
+
+- **深色主题（2026-10-19，按系统跟随，已完成构建与模拟器复验）**：**不新增权限、不引入联网**，界面颜色改为**资源化**，由系统深色开关自动切换：
+  ① `model/ToolPalette.ets` 的 36 个语义色从字符串字面量改为 `$r('app.color.tool_*')`；浅色/深色两套值分别在 `resources/base/element/color.json` 与 `resources/dark/element/color.json`（含 `start_window_background` 的深色值）。
+  ② 类型随之收紧：`MaterialSurface.fallback` 改为 `ResourceColor`、`ToolCatalog.ToolEntry.color`/`ToolSpec.color` 与 `Index.card()/favoriteCard()` 的 `color` 改为 `Resource`、`TimersPage.lapColor()` 返回 `ResourceColor`——**界面代码仍然只写 `ToolPalette.xxx`，不需要关心当前主题**，也没有任何状态传递或重绘逻辑。
+  ③ `EntryAbility.onCreate` 保持 `setColorMode(COLOR_MODE_NOT_SET)`（跟随系统），并补了注释说明深浅两套资源的位置。
+  - **验证**：`assembleHap` `BUILD SUCCESSFUL`（深色改造后仅上述 5 处类型声明需要调整，277 处 `ToolPalette.*` 用法零改动）；单测全绿（色板不参与单测，其余模型未受影响）；模拟器复验**浅色回归**（16 张卡片配色与原设计一致，截图 `tools-light-final.jpeg`）与**深色渲染**（把 `EntryAbility` 临时改为 `COLOR_MODE_DARK` 构建一次，得到深底 `#0F141B`、暗色调卡片、浅色文字、深色页签与状态栏，截图 `tools-dark-zh.jpeg`，随后已回退为跟随系统并复验）。
+  - **未覆盖**：模拟器改「系统深色开关」需在设置应用里多次点击，本轮改用「临时强制深色」验收同一套资源；**真机需用系统深色开关再走一遍**，并核对沉浸材质、`Select` 菜单底色、代码图（二维码/条码）白底在深色下的观感——见 `DEVICE_ACCEPTANCE.md` 第 16 节。
+
+- **颜色工具（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 16 个工具卡片**，仍不新增权限、不引入联网。
+  纯逻辑 `model/ColorTools.ets`：解析（`#RGB`/`#RRGGBB`/`rgb(r, g, b)`，`#` 可省略、大小写不限）、`toHex()`（统一大写 `#RRGGBB`）、`rgbToHsl()`/`hslToRgb()`（h 0–360、s/l 0–100）、`relativeLuminance()`（WCAG sRGB 线性化）、`contrastRatio()`（1–21，两位小数）、`contrastVerdict()`（AAA/AA/仅大号文字/不达标）、`suggestedForeground()`（浅底配黑字、深底配白字）。页面 `component/ColorPage.ets`：色块预览、HEX/RGB/HSL 三行可复制、第二个输入框做前景背景对比度并给出实际叠色示例与两级判定。
+  - **验证**：单测新增 45+ 条（解析的合法/非法样例、HEX 输出、HSL 往返与常见色、相对亮度 0/1、黑白对比度 21、同色 1、深蓝对白底 >11、判定阈值 7/4.5/3 的上下界、建议前景色、文案）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验默认 `#0D3B66` → `rgb(13, 59, 102)`、`hsl(209, 77%, 23%)`、对比度两级均为 `AAA`、建议前景色 `#000000`；清空输入 → 两个区块都显示输入提示且不崩。
+  - **未覆盖**：从相册照片取色（需要图片采样，本轮未做）；真机上大字号/色块观感与 WCAG 判定的实际可读性主观核对。
+
+- **二维码生成选项 + 从图片识别 + 贷款计算工具（2026-10-19，已完成单测、构建与模拟器复验）**：本轮**新增 1 个工具卡片（14 → 15：贷款计算）**，仍不新增权限、不引入联网：
+  ① **二维码生成选项**：新增纯逻辑 `model/QrStyle.ets`（容错等级 `QR_LEVELS` L/M/Q/H，数值与 `generateBarcode.ErrorCorrectionLevel` 序号一致；码色 `QR_COLORS` 经典黑白/深蓝/墨绿，均为浅底深码以保证对比度），`services/SystemTools.makeQr()` 接收等级与码色 id 并映射到 `level`/`backgroundColor`/`pixelMapColor`；二维码页加两行 `OptionSelect`。
+  ② **从图片识别**：`services/SystemTools.decodeCodeFromImage()` 用 `photoAccessHelper.PhotoViewPicker` 选图 + Scan Kit `detectBarcode.decode({uri}, {scanTypes:[ALL]})` 识别（纯本机，不联网）；二维码页与条形码页各加一个「从相册图片识别」纯图标按钮，条码页的图片入口对**所有码制**可用（一维扫码入口仍只在非二维码制下显示）。取消选图与「图里没有码」都返回空串，提示文案覆盖两种情况。
+  ③ **贷款计算工具**：纯逻辑 `model/LoanMath.ets`（等额本息闭式解 + 逐月摊还累计；等额本金每月固定本金、利息按剩余递减；金额一律**整数分**、利率百分数，最后一期结清本金，逐期利息四舍五入到分），新增 `component/LoanPage.ets`，并在 `TOOL_META`/`ToolCatalog`/`toolRoutes` 各登记一处。
+  - **验证**：单测全绿（新增 60+ 条：二维码等级/码色登记表与数值、贷款期限换算、金额与利率解析边界、等额本息与闭式解一致且月供 `5307.27`、总利息 `910615.12`、等额本金首月 `6861.10`/末月 `2791.92`/递减 `11.34`/总利息 `737043.71`、零利率与单期边界、错误码）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验工具网格出现「贷款计算」、等额本息与等额本金两组结果、二维码页容错等级/码色两行可切换、图片识别按钮拉起系统选图并在取消后给出提示（`尚未识别到`）。
+  - **未覆盖（真机必做）**：容错等级/码色对实际成像与扫码的影响、**从真实图片识别**（模拟器相册无图且无生成能力）、贷款结果的银行口径差异——见 `DEVICE_ACCEPTANCE.md` 第 14 节。
+
+- **时间戳时区换算（2026-10-19 三期前续，已完成单测、构建与模拟器复验）**：时间戳页新增「时区换算」段——`OptionSelect` 选时区（18 个常用时区 + 本机），显示该时区时间、`UTC±HH:MM` 偏移与「比本机快/慢」文案。
+  ① **纯逻辑** `model/TimeZoneTools.ets`：时区登记表 `TIME_ZONES`（`local` + 17 个 IANA id，中文名用城市名）、`formatOffsetText()`（含 `UTC+05:30`/`UTC-03:30` 这类半小时与 45 分钟偏移）、`zoneDateTimeText(instant, offsetMinutes)`（先加偏移再取 UTC 字段，**与运行设备的本地时区无关**，因此断言可跨机器稳定）、`offsetDiffText()`（相同/快/慢，小时与分钟组合）。
+  ② **系统侧**：`services/SystemTools.timeZoneOffsetMinutes(zoneId, instant)` 用 `i18n.getTimeZone(id).getOffset(instant)` 取**该瞬间**的偏移（**含夏令时**，因此不做固定偏移表），失败返回 `NaN`，界面显示「当前设备不支持该时区」而不是 0（0 会被误读成 UTC）；页面按「时区 + 分钟」缓存偏移，避免每帧都调系统。
+  - **验证**：单测新增 30+ 条（登记表规模/唯一性/双语完整性、id 查找与回退、偏移文案含半小时与 45 分钟、按偏移换算的 UTC/北京/纽约/新德里/圣保罗时刻、跨日边界、快慢文案的相同/整点/半点/英文单复数/NaN）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验本机（`UTC+08:00` / 与本机相同）、选新德里后 `该时区时间 14:10:56`、`UTC+05:30`、`比本机慢 2 小时 30 分钟`（本地为 `16:40:56`）。**模拟器抓到并修掉一个真 bug**：最初「该时区时间」复用了本地时间行，显示成本地时间而非 14:10:56。
+  - **未覆盖**：真机上的 `i18n.getTimeZone()` 数据完整性与夏令时切换时刻需实机核对（`DEVICE_ACCEPTANCE.md` 第 13 节）。
+
+- **收藏拖拽排序 + 条码再补四种码制（2026-10-19 三期前续，已完成单测、构建与模拟器复验）**：
+  ① **收藏拖拽排序**：纯逻辑 `model/ToolMeta.ets` 的 `moveFavorite(items, from, to)`（按 ArkUI `onItemDrop` 的 `insertIndex` 语义，先摘除再插入，落点夹取到摘除后的长度；越界与原位返回原数组）；收藏页新增**排序模式**（右上角图标切换，模式内不挂长按菜单以免手势冲突），Grid 用 `editMode` + `onItemDragStart`/`onItemDrop`，拖拽预览由 `favoriteDragPreview()` 提供，落盘复用 `saveFavorites()` 并支持失败回滚。**为什么是显式模式而不是「长按即拖拽」**：长按已经用于弹出「置顶/取消收藏」菜单，同一手势不能既弹菜单又拖动。
+  ② **条码码制再补 4 种**：新增 **UPC-E**（`upceToUpcaData()` 做 UPC-E→UPC-A 展开再求模 10 校验位，标准例 `0123456` → `01234565`）与**二维码制 Data Matrix / PDF417 / Aztec**（可打印 ASCII，容量 500/1000/500）；二维码制下**不再显示「扫描一维码」按钮**（一维扫码器读不出二维码，留着会让人以为扫不动是坏了）。同时修掉上一轮的真实隐患：`services/SystemTools.makeBarcode()` 原先只映射 EAN-13/EAN-8/Code 128，**上一轮新加的 5 种码制全部静默退化成 Code 128**；现在映射由纯逻辑 `barcodeFormatId()` 给出（与 `scanCore.ScanType` 成员名一致），单测断言登记表 12 个码制都有对应格式 id。
+  - **验证**：单测全绿（新增 25+ 条：`moveFavorite` 9 种落点/越界/原位/去重、UPC-E 展开与校验位、二维码容量边界、12 项登记表与格式 id 全覆盖）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验收藏排序模式提示与图标切换、拖到最右侧落到最后一位、重启后顺序保持、码制下拉 12 项、选 Data Matrix 后提示变化且**只剩生成按钮**、选 UPC-E 后提示与输入 6 位数字的错误提示。
+  - **未覆盖（真机必做）**：本机模拟器**没有 Scan Kit 生成能力**，12 种码制的成像与实扫需真机验证（`DEVICE_ACCEPTANCE.md` 第 12 节）；拖拽在真机上的手感与长按阈值为真机项。
+
+- **收藏置顶（2026-10-19 三期前，已完成单测、构建与模拟器复验）**：收藏页长按卡片弹出系统上下文菜单（`bindContextMenu` + `ResponseType.LongPress`，不自绘弹层），提供**置顶**与**取消收藏**。排序规则在纯逻辑 `model/ToolMeta.ets` 的 `promoteFavorite(items, id)`：把目标项移到数组头部、其余项相对顺序不变、重复项去重，且只接受白名单内的工具 id（与 `allowedFavorites()` 同一套白名单，不会置顶出下次启动就被丢弃的条目）；`Index.promoteFavorite()` 负责落盘与失败回滚，已在最前时不写盘。菜单内容在构建函数体内现取（`@Builder` 参数只放常量 id），语言切换后菜单文案与会话状态都跟着当前值走。
+  - **验证**：单测新增 7 条（置顶到最前、已在最前时不变、空列表、未知 id 只过滤、重复项去重、空 id、对整份工具清单置顶）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验长按第二行卡片弹出「置顶 / 取消收藏」→ 点置顶后 toast「已置顶」且该项从第 5 位移到第 1 位、其余顺序不变（截图 `docs/screenshots/emulator/favorite-longpress-menu-zh.jpeg`）→ 长按另一卡片点「取消收藏」后该项从列表消失、toast「已取消收藏」。
+
+- **条码码制扩展 + 历史增强（2026-10-19 三期前，已完成单测、构建与模拟器复验）**：仍然**不新增工具卡片（14 项）、不新增权限、不引入联网**：
+  ① **条码码制**：`model/BarcodeTools.ets` 的码制登记表从 3 项扩到 8 项（新增 **Code 39 / Code 93 / UPC-A / ITF-14 / Codabar**，与既有 Code 128、EAN-13、EAN-8 并列）。码制来自 Scan Kit `generateBarcode` 的能力说明（现支持 EAN-8、EAN-13、UPC-A、UPC-E、Codabar、Code 39、Code 93、Code 128、ITF-14、QR、Data Matrix、PDF417、Aztec；UPC-E 与二维码类本次未纳入）。输入校验全部是纯逻辑：EAN-13/EAN-8/UPC-A/ITF-14 共用模 10 校验位（只传数据位，用户给完整码时先校验再拒绝），Code 39/93 小写自动转大写且不接受 `*`，Codabar 允许两端各一个 A–D；**输入提示、是否用数字键盘、校验失败文案**也由 `barcodeHint()`/`barcodeNumeric()`/`barcodeErrorText()` 提供，页面不再写码制分支。
+  ② **历史增强**：历史页新增**关键字搜索**（与类别筛选共用 `historyItemShown()` 判定）、**删除当前筛选结果**（仅在筛选/搜索生效时出现，避免与「清空全部」同时暴露两个删除按钮）、**点条目跳回来源工具并回填内容**（`historyTargetRoute()` 决定跳哪个工具、`historyRefill()` 决定回填什么：截断过的条目不回填，时间戳只回填秒级时间戳；回填经 `@Param initialValue` + `onInitialConsumed` 一次性消费，正常进入工具页不会被旧内容污染）。
+  - **验证**：单测全绿（新增 40+ 条：UPC-A `036000291452`、ITF-14 `12345678901231` 等已知校验位向量，Code 39/93 大小写与 `*` 规则，Codabar 起止符，8 项登记表完整性，搜索/筛选/跳转/回填规则）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验码制下拉 8 项、Code 39 提示与非法输入提示「不要输入 *」、历史搜索 `0.001` 只剩换算行、`1792` 只剩时间戳行、删除当前筛选结果后换算行消失而时间戳行保留、点时间戳行跳到时间戳页并回填 `1792398159`、随后正常进入时间戳页显示的是当前时间（一次性消费生效）。
+  - **未覆盖（真机必做）**：本机模拟器**没有 Scan Kit 生成条码的能力**（生成 Code 39 与 Code 128 都返回「生成条形码失败」，与二维码工具同样的环境限制），因此 **8 种码制的实际成像与可扫描性必须真机验证**（按 `DEVICE_ACCEPTANCE.md` 第 11 节）。
+
+- **统一历史记录（2026-10-19 二期续，已完成单测、构建与模拟器复验）**：历史从「只有二维码」扩成一份统一列表（上限 50 条，新的在前，**不新增工具卡片与权限**）。
+  ① **模型**：新增纯逻辑 `model/HistoryKinds.ets`——类别登记表 `HISTORY_KINDS`（all/generated/scanned/text/units/timestamp）、`historyKindLabel()`、`historyItemVisible()`、`historyTimeText()`（`MM-DD HH:mm`，按本机时区）、`historyContentSnippet()`（>500 字截断加 `…`）。
+  ② **页面**：`component/HistoryPage.ets` 增加类别筛选（统一走 `component/OptionSelect.ets`）、条目时间标签与「清空历史记录」（`@Event onClear`）+ 分类别空态；`Index` 的 `clearQrHistory()` 改名 `clearHistory()` 并放开语义，设置页动作与隐私文案同步改为「历史记录 / 全部历史（二维码生成与扫码、文本结果、换算结果、时间戳复制）」。
+  ③ **记录时机**：`TextPage`/`UnitsPage`/`TimestampPage` 在**复制结果**时经新增 `@Event onRecord(kind, content)` 交给 `Index.addHistoryItem()` 统一落盘（换算记「输入 + 源单位 = 结果 + 目标单位」，时间戳记「本地时间 · 秒级时间戳」）；空内容不入库、超长内容截断。
+  - **验证**：单测全绿（新增 20+ 条）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验换算入历史（`换算结果 / 1 帕斯卡 = 0.001 千帕`）、时间戳入历史且**重启后仍在**、按类别筛选、清空生效。逐条见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 10 节。
+  - **未覆盖**：文本页复制按钮位于本机模拟器点不动的 y>1900 区域，文本记录路径需真机复核；历史搜索与批量删除仍未做。
+
+- **二期能力落地（2026-10-19，已完成单测、构建与模拟器复验）**：在竞品路线二期范围内继续推进，仍然**不新增工具卡片（14 项）、不新增权限、不引入联网**：
+  ① **随机工具深化**：`model/RandomTools.ets` 新增 `indexFromDraw`、`shuffleCandidates`（Fisher-Yates，注入 `nextIndex(bound)` 随机源以便断言）、`groupCandidates`（先洗牌再轮转分配，组间最多差 1 人）、`rollDice`（1–5 颗）、`coinFlip`，并导出 `DICE_COUNTS`／`GROUP_COUNTS` 登记表；`component/RandomPage.ets` 增加「骰子与硬币」与「名单抽取、排序与分组」两段，名单结果统一进一张结果卡（标注当前是抽取/排序/分组）。
+  ② **文本编码与摘要**：新增纯逻辑 `model/EncodingTools.ets`（UTF-8 字节、Base64 编解码、URL 百分号编解码，均手写实现，不依赖 `TextEncoder`/`btoa`；解码失败返回错误码）与 `model/HashTools.ets`（**MD5 / SHA-1 / SHA-256**，按 UTF-8 字节手写，无乘法算子依赖）；`component/TextPage.ets` 增加「编码与摘要」段（Base64 编码/解码、URL 编码/解码、MD5/SHA-1/SHA-256，后两项失败走 toast）。摘要**不是加密**，文案与文档均按「摘要」表述。
+  ③ **计时深化**：`model/TimerMath.ets` 新增 `DURATION_PRESETS_MINUTES`、`lapDurations`、`fastestLapIndex`／`slowestLapIndex`；`component/TimersPage.ets` 增加常用时长预设（1/5/10/15/25/30 分）、`重复计时`开关（一轮结束后自动开始下一轮，`CountdownItem.repeat` 持久化并按布尔归一）与秒表计次（`StopwatchData.laps` 持久化，列表显示单次/累计并标出最快最慢）。
+  ④ **收藏顺序**：收藏页改为按收藏顺序渲染（新收藏在前），`model/ToolMeta.ets` 的 `allowedFavorites()` 由「按 TOOL_IDS 排序」改为**保留传入顺序**并去重，避免重启后顺序被打回登记表顺序。
+  - **本轮修掉的真缺陷（模拟器实测发现）**：秒表点「开始/计次」后界面不刷新。原因是 `this.watch = this.watch` 是同一引用，ArkUI V2 收不到 `@Local` 变更通知；而当没有倒计时在跑时，页面里只有 `watchElapsedMs()` 会读 `this.now`，读不到就不会因 250 ms tick 重建，于是状态变了界面不动（实测：点开始后时间停在 `00:05:04`、计次按钮状态不变）。现改为 `syncWatch()` 复制出一个**新对象**再赋值，点开始后时间正常递增、计次立即出现新行。
+  - **测试基础设施**：`tests/run-unit-tests.mjs` 的加载器由 `data:` URL 改为把去类型后的模块写到 `/.cache/unit-tests/` 下（保持相对目录结构并重写相对 import），因此**模型文件之间可以互相 import**（`HashTools` 复用 `EncodingTools` 的 UTF-8 与十六进制函数）；此前「纯逻辑文件不能互相引用」的限制已解除。
+  - **验证**：单测全绿（本轮新增约 90 条：随机 30+、编码与摘要 60+、计次 15+，其中 MD5/SHA-1/SHA-256 与 Node `node:crypto` 交叉验证并覆盖 55/56/63/64/65/119/120/127/128/1000 字节填充边界）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验骰子（`1 · 5  合计 6`）、硬币（`反面`）、分组（5 人 2 组 → `第 1 组：d、c、b` / `第 2 组：e、a`）、随机排序、Base64 编码（`abc` → `YWJj`）、Base64 解码错误提示、SHA-256（`abc` → `BA7816BF…0015AD`）、时长预设（1 分 → `00:01:00`）、重复计时（跨轮自动开始下一轮）、秒表计时与计次（`#1 00:05:04 / 00:05:04`、`#2 00:00:00 / 00:05:04`、`最快 00:00:00 · 最慢 00:05:04`，再点计次出现 `#3`）。
+  - **仍未覆盖（真机待验）**：平板/折叠屏下的新分段与列表布局、深色模式（未实现）、秒表长时运行与后台切换表现；逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 8 节。
+  - **时效提示**：本轮的设备回执跑于 2026-10-19 15:15–15:26 的构建。同期另一个会话在同一检出/同一模拟器上并行重构（抽出 `component/OptionSelect.ets` 并应用于 `RandomPage`/`QrPage`/`UnitsPage`/`DatesPage`/`BarcodePage`/`TaxPage`/`SettingsPage` 等），期间一度编译失败后已由其修复；复跑第 8 节前请确认并行会话已停止，避免结论被后续改动覆盖。
+- **竞品对比与一期能力落地（2026-10-19，已完成单测、构建与模拟器复验）**：本轮按 [竞品对比与演进路线](COMPETITIVE_ANALYSIS.md) 的一期范围改了五处，**不新增工具卡片（仍 14 项）、不新增权限、不引入联网**：
+  ① **工具元数据单一数据源**：新增纯逻辑 `model/ToolMeta.ets`（`TOOL_META`/`TOOL_IDS`/`allowedFavorites`/`matchTools`），`model/ToolCatalog.ets` 改为由元数据派生图标与卡片底色（缺图标时回退通用图标并打日志）。**修复缺陷**：`model/LocalData.ets` 原先手写的收藏白名单只有 13 个 id、漏掉 `timestamp`，收藏「时间戳」后重启会被静默丢弃；现由 `allowedFavorites()` 派生，模拟器已验证「收藏时间戳 → 重启 → 仍在收藏页」。
+  ② **工具搜索**：`pages/Index.ets` 在工具网格上方加系统 `Search`（`MaterialSurface` 包裹，未重复设 `systemMaterial`），按中英标题与 id 做子串匹配（大小写与空格不敏感，`qrcode` 能命中 `QR code`），无命中时给中英空态文案；只过滤「工具」Tab。
+  ③ **文本工具深化**：`model/TextTools.ets` 新增 `trimLines`/`collapseSpaces`/`joinLines`/`uniqueLinesIgnoreCase`/`duplicateLines`/`sortLines`/`reverseLines`/`titleCase` 与单词、中文字、段落三项统计（中文词数按空白切分，故与「中文字」分开计数）；`component/TextPage.ets` 按「整理 / 去重与排序 / 大小写」三段摆放 11 个操作，结果卡新增「用作输入」「清空」两个纯图标按钮。
+  ④ **单位换算深化**：`model/Units.ets` 由 8 类扩到 14 类（新增压力、能量、功率、角度、频率、油耗，并在长度/重量/面积加入市制尺、寸、里、斤、两、亩）；非线性换算改用 `UnitCategory.special`（`temperature`/`fuel`）驱动，不再按类别 id 硬编码；新增 `PRECISION_OPTIONS`（6/8/10/12 位有效数字，默认 10 保持旧显示）、`categoryIndex`/`unitIndex`，`formatValue` 对 `|v| < 1e-6` 定点展开（1 mm → 英里 显示 `0.0000006213711922` 而非 `6.2e-7`）；`component/UnitsPage.ets` 增加精度下拉与「同类其他单位」对照表（排除当前目标单位），并把类别/源单位/目标单位/精度写入 `units_state`，读取时按 id 校验并夹取。
+  ⑤ **二维码内容模板**：新增纯逻辑 `model/QrContent.ets`（文本/网址/WiFi/名片/电话/短信/邮件/位置八种模板，含 WIFI 与 vCard 转义、URL/邮箱/电话/经纬度校验、双语错误码），`component/QrPage.ets` 加内容类型下拉与按类型的字段（字段值统一放 `@Local fields` Map，`@Builder textField(id)` 只收常量 id，避免按值传状态不刷新）。
+  - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` 全绿（新增约 150 条断言：ToolMeta/搜索、文本 30+、换算 60+、二维码模板 40+）；`hvigorw assembleHap --mode module -p product=default` `BUILD SUCCESSFUL`；API 26 模拟器（@240 dpi 4 列形态）复验搜索过滤与空态、文本三段操作与统计、换算 14 类与市制、精度切换与同类对照、`units_state` 重启保持、收藏时间戳重启保持，证据图存于 `docs/screenshots/emulator/`（`tools-search-box-zh.jpeg`、`tools-search-qr-zh.jpeg`、`tools-search-empty-zh.jpeg`、`qr-wifi-fields-zh.jpeg`、`qr-generate-emulator-unavailable-zh.jpeg`、`units-pressure-6digits-zh.jpeg`）。
+  - **仍未覆盖（真机待验）**：二维码生成与真机相机扫描 WiFi/名片二维码（本机模拟器的二维码生成 API 直接失败，只验证到错误提示）、平板与折叠屏下搜索框与新按钮布局、深色模式下新界面（深色主题未实现，属既有设计）。逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 7 节。
+
 
 ## 发版步骤（HarmonyOS / AppGallery Connect）
 
@@ -132,3 +240,9 @@
 | 智感握姿左右手适配及未知状态退化 | 待测 | 支持此能力的真机；模拟器不能替代 |
 | 全局沉浸光感、材质类型与设备材质等级 | 导航与入口基础显示、点击通过；模拟器复验输入框/多行文本框/结果卡片/列表行为**单层圆角、无材质嵌套、行内布局未被撑坏**；**深色模式已核查**：系统切到深色后本应用仍按 `ToolPalette` 的固定浅色板渲染（工具网格、快捷计算、日期、时间戳、设置、日期/时间选择器对话框均清晰可读），对比度与浅色模式一致——本应用未实现深色主题，属既有设计而非缺陷 | PLR-AL00 与 API 26 模拟器，截图见 `docs/screenshots/emulator/darkmode-*.jpeg`；动态光感与真机材质等级仍需验收 |
 | 倒计时时长时间选择器与材质 | 模拟器复验通过：时长卡片点开系统时间选择器（时/分/秒三列、24 小时制），确定后卡片立即更新、取消保持原值；`00:00:00` 被拒并提示，`00:01:00` 添加后正常递减；名称输入框与列表行均为单层 | API 26 模拟器，截图见 `docs/screenshots/emulator/timers-duration-time-picker.jpeg`、`timers-zero-duration-rejected.jpeg`；对话框材质观感仍需真机 |
+| 工具搜索（过滤、空态、清空） | 模拟器复验通过：输入 `qr` 仅剩「二维码」；输入 `zzz` 显示中英空结果提示且网格为空；清空后 14 张卡片恢复 | API 26 模拟器 @240 dpi，截图见 `tools-search-box-zh.jpeg`、`tools-search-qr-zh.jpeg`、`tools-search-empty-zh.jpeg`；平板/折叠屏布局与超大字体待验 |
+| 文本工具深化（11 个操作 + 6 项统计） | 模拟器复验通过：三段操作齐全，`hello` → 转大写 `HELLO` → 首字母大写 `Hello`；统计显示 `字符 5 · 非空白字符 5 · 行数 1` 与 `单词 1 · 中文字 0 · 段落 1`；30+ 条模型断言 | API 26 模拟器；长文本滚动、结果「用作输入/清空」真机交互待验 |
+| 单位换算深化（14 类、市制、精度、同类对照、状态记忆） | 模拟器复验通过：类别下拉 14 项；1 Pa 在 6 位精度下得 0.001 kPa，对照表列出巴/psi/mmHg/atm 且不含目标单位、无指数写法；重启后仍保持压力 + 6 位；60+ 条模型断言 | API 26 模拟器，截图见 `units-pressure-6digits-zh.jpeg`；平板/折叠屏与真机精度观感待验 |
+| 二维码内容模板（8 类 + 转义 + 校验） | 部分通过：类型下拉 8 项、WiFi 表单（SSID/密码/加密方式/隐藏网络）渲染正常；点生成弹出「生成失败，请在真机重试」（本机模拟器二维码生成 API 失败，与既有记录一致）；载荷文本与错误码由 40+ 条断言覆盖 | API 26 模拟器，截图见 `qr-wifi-fields-zh.jpeg`、`qr-generate-emulator-unavailable-zh.jpeg`；真机生成与相机扫描 WiFi/名片二维码待验 |
+| 收藏白名单漏 `timestamp` 修复 | 模拟器复验通过：收藏「时间戳」→ 收藏页出现 → 强制重启应用后仍在（修复前会被静默丢弃） | API 26 模拟器；真机同样需复核重启保持 |
+

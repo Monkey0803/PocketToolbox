@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
-import { uiMaterial, CapsuleSegmentButtonV2, SegmentButtonV2ItemOptions, SegmentButtonV2Items,
-  LengthMetrics } from '@kit.ArkUI';
+import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
@@ -231,6 +231,13 @@ export struct DatesPage {
     return this.english ? mode.en : mode.zh;
   }
 
+  private modeOptions(): SelectOption[] {
+    return DATE_TOOL_MODES.map((mode: DateToolMode): SelectOption => {
+      const option: SelectOption = { value: this.english ? mode.en : mode.zh };
+      return option;
+    });
+  }
+
   // @Builder 的参数按值传入，ArkUI 不会因状态变化刷新构建函数体；
   // 因此日期值只作为 kind 常量传入，实际文本在函数体内读取 this 的状态。
   @Builder private dateField(zh: string, en: string, kind: string) {
@@ -255,56 +262,38 @@ export struct DatesPage {
     }.width('100%')
   }
 
-  // 分段控件只在语言变化时重建，避免每次重建都换新数组触发子组件刷新。
-  @Computed
-  private get modeItems(): SegmentButtonV2Items {
-    return new SegmentButtonV2Items(DATE_TOOL_MODES.map((mode: DateToolMode): SegmentButtonV2ItemOptions => {
-      const option: SegmentButtonV2ItemOptions = { text: this.english ? mode.shortEn : mode.shortZh };
-      return option;
-    }));
-  }
-
   private dateModeIndex(): number {
     const index: number = DATE_TOOL_MODES.findIndex((mode: DateToolMode) => mode.id === this.dateMode);
     return index < 0 ? 0 : index;
   }
 
-  // 页内分段切换：分段项取自 DATE_TOOL_MODES 登记表，新增能力只需加登记项与下方分支。
-  @Builder private dateModeSegments() {
-    CapsuleSegmentButtonV2({
-      items: this.modeItems,
+  // 方式选择与单位换算页「类别」同一套 UI：新增日期能力只需在 DATE_TOOL_MODES 加登记项 + 下方加分支。
+  @Builder private dateModeSelect() {
+    OptionSelect({
+      label: this.tr('方式', 'Method'),
+      options: this.modeOptions(),
       selectedIndex: this.dateModeIndex(),
-      $selectedIndex: (index: number): void => {
+      selectedText: this.dateModeLabel(),
+      a11yText: this.tr('日期计算方式', 'Date tool'),
+      onSelected: (index: number): void => {
         const mode: DateToolMode | undefined = DATE_TOOL_MODES[index];
         if (mode !== undefined) { this.dateMode = mode.id; }
-      },
-      itemSpace: LengthMetrics.vp(4),
-      itemFontSize: LengthMetrics.fp(12),
-      itemSelectedFontSize: LengthMetrics.fp(12)
+      }
     })
-      .width('100%')
-  }
-
-  @Builder private dateModeHeader() {
-    Row({ space: 6 }) {
-      Text(this.dateModeLabel()).fontSize(20).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
-    }
-    .width('100%').height(32).alignItems(VerticalAlign.Center)
-    .accessibilityText(this.tr('日期工具，当前：', 'Date tool, current: ') + this.dateModeLabel())
   }
 
   @Builder private shiftUnitSelect() {
-    Row({ space: 12 }) {
-      Text(this.tr('单位', 'Unit')).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
-      Select(this.shiftUnitOptions())
-        .selected(this.shiftUnitIndex()).value(this.shiftUnitName()).layoutWeight(1)
-        .font({ size: 15 }).fontColor(ToolPalette.textPrimary)
-        .optionFont({ size: 15 }).optionFontColor(ToolPalette.textStrong)
-        .selectedOptionFont({ size: 15 }).selectedOptionFontColor(ToolPalette.primaryDeep)
-        .selectedOptionBgColor(ToolPalette.tintBlue).menuBackgroundColor(Color.White)
-        .accessibilityText(this.tr('推算单位', 'Offset unit'))
-        .onSelect((index: number) => this.dateShiftUnit = DATE_SHIFT_UNITS[index].id)
-    }.width('100%')
+    OptionSelect({
+      label: this.tr('单位', 'Unit'),
+      options: this.shiftUnitOptions(),
+      selectedIndex: this.shiftUnitIndex(),
+      selectedText: this.shiftUnitName(),
+      a11yText: this.tr('推算单位', 'Offset unit'),
+      onSelected: (index: number): void => {
+        const unit: DateShiftUnit | undefined = DATE_SHIFT_UNITS[index];
+        if (unit !== undefined) { this.dateShiftUnit = unit.id; }
+      }
+    })
   }
 
   // 节假日数据随包内置（构建期生成，见 tools/fetch-holidays.mjs），运行时不再联网，
@@ -328,8 +317,7 @@ export struct DatesPage {
 
   build() {
     Column({ space: 14 }) {
-      this.dateModeSegments()
-      this.dateModeHeader()
+      this.dateModeSelect()
       if (this.dateMode === 'shift') {
         Text(this.tr('以起始日期为基准；负数表示往前推', 'Uses the start date; negative numbers go backward'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')

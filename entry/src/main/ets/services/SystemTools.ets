@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { scanCore, scanBarcode, generateBarcode } from '@kit.ScanKit';
+import { scanCore, scanBarcode, generateBarcode, detectBarcode } from '@kit.ScanKit';
 import { image } from '@kit.ImageKit';
 import { camera } from '@kit.CameraKit';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
@@ -8,11 +8,44 @@ import { picker, fileIo as fs, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor as utd } from '@kit.ArkData';
-import { BarcodeKind } from '../model/BarcodeTools';
+import { i18n } from '@kit.LocalizationKit';
+import { BarcodeKind, barcodeFormatId, barcodeTwoDimensional } from '../model/BarcodeTools';
+import { QrColorEntry, qrColorEntry, qrLevelValue } from '../model/QrStyle';
 
-export async function makeQr(content: string): Promise<image.PixelMap> {
+/**
+ * 某个 IANA 时区在给定瞬间相对 UTC 的偏移（分钟，含夏令时）。系统不支持该 id 时返回 NaN，
+ * 界面据此隐藏换算结果而不是显示 0（0 会被误读成 UTC）。
+ */
+export function timeZoneOffsetMinutes(zoneId: string, instant: number): number {
+  try {
+    const zone: i18n.TimeZone = i18n.getTimeZone(zoneId);
+    return Math.round(zone.getOffset(instant) / 60000);
+  } catch (_) {
+    return Number.NaN;
+  }
+}
+
+// 容错等级 id → Scan Kit 枚举（序号与 model/QrStyle.ets 的登记表一致）
+function errorCorrectionLevel(levelId: string): generateBarcode.ErrorCorrectionLevel {
+  const value: number = qrLevelValue(levelId);
+  if (value === 0) { return generateBarcode.ErrorCorrectionLevel.LEVEL_L; }
+  if (value === 2) { return generateBarcode.ErrorCorrectionLevel.LEVEL_Q; }
+  if (value === 3) { return generateBarcode.ErrorCorrectionLevel.LEVEL_H; }
+  return generateBarcode.ErrorCorrectionLevel.LEVEL_M;
+}
+
+/**
+ * 生成二维码：容错等级与码色由纯逻辑登记表给出（未知 id 回退默认值，不会把 undefined 传给系统）。
+ * 码色是 `0xRRGGBB`，与 `generateBarcode.CreateOptions` 的文档一致。
+ */
+export async function makeQr(content: string, levelId: string, colorId: string): Promise<image.PixelMap> {
+  const color: QrColorEntry | undefined = qrColorEntry(colorId);
+  const background: number = color === undefined ? 0xFFFFFF : color.background;
+  const foreground: number = color === undefined ? 0x000000 : color.foreground;
   return await generateBarcode.createBarcode(content, {
-    scanType: scanCore.ScanType.QR_CODE, width: 800, height: 800
+    scanType: scanCore.ScanType.QR_CODE, width: 800, height: 800,
+    level: errorCorrectionLevel(levelId),
+    backgroundColor: background, pixelMapColor: foreground
   });
 }
 
@@ -23,13 +56,32 @@ export async function scanQr(context: common.UIAbilityContext): Promise<string> 
   return result.originalValue;
 }
 
+// 码制 → Scan Kit 格式枚举：键来自纯逻辑 `BarcodeTools.barcodeFormatId()`，
+// 单测断言登记表里每个码制都有对应 id，避免新增码制时静默退化成 Code 128。
+function scanTypeOf(kind: BarcodeKind): scanCore.ScanType {
+  const id: string = barcodeFormatId(kind);
+  if (id === 'CODE39_CODE') { return scanCore.ScanType.CODE39_CODE; }
+  if (id === 'CODE93_CODE') { return scanCore.ScanType.CODE93_CODE; }
+  if (id === 'EAN13_CODE') { return scanCore.ScanType.EAN13_CODE; }
+  if (id === 'EAN8_CODE') { return scanCore.ScanType.EAN8_CODE; }
+  if (id === 'UPC_A_CODE') { return scanCore.ScanType.UPC_A_CODE; }
+  if (id === 'UPC_E_CODE') { return scanCore.ScanType.UPC_E_CODE; }
+  if (id === 'ITF14_CODE') { return scanCore.ScanType.ITF14_CODE; }
+  if (id === 'CODABAR_CODE') { return scanCore.ScanType.CODABAR_CODE; }
+  if (id === 'DATAMATRIX_CODE') { return scanCore.ScanType.DATAMATRIX_CODE; }
+  if (id === 'PDF417_CODE') { return scanCore.ScanType.PDF417_CODE; }
+  if (id === 'AZTEC_CODE') { return scanCore.ScanType.AZTEC_CODE; }
+  return scanCore.ScanType.CODE128_CODE;
+}
+
 export async function makeBarcode(content: string, kind: BarcodeKind): Promise<image.PixelMap> {
-  let scanType: scanCore.ScanType = kind === 'ean13' ? scanCore.ScanType.EAN13_CODE :
-    kind === 'ean8' ? scanCore.ScanType.EAN8_CODE : scanCore.ScanType.CODE128_CODE;
-  const width: number = 800;
-  const height: number = 400;
-  const horizontalPadding: number = 80;
-  const verticalPadding: number = 40;
+  const twoDimensional: boolean = barcodeTwoDimensional(kind);
+  const scanType: scanCore.ScanType = scanTypeOf(kind);
+  // 二维码要方形画布，一维码按 Scan Kit 建议用约 2:1 宽高比。
+  const width: number = twoDimensional ? 700 : 800;
+  const height: number = twoDimensional ? 700 : 400;
+  const horizontalPadding: number = twoDimensional ? 40 : 80;
+  const verticalPadding: number = twoDimensional ? 40 : 40;
   let generated: image.PixelMap = await generateBarcode.createBarcode(content, {
     scanType: scanType, width: width, height: height, margin: 10
   });
@@ -61,6 +113,24 @@ export async function scanOneDimensionalBarcode(context: common.UIAbilityContext
     scanTypes: [scanCore.ScanType.ONE_D_CODE]
   });
   return result.originalValue;
+}
+
+/**
+ * 从相册选一张图片并识别其中的条码/二维码（Scan Kit 的 `detectBarcode.decode`，纯本机识别、不联网）。
+ *
+ * 取消选择返回空串；图片里没有可识别的码时返回空数组 → 也返回空串，由页面给出「未识别到」提示。
+ * 识别类型用 `ALL`：图片解码不像实时扫码那样需要用户先选码制，多认几种反而更好用。
+ */
+export async function decodeCodeFromImage(context: common.UIAbilityContext): Promise<string> {
+  const photoPicker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
+  const selection: photoAccessHelper.PhotoSelectResult = await photoPicker.select({
+    MIMEType: photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE,
+    maxSelectNumber: 1
+  });
+  if (selection.photoUris.length === 0) { return ''; }
+  const results: scanBarcode.ScanResult[] = await detectBarcode.decode(
+    { uri: selection.photoUris[0] }, { scanTypes: [scanCore.ScanType.ALL] });
+  return results.length > 0 ? results[0].originalValue : '';
 }
 
 async function qrPng(pixelMap: image.PixelMap): Promise<ArrayBuffer> {

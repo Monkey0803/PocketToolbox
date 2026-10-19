@@ -2,15 +2,20 @@ import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { BarcodeKind, barcodeInput, barcodeDisplayValue } from '../model/BarcodeTools';
-import { makeBarcode, scanOneDimensionalBarcode, saveCodeImage, saveCodeToGallery,
+import { BarcodeKind, BarcodeKindEntry, BARCODE_KINDS, barcodeKindIndex, barcodeInput,
+  barcodeDisplayValue, barcodeHint, barcodeNumeric, barcodeTwoDimensional,
+  barcodeErrorText } from '../model/BarcodeTools';
+import { makeBarcode, scanOneDimensionalBarcode, decodeCodeFromImage, saveCodeImage, saveCodeToGallery,
   shareCodeImage } from '../services/SystemTools';
 
 /**
- * 条形码生成/扫描页（Code 128 / EAN-13 / EAN-8）。
+ * 条形码生成/扫描页（Code 128、Code 39、Code 93、EAN-13、EAN-8、UPC-A、ITF-14、Codabar）。
  *
  * 自包含工具页：码制、内容、码图与扫描结果都在组件内；复制与一次性提示经 `@Event` 交回父组件。
+ * 码制选项行与单位换算页「类别」同一套 UI，登记表见 `model/BarcodeTools.ets` 的 `BARCODE_KINDS`；
+ * 输入提示、数字键盘与否、校验失败文案都由同一份纯逻辑提供，页面不再写码制分支。
  */
 @ComponentV2
 export struct BarcodePage {
@@ -29,23 +34,40 @@ export struct BarcodePage {
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
+  private kindOptions(): SelectOption[] {
+    return BARCODE_KINDS.map((entry: BarcodeKindEntry): SelectOption => {
+      const option: SelectOption = { value: entry.label };
+      return option;
+    });
+  }
+
+  private kindIndex(): number {
+    const index: number = barcodeKindIndex(this.barcodeKind);
+    return index < 0 ? 0 : index;
+  }
+
+  private kindLabel(): string {
+    const entry: BarcodeKindEntry | undefined = BARCODE_KINDS[this.kindIndex()];
+    return entry === undefined ? '' : entry.label;
+  }
+
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
 
   private async generateBarcodeImage(): Promise<void> {
     if (this.barcodeBusy) { return; }
-    let content: string | undefined = barcodeInput(this.barcodeKind, this.barcodeText);
+    // 生成期间允许切换码制（选项行不像原来的按钮那样置灰），因此整段流程都用开始时捕获的码制，
+    // 避免「用 A 码制生成、却按 B 码制显示」的不一致。
+    const kind: BarcodeKind = this.barcodeKind;
+    let content: string | undefined = barcodeInput(kind, this.barcodeText);
     if (content === undefined) {
-      this.onStatus(this.barcodeKind === 'code128' ?
-        this.tr('请输入 1–80 个英文可打印字符', 'Enter 1–80 printable ASCII characters') :
-        this.tr('请输入有效数字；完整 EAN 码需包含正确校验位',
-          'Enter valid digits; a full EAN code needs a correct check digit'));
+      this.onStatus(barcodeErrorText(kind, this.english));
       return;
     }
     this.barcodeBusy = true;
     try {
-      let pixel: image.PixelMap = await makeBarcode(content, this.barcodeKind);
+      let pixel: image.PixelMap = await makeBarcode(content, kind);
       this.barcodePixel = pixel;
-      this.barcodeResult = barcodeDisplayValue(this.barcodeKind, content);
+      this.barcodeResult = barcodeDisplayValue(kind, content);
       this.onStatus(this.tr('条形码已生成', 'Barcode created'));
     } catch (_) {
       this.onStatus(this.tr('生成条形码失败', 'Could not create barcode'));
@@ -62,6 +84,22 @@ export struct BarcodePage {
       this.barcodeResult = value;
       this.onStatus(this.tr('识别成功', 'Scan complete'));
     } catch (_) { this.onStatus(this.tr('扫码已取消或不可用', 'Scan cancelled or unavailable')); }
+    finally { this.barcodeBusy = false; }
+  }
+
+  /** 从相册图片识别：截图/照片里的条码或二维码都能读（Scan Kit 图片解码，纯本机）。 */
+  private async decodeFromImage(): Promise<void> {
+    if (this.barcodeBusy) { return; }
+    this.barcodeBusy = true;
+    try {
+      let value: string = await decodeCodeFromImage(this.ctx());
+      // 取消选图与「图里没有码」都返回空串：文案覆盖两种情况。
+      if (!value) { this.onStatus(this.tr('未识别到条码（或已取消选图）',
+        'No code found (or picking was cancelled)')); return; }
+      this.barcodePixel = undefined;
+      this.barcodeResult = value;
+      this.onStatus(this.tr('识别成功', 'Scan complete'));
+    } catch (_) { this.onStatus(this.tr('选图已取消或不可用', 'Picking cancelled or unavailable')); }
     finally { this.barcodeBusy = false; }
   }
 
@@ -92,28 +130,19 @@ export struct BarcodePage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('选择条形码类型', 'Choose barcode type')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
-      Row({ space: 8 }) {
-        Button('Code 128').enabled(!this.barcodeBusy)
-          .backgroundColor(this.barcodeKind === 'code128' ? ToolPalette.primary : ToolPalette.borderSoft)
-          .fontColor(this.barcodeKind === 'code128' ? Color.White : ToolPalette.textStrong)
-          .onClick(() => { this.barcodeKind = 'code128'; this.barcodePixel = undefined; this.barcodeResult = ''; })
-        Button('EAN-13').enabled(!this.barcodeBusy)
-          .backgroundColor(this.barcodeKind === 'ean13' ? ToolPalette.primary : ToolPalette.borderSoft)
-          .fontColor(this.barcodeKind === 'ean13' ? Color.White : ToolPalette.textStrong)
-          .onClick(() => { this.barcodeKind = 'ean13'; this.barcodePixel = undefined; this.barcodeResult = ''; })
-        Button('EAN-8').enabled(!this.barcodeBusy)
-          .backgroundColor(this.barcodeKind === 'ean8' ? ToolPalette.primary : ToolPalette.borderSoft)
-          .fontColor(this.barcodeKind === 'ean8' ? Color.White : ToolPalette.textStrong)
-          .onClick(() => { this.barcodeKind = 'ean8'; this.barcodePixel = undefined; this.barcodeResult = ''; })
-      }.width('100%')
-      Text(this.barcodeKind === 'code128' ?
-        this.tr('英文、数字和常用符号，最多 80 个字符', 'ASCII text, digits and symbols, up to 80 characters') :
-        this.barcodeKind === 'ean13' ?
-          this.tr('输入 12 位数字；也可输入含正确校验位的 13 位完整码',
-            'Enter 12 digits, or a valid 13-digit code with check digit') :
-          this.tr('输入 7 位数字；也可输入含正确校验位的 8 位完整码',
-            'Enter 7 digits, or a valid 8-digit code with check digit'))
+      OptionSelect({
+        label: this.tr('码制', 'Type'),
+        options: this.kindOptions(),
+        selectedIndex: this.kindIndex(),
+        selectedText: this.kindLabel(),
+        a11yText: this.tr('条形码码制', 'Barcode type'),
+        onSelected: (index: number): void => {
+          const entry: BarcodeKindEntry | undefined = BARCODE_KINDS[index];
+          if (entry === undefined) { return; }
+          this.barcodeKind = entry.id; this.barcodePixel = undefined; this.barcodeResult = '';
+        }
+      })
+      Text(barcodeHint(this.barcodeKind, this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
@@ -124,7 +153,7 @@ export struct BarcodePage {
       }) {
         TextInput({ text: this.barcodeText, placeholder: this.tr('条形码内容', 'Barcode content') })
           .onChange((value: string) => { this.barcodeText = value; this.barcodePixel = undefined; this.barcodeResult = ''; })
-          .type(this.barcodeKind === 'code128' ? InputType.Normal : InputType.Number)
+          .type(barcodeNumeric(this.barcodeKind) ? InputType.Number : InputType.Normal)
           .enabled(!this.barcodeBusy).height(52)
       }
       Row({ space: 8 }) {
@@ -132,11 +161,21 @@ export struct BarcodePage {
           SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([Color.White])
         }.width(48).height(48).backgroundColor(ToolPalette.primary).enabled(!this.barcodeBusy)
           .accessibilityText(this.tr('生成条形码', 'Create barcode')).onClick(() => this.generateBarcodeImage())
+        // 二维码制下不挂「扫描一维码」入口：一维扫码器读不出 Data Matrix/PDF417/Aztec，
+        // 这类码图是给其它设备扫的，留着按钮只会让人以为扫不动是坏了。
+        if (!barcodeTwoDimensional(this.barcodeKind)) {
+          Button() {
+            SymbolGlyph($r('sys.symbol.barcode_viewfinder')).fontSize(24).fontColor([Color.White])
+          }.width(48).height(48).backgroundColor(ToolPalette.success).enabled(!this.barcodeBusy)
+            .accessibilityText(this.tr('扫描一维码或从相册选择', 'Scan a one-dimensional barcode or choose from gallery'))
+            .onClick(() => this.scanBarcodeImage())
+        }
+        // 图片识别对所有码制都可用（Scan Kit 的图片解码支持二维/一维，按 ALL 识别）
         Button() {
-          SymbolGlyph($r('sys.symbol.barcode_viewfinder')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.success).enabled(!this.barcodeBusy)
-          .accessibilityText(this.tr('扫描一维码或从相册选择', 'Scan a one-dimensional barcode or choose from gallery'))
-          .onClick(() => this.scanBarcodeImage())
+          SymbolGlyph($r('sys.symbol.picture')).fontSize(24).fontColor([Color.White])
+        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple).enabled(!this.barcodeBusy)
+          .accessibilityText(this.tr('从相册图片识别条码', 'Read a barcode from a picture'))
+          .onClick(() => this.decodeFromImage())
       }.width('100%').justifyContent(this.actionAlign)
       if (this.barcodePixel) {
         Image(this.barcodePixel).width('100%').height(190).objectFit(ImageFit.Contain)

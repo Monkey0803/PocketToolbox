@@ -1,20 +1,24 @@
+import { ToolMeta, TOOL_META } from './ToolMeta';
 import { ToolPalette } from './ToolPalette';
 
 /**
- * 工具登记表：单一数据源驱动工具网格卡片与详情页标题。
+ * 工具登记表：由 `model/ToolMeta.ets` 的工具元数据（id + 双语标题）派生，在本文件绑定 `$r` 图标与卡片底色。
  *
- * 新增工具只需在此登记一项，并在 `Index.toolRoutes(name)` 的分支链补对应页面构建器。
- * 本文件只存放工具描述数据与系统符号引用，不导入 `@kit.*`、不使用 UI 装饰器；
- * 因含 `$r` 资源引用，不参与 `tests/run-unit-tests.mjs` 的纯逻辑测试。
+ * 单一数据源是 `TOOL_META`（纯逻辑、可单测）；本文件只做 id → 图标/底色的绑定，也符合
+ * 「工具卡片底色登记在 `TOOL_CATALOG`」的既有约定。新增工具改两处：`TOOL_META` 加一项、
+ * 下面 `toolSpecs()` 加一行；只加元数据忘了图标时，网格会回退成通用图标并打日志，不会静默少一个工具。
+ *
+ * 本文件含 `$r` 资源引用，不参与 `tests/run-unit-tests.mjs` 的纯逻辑测试。
  */
 export class ToolEntry {
   readonly id: string;
   readonly icon: Resource;
   readonly titleZh: string;
   readonly titleEn: string;
-  readonly color: string;
+  // 卡片底色现在是资源（浅色/深色各一份），不再是字符串字面量
+  readonly color: Resource;
 
-  constructor(id: string, icon: Resource, titleZh: string, titleEn: string, color: string) {
+  constructor(id: string, icon: Resource, titleZh: string, titleEn: string, color: Resource) {
     this.id = id;
     this.icon = icon;
     this.titleZh = titleZh;
@@ -23,22 +27,54 @@ export class ToolEntry {
   }
 }
 
-export const TOOL_CATALOG: ToolEntry[] = [
-  new ToolEntry('qr', $r('sys.symbol.qrcode'), '二维码', 'QR code', ToolPalette.tintBlue),
-  new ToolEntry('barcode', $r('sys.symbol.barcode_viewfinder'), '条形码', 'Barcode', ToolPalette.tintRose),
-  new ToolEntry('calculator', $r('sys.symbol.percent_coupon'), '折扣与均摊', 'Quick calculator', ToolPalette.tintTeal),
-  new ToolEntry('tax', $r('sys.symbol.percent_coupon'), '个税计算', 'Income tax', ToolPalette.tintRose),
-  new ToolEntry('units', $r('sys.symbol.arrow_left_arrow_right'), '单位换算', 'Converter', ToolPalette.tintGreen),
-  new ToolEntry('timers', $r('sys.symbol.timer'), '计时', 'Timers', ToolPalette.tintAmber),
-  new ToolEntry('torch', $r('sys.symbol.flashlight_on'), '手电筒', 'Flashlight', ToolPalette.tintPurple),
-  new ToolEntry('dates', $r('sys.symbol.calendar'), '日期计算', 'Date calculator', ToolPalette.tintRose),
-  new ToolEntry('timestamp', $r('sys.symbol.clock'), '时间戳', 'Timestamp', ToolPalette.tintSky),
-  new ToolEntry('text', $r('sys.symbol.textformat'), '文本工具', 'Text tools', ToolPalette.tintIndigo),
-  new ToolEntry('random', $r('sys.symbol.shuffle'), '随机选择', 'Random picker', ToolPalette.tintTeal),
-  new ToolEntry('password', $r('sys.symbol.key'), '密码生成', 'Password generator', ToolPalette.tintAmber),
-  new ToolEntry('documents', $r('sys.symbol.doc_text'), '文档扫描', 'Document scanner', ToolPalette.tintBlue),
-  new ToolEntry('level', $r('sys.symbol.ruler'), '水平仪', 'Spirit level', ToolPalette.tintGreen)
-];
+class ToolSpec {
+  readonly icon: Resource;
+  readonly color: Resource;
+
+  constructor(icon: Resource, color: Resource) {
+    this.icon = icon;
+    this.color = color;
+  }
+}
+
+function toolSpecs(): Map<string, ToolSpec> {
+  const specs: Map<string, ToolSpec> = new Map<string, ToolSpec>();
+  specs.set('qr', new ToolSpec($r('sys.symbol.qrcode'), ToolPalette.tintBlue));
+  specs.set('barcode', new ToolSpec($r('sys.symbol.barcode_viewfinder'), ToolPalette.tintRose));
+  specs.set('calculator', new ToolSpec($r('sys.symbol.percent_coupon'), ToolPalette.tintTeal));
+  specs.set('tax', new ToolSpec($r('sys.symbol.percent_coupon'), ToolPalette.tintRose));
+  specs.set('units', new ToolSpec($r('sys.symbol.arrow_left_arrow_right'), ToolPalette.tintGreen));
+  specs.set('timers', new ToolSpec($r('sys.symbol.timer'), ToolPalette.tintAmber));
+  specs.set('torch', new ToolSpec($r('sys.symbol.flashlight_on'), ToolPalette.tintPurple));
+  specs.set('dates', new ToolSpec($r('sys.symbol.calendar'), ToolPalette.tintRose));
+  specs.set('timestamp', new ToolSpec($r('sys.symbol.clock'), ToolPalette.tintSky));
+  specs.set('text', new ToolSpec($r('sys.symbol.textformat'), ToolPalette.tintIndigo));
+  specs.set('random', new ToolSpec($r('sys.symbol.shuffle'), ToolPalette.tintTeal));
+  specs.set('password', new ToolSpec($r('sys.symbol.key'), ToolPalette.tintAmber));
+  specs.set('loan', new ToolSpec($r('sys.symbol.percent_coupon'), ToolPalette.tintIndigo));
+  specs.set('color', new ToolSpec($r('sys.symbol.paintpalette'), ToolPalette.tintRose));
+  specs.set('health', new ToolSpec($r('sys.symbol.heart'), ToolPalette.tintMint));
+  specs.set('science', new ToolSpec($r('sys.symbol.calculator_1'), ToolPalette.tintSky));
+  specs.set('documents', new ToolSpec($r('sys.symbol.doc_text'), ToolPalette.tintBlue));
+  specs.set('level', new ToolSpec($r('sys.symbol.ruler'), ToolPalette.tintGreen));
+  specs.set('compass', new ToolSpec($r('sys.symbol.compass'), ToolPalette.tintSky));
+  return specs;
+}
+
+function catalogEntries(): ToolEntry[] {
+  const specs: Map<string, ToolSpec> = toolSpecs();
+  const fallbackIcon: Resource = $r('sys.symbol.square_grid_2x2');
+  return TOOL_META.map((meta: ToolMeta): ToolEntry => {
+    const spec: ToolSpec | undefined = specs.get(meta.id);
+    if (spec === undefined) {
+      console.warn('PocketToolbox: no icon registered for tool ' + meta.id);
+    }
+    return new ToolEntry(meta.id, spec === undefined ? fallbackIcon : spec.icon,
+      meta.titleZh, meta.titleEn, spec === undefined ? ToolPalette.tintBlue : spec.color);
+  });
+}
+
+export const TOOL_CATALOG: ToolEntry[] = catalogEntries();
 
 export function toolById(id: string): ToolEntry | undefined {
   return TOOL_CATALOG.find((entry: ToolEntry): boolean => entry.id === id);

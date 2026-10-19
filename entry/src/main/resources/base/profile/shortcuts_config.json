@@ -1,0 +1,56 @@
+{
+  "shortcuts": [
+    {
+      "shortcutId": "qr",
+      "label": "$string:shortcut_qr",
+      "icon": "$media:toolbox_icon",
+      "wants": [
+        {
+          "bundleName": "com.example.pockettoolbox",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": { "tool": "qr" }
+        }
+      ]
+    },
+    {
+      "shortcutId": "barcode",
+      "label": "$string:shortcut_barcode",
+      "icon": "$media:toolbox_icon",
+      "wants": [
+        {
+          "bundleName": "com.example.pockettoolbox",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": { "tool": "barcode" }
+        }
+      ]
+    },
+    {
+      "shortcutId": "science",
+      "label": "$string:shortcut_science",
+      "icon": "$media:toolbox_icon",
+      "wants": [
+        {
+          "bundleName": "com.example.pockettoolbox",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": { "tool": "science" }
+        }
+      ]
+    },
+    {
+      "shortcutId": "timers",
+      "label": "$string:shortcut_timers",
+      "icon": "$media:toolbox_icon",
+      "wants": [
+        {
+          "bundleName": "com.example.pockettoolbox",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": { "tool": "timers" }
+        }
+      ]
+    }
+  ]
+}

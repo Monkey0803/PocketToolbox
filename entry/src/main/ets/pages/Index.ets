@@ -1,5 +1,5 @@
 import { bundleManager, common } from '@kit.AbilityKit';
-import { pasteboard } from '@kit.BasicServicesKit';
+import { pasteboard, emitter } from '@kit.BasicServicesKit';
 import { uiMaterial, SymbolGlyphModifier } from '@kit.ArkUI';
 // UI Design Kit 的 HDS 导航与底部页签，提供标题栏/底部页签的沉浸光感材质。
 import { HdsNavigation, HdsNavigationTitleMode, HdsNavDestination, HdsNavDestinationTitleMode,
@@ -9,8 +9,11 @@ import { motion } from '@kit.MultimodalAwarenessKit';
 // 懒加载：设备缺少 SystemCapability.AI.Component.DocScan 时，模块链接失败不应影响应用启动。
 import lazy { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
+import { matchTools, promoteFavorite, moveFavorite } from '../model/ToolMeta';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, HistoryItem } from '../model/LocalData';
+import { historyContentSnippet, historyRefill, historyTargetRoute } from '../model/HistoryKinds';
+import { MaterialSurface } from '../component/MaterialSurface';
 import { CalculatorPage } from '../component/CalculatorPage';
 import { TextPage } from '../component/TextPage';
 import { RandomPage } from '../component/RandomPage';
@@ -20,11 +23,17 @@ import { TimestampPage } from '../component/TimestampPage';
 import { TaxPage } from '../component/TaxPage';
 import { PasswordPage } from '../component/PasswordPage';
 import { LevelPage } from '../component/LevelPage';
+import { CompassPage } from '../component/CompassPage';
 import { HistoryPage } from '../component/HistoryPage';
 import { TorchPage } from '../component/TorchPage';
 import { QrPage } from '../component/QrPage';
 import { BarcodePage } from '../component/BarcodePage';
 import { DocumentsPage } from '../component/DocumentsPage';
+import { LoanPage } from '../component/LoanPage';
+import { ColorPage } from '../component/ColorPage';
+import { HealthPage } from '../component/HealthPage';
+import { SciencePage } from '../component/SciencePage';
+import { consumeStartupTool, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 import { SettingsPage } from '../component/SettingsPage';
 import { TimersPage } from '../component/TimersPage';
 import { saveScannedDocuments } from '../services/SystemTools';
@@ -55,6 +64,10 @@ struct Index {
   // 当前可见的详情页路由（由 HdsNavDestination.onShown 维护），用于返回上一级后重算标题栏。
   @Local shownRoute: string = '';
   @Local selectedTab: string = 'tools';
+  // 「工具」Tab 的搜索关键词；只过滤工具网格，不影响收藏 Tab。
+  @Local toolQuery: string = '';
+  // 点历史条目后要回填到目标工具输入框的一次性内容（页面在 aboutToAppear 消费，随后清空）。
+  @Local pendingInput: string = '';
   @Local english: boolean = false;
   @Local activeIconName: string = '';
   @Local iconReady: boolean = false;
@@ -67,6 +80,8 @@ struct Index {
   @Local history: HistoryItem[] = [];
   @Local favorites: string[] = [];
   @Local favoriteSaving: boolean = false;
+  // 收藏页的拖拽排序模式：开启后卡片可拖动换位（长按菜单在模式内不再挂载，避免手势冲突）。
+  @Local favoritesSorting: boolean = false;
   @Local documentUris: string[] = [];
   @Local documentPdf: boolean = false;
   @Local documentSaving: boolean = false;
@@ -82,6 +97,12 @@ struct Index {
   private routeStack: string[] = ['home'];
   private holdingSubscribed: boolean = false;
   private operatingSubscribed: boolean = false;
+  // 热启动快捷方式：EntryAbility.onNewWant 落好意图后用 emitter 叫醒已挂载的首屏
+  // （冷启动由 aboutToAppear 直接消费，不需要事件）。
+  private startupSubscribed: boolean = false;
+  private startupCallback: (data: emitter.EventData) => void = (data: emitter.EventData): void => {
+    this.applyStartupIntent();
+  };
   // 仅在进入文档扫描页时创建，避免在不支持 DocScan 的设备上加载 VisionKit。
   private scanConfig: DocumentScannerConfig | undefined = undefined;
   private readonly scannerSupported: boolean = canIUse('SystemCapability.AI.Component.DocScan');
@@ -97,19 +118,43 @@ struct Index {
   aboutToAppear(): void {
     this.load();
     this.setupAdaptiveUi();
+    try {
+      emitter.on({ eventId: STARTUP_INTENT_EVENT_ID }, this.startupCallback);
+      this.startupSubscribed = true;
+    } catch (_) { this.startupSubscribed = false; }
+    this.applyStartupIntent();
+  }
+
+  /** 系统入口（桌面快捷方式）指定的目标工具：一次性消费，取到就直接进对应工具页。 */
+  private applyStartupIntent(): void {
+    const target: string = consumeStartupTool();
+    if (target.length === 0) { return; }
+    this.navigate(target);
   }
 
   aboutToDisappear(): void {
     if (this.holdingSubscribed) { try { motion.off('holdingHandChanged', this.holdingCallback); } catch (_) {} }
     if (this.operatingSubscribed) { try { motion.off('operatingHandChanged', this.operatingCallback); } catch (_) {} }
+    if (this.startupSubscribed) {
+      try { emitter.off(STARTUP_INTENT_EVENT_ID, this.startupCallback); } catch (_) {}
+    }
     this.holdingSubscribed = false;
     this.operatingSubscribed = false;
+    this.startupSubscribed = false;
   }
 
-  onPageHide(): void { this.appActive = false; }
+  onPageHide(): void {
+    // 退到后台时丢掉「没被消费掉的」启动意图：正常情况下意图在 aboutToAppear/onPageShow/emitter
+    // 三条路里已经被取走，这里只清理极端情况下（emitter 抛错）残留的意图，
+    // 免得下一次回到前台莫名其妙跳进某个工具页。
+    clearStartupTool();
+    this.appActive = false;
+  }
 
   onPageShow(): void {
     this.appActive = true;
+    // 兜底：热启动（onNewWant）时若 emitter 事件没赶上，回到前台也能把意图消费掉；已消费则返回空串。
+    this.applyStartupIntent();
     if (this.page === 'home' && this.selectedTab === 'settings') { this.refreshIcon(); }
   }
 
@@ -286,10 +331,30 @@ struct Index {
     if (this.data) { await this.data.saveHistory(this.history); }
   }
 
+  // 删除当前筛选结果：只删传进来的 id（列表已按筛选/搜索过滤，filter 天然幂等）。
+  private async deleteHistoryItems(ids: string[]): Promise<void> {
+    if (ids.length === 0) { return; }
+    this.history = this.history.filter((value: HistoryItem) => ids.indexOf(value.id) < 0);
+    if (this.data) { await this.data.saveHistory(this.history); }
+    this.status = this.tr('已删除筛选结果', 'Filtered records deleted');
+  }
+
+  // 点历史条目：跳到对应工具并回填内容（跳哪个工具、回填什么由纯逻辑 HistoryKinds 决定）。
+  private openHistoryItem(kind: string, content: string): void {
+    const route: string = historyTargetRoute(kind);
+    if (route.length === 0) { return; }
+    this.pendingInput = historyRefill(kind, content);
+    this.navigate(route);
+  }
+
+  // 历史是「二维码 + 文本/换算/时间戳的复制结果」共用的一份列表（最多 50 条，新的在前）。
+  // 过长内容按 historyContentSnippet 截断，避免一条超长文本把列表撑爆；空内容不入库。
   private async addHistoryItem(kind: string, content: string): Promise<void> {
+    const snippet: string = historyContentSnippet(content);
+    if (snippet.length === 0) { return; }
     let item: HistoryItem = new HistoryItem();
     item.id = Date.now().toString() + Math.random().toString();
-    item.kind = kind; item.content = content; item.createdAt = Date.now();
+    item.kind = kind; item.content = snippet; item.createdAt = Date.now();
     this.history = [item].concat(this.history).slice(0, 50);
     if (this.data) { await this.data.saveHistory(this.history); }
   }
@@ -299,7 +364,7 @@ struct Index {
     if (this.data) { await this.data.putString('language', english ? 'en' : 'zh'); }
   }
 
-  private async clearQrHistory(): Promise<void> {
+  private async clearHistory(): Promise<void> {
     this.history = [];
     if (this.data) { await this.data.saveHistory([]); }
     this.status = this.tr('历史已清空', 'History cleared');
@@ -307,12 +372,51 @@ struct Index {
 
   private isFavorite(id: string): boolean { return this.favorites.includes(id); }
 
+  // 收藏页长按卡片 →「置顶」：把该项移到收藏顺序最前（其余项相对顺序不变），并落盘。
+  private async promoteFavorite(id: string): Promise<void> {
+    if (!this.data || this.favoriteSaving) { return; }
+    const next: string[] = promoteFavorite(this.favorites, id);
+    if (next.length === this.favorites.length && next[0] === this.favorites[0]) { return; }
+    this.favoriteSaving = true;
+    let previous: string[] = this.favorites;
+    this.favorites = next;
+    try {
+      await this.data.saveFavorites(this.favorites);
+      this.status = this.tr('已置顶', 'Moved to top');
+    } catch (_) {
+      this.favorites = previous;
+      this.status = this.tr('收藏保存失败', 'Could not save favorites');
+    } finally {
+      this.favoriteSaving = false;
+    }
+  }
+
+  // 收藏页拖拽排序（排序模式）：把拖动的卡片放到目标位置并落盘。
+  private async moveFavorite(from: number, to: number): Promise<void> {
+    if (!this.data || this.favoriteSaving) { return; }
+    const next: string[] = moveFavorite(this.favorites, from, to);
+    if (next.length === this.favorites.length && next.every(
+      (value: string, index: number): boolean => value === this.favorites[index])) { return; }
+    this.favoriteSaving = true;
+    let previous: string[] = this.favorites;
+    this.favorites = next;
+    try {
+      await this.data.saveFavorites(this.favorites);
+    } catch (_) {
+      this.favorites = previous;
+      this.status = this.tr('收藏保存失败', 'Could not save favorites');
+    } finally {
+      this.favoriteSaving = false;
+    }
+  }
+
   private async toggleFavorite(id: string): Promise<void> {
     if (!this.data || this.favoriteSaving) { return; }
     this.favoriteSaving = true;
     let previous: string[] = this.favorites;
+    // 新收藏放到最前面：收藏页按数组顺序渲染，最近收藏的工具就在最前。
     this.favorites = this.isFavorite(id) ? this.favorites.filter((item: string) => item !== id) :
-      this.favorites.concat([id]);
+      [id].concat(this.favorites);
     try {
       await this.data.saveFavorites(this.favorites);
       this.status = this.isFavorite(id) ? this.tr('已收藏工具', 'Tool added to favorites') :
@@ -332,7 +436,7 @@ struct Index {
     return tool !== undefined ? this.tr(tool.titleZh, tool.titleEn) : id;
   }
 
-  @Builder private card(icon: Resource, color: string, target: string) {
+  @Builder private card(icon: Resource, color: Resource, target: string) {
     Row({ space: 4 }) {
       Column({ space: 10 }) {
         SymbolGlyph(icon).fontSize(32).fontColor([ToolPalette.textPrimary])
@@ -352,15 +456,58 @@ struct Index {
       .backgroundColor(color).borderRadius(20)
   }
 
+  // 收藏卡片的长按菜单：菜单内容在构建函数体内现取（@Builder 参数只放常量 id），
+  // 因此语言切换后菜单文案与「取消收藏」的可用性都跟着当前状态走。
+  @Builder private favoriteMenu(id: string) {
+    Menu() {
+      MenuItem({ content: this.tr('置顶', 'Move to top') })
+        .enabled(!this.favoriteSaving)
+        .onClick(() => this.promoteFavorite(id))
+      MenuItem({ content: this.tr('取消收藏', 'Remove from favorites') })
+        .enabled(!this.favoriteSaving)
+        .onClick(() => this.toggleFavorite(id))
+    }
+  }
+
+  // 收藏页的卡片 = 普通卡片 + 长按菜单。用系统 `bindContextMenu`（长按）而不是自绘弹层，
+  // 菜单底色与材质由系统在应用级 enable 时自动生效。
+  @Builder private favoriteCard(icon: Resource, color: Resource, target: string) {
+    Column() {
+      this.card(icon, color, target)
+    }.width('100%').bindContextMenu(this.favoriteMenu(target), ResponseType.LongPress)
+  }
+
+  // 搜索命中的工具：返回顺序即 TOOL_CATALOG 顺序。空关键词返回全部工具。
+  private visibleTools(): ToolEntry[] {
+    const ids: string[] = matchTools(this.toolQuery);
+    return TOOL_CATALOG.filter((tool: ToolEntry): boolean => ids.indexOf(tool.id) >= 0);
+  }
+
+  // 收藏列表按「收藏顺序（新收藏在前）」渲染，而不是工具登记表顺序：
+  // 之前收藏的先后完全看不出效果，用户收藏了一个工具却在收藏页找不到它放在哪。
+  private favoriteTools(): ToolEntry[] {
+    const tools: ToolEntry[] = [];
+    this.favorites.forEach((id: string) => {
+      const tool: ToolEntry | undefined = toolById(id);
+      if (tool !== undefined) { tools.push(tool); }
+    });
+    return tools;
+  }
+
+  // 网格只收常量参数（favoriteOnly），命中列表在构建函数体内现取——
+  // @Builder 的按值参数不随状态刷新，把 matchTools 的结果当参数传进去会重演「标题不跟随语言」那类缺陷。
   @Builder private toolGrid(favoriteOnly: boolean) {
     Grid() {
-      ForEach(TOOL_CATALOG, (tool: ToolEntry) => {
-        if (!favoriteOnly || this.isFavorite(tool.id)) {
-          GridItem() { this.card(tool.icon, tool.color, tool.id) }
+      ForEach(favoriteOnly ? this.favoriteTools() : this.visibleTools(), (tool: ToolEntry) => {
+        GridItem() {
+          if (favoriteOnly) {
+            this.favoriteCard(tool.icon, tool.color, tool.id)
+          } else {
+            this.card(tool.icon, tool.color, tool.id)
+          }
         }
       }, (tool: ToolEntry): string => tool.id)
-    }.columnsTemplate(this.widthVp >= 840 ? '1fr 1fr 1fr 1fr' : this.widthVp >= 600 ? '1fr 1fr 1fr' :
-      this.widthVp < 360 ? '1fr' : '1fr 1fr')
+    }.columnsTemplate(this.gridColumns())
       .columnsGap(12).rowsGap(12).width('100%')
   }
 
@@ -404,8 +551,72 @@ struct Index {
 
   @Builder private home() {
     Column({ space: 16 }) {
-      this.toolGrid(false)
+      // 搜索框与其它输入框同一套写法：由 MaterialSurface 提供单层沉浸材质，
+      // 因此不再给 Search 自身设置 systemMaterial，也不叠加自己的背景色。
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        Search({ value: this.toolQuery, placeholder: this.tr('搜索工具，如「二维码」「换算」',
+          'Search tools, e.g. “QR” or “converter”') })
+          .height(48)
+          .backgroundColor(Color.Transparent)
+          .accessibilityText(this.tr('搜索工具', 'Search tools'))
+          .onChange((value: string) => { this.toolQuery = value; })
+      }
+      if (this.toolQuery.trim().length > 0 && this.visibleTools().length === 0) {
+        Text(this.tr('没有匹配的工具，试试「二维码」「换算」或英文名。',
+          'No tool matches. Try “QR”, “converter” or another keyword.'))
+          .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
+      } else {
+        this.toolGrid(false)
+      }
     }.width('100%')
+  }
+
+  // 网格列数：按宽度自适应（手机 1–2 列、平板 3 列、宽屏 4 列）。
+  private gridColumns(): string {
+    return this.widthVp >= 840 ? '1fr 1fr 1fr 1fr' : this.widthVp >= 600 ? '1fr 1fr 1fr' :
+      this.widthVp < 360 ? '1fr' : '1fr 1fr';
+  }
+
+  // 拖拽预览：跟随手指的卡片外观。参数只放常量下标（预览是瞬时的，不需要跟随状态刷新）。
+  @Builder private favoriteDragPreview(index: number) {
+    Column() {
+      if (index >= 0 && index < this.favoriteTools().length) {
+        this.card(this.favoriteTools()[index].icon, this.favoriteTools()[index].color,
+          this.favoriteTools()[index].id)
+      }
+    }.width(200)
+  }
+
+  /**
+   * 收藏网格：非排序模式挂长按菜单（置顶 / 取消收藏），排序模式下可拖拽换位。
+   *
+   * 排序模式是显式开关，而不是「长按即拖拽」：长按已经用于弹出菜单，同一手势不能既弹菜单又拖动；
+   * 模式内不挂菜单，避免误触删除。顺序落盘由 `moveFavorite()` 负责（纯逻辑在 `model/ToolMeta.ets`）。
+   */
+  @Builder private favoritesGrid() {
+    Grid() {
+      ForEach(this.favoriteTools(), (tool: ToolEntry) => {
+        GridItem() {
+          if (this.favoritesSorting) {
+            this.card(tool.icon, tool.color, tool.id)
+          } else {
+            this.favoriteCard(tool.icon, tool.color, tool.id)
+          }
+        }
+      }, (tool: ToolEntry): string => tool.id)
+    }.columnsTemplate(this.gridColumns())
+      .columnsGap(12).rowsGap(12).width('100%')
+      .editMode(this.favoritesSorting)
+      .onItemDragStart((_event: ItemDragInfo, itemIndex: number) => this.favoriteDragPreview(itemIndex))
+      .onItemDrop((_event: ItemDragInfo, itemIndex: number, insertIndex: number, isSuccess: boolean) => {
+        if (isSuccess) { this.moveFavorite(itemIndex, insertIndex); }
+      })
   }
 
   @Builder private favoritesPage() {
@@ -415,7 +626,21 @@ struct Index {
           'Tap the star on a tool card to find it here.'))
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
       } else {
-        this.toolGrid(true)
+        Row({ space: 12 }) {
+          Text(this.favoritesSorting ?
+            this.tr('拖动卡片调整顺序，完成后点右侧按钮。', 'Drag cards to reorder, then tap the button on the right.') :
+            this.tr('长按卡片可置顶或取消收藏。', 'Long-press a card to move it to the top or remove it.'))
+            .fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
+          Button() {
+            SymbolGlyph(this.favoritesSorting ? $r('sys.symbol.checkmark') :
+              $r('sys.symbol.arrow_down_and_line_horizontal_and_arrow_up'))
+              .fontSize(24).fontColor([ToolPalette.textPrimary])
+          }.width(44).height(44).backgroundColor(ToolPalette.surface)
+            .accessibilityText(this.favoritesSorting ? this.tr('完成排序', 'Finish sorting') :
+              this.tr('调整收藏顺序', 'Reorder favorites'))
+            .onClick(() => { this.favoritesSorting = !this.favoritesSorting; })
+        }.width('100%').alignItems(VerticalAlign.Center)
+        this.favoritesGrid()
       }
     }.width('100%')
   }
@@ -444,11 +669,21 @@ struct Index {
       activeIconName: this.activeIconName, iconReady: this.iconReady, iconBusy: this.iconBusy,
       onLanguage: (english: boolean): void => { this.setLanguage(english); },
       onChooseIcon: (name: string): void => { this.chooseIcon(name); },
-      onClearHistory: (): void => { this.clearQrHistory(); }
+      onClearHistory: (): void => { this.clearHistory(); }
     })
   }
 
-  // 工具详情页作为 NavDestination 路由；标题栏由 NavDestination 提供沉浸材质区域。
+  /**
+   * 为什么详情页路由仍是「静态分支链」而不是 `wrapBuilder` 注册表（2026-10-19 实测结论）：
+   *
+   * 试过把每个页面做成全局 `@Builder` + `wrapBuilder()` 登记成 `Map<id, WrappedBuilder<[ToolRouteContext]>>`，
+   * 编译通过、进入页面也正常，但**已打开的详情页不再跟随父状态刷新**：在历史页点删除后条目已从存储里删掉、
+   * 重新进入历史页确认消失，可当前这一页仍显示旧行（`items` 没更新）。把上下文换成新对象也没用——
+   * 与 AGENTS 里记的「@Builder 按值传参不随状态刷新」是同一个坑，注册表只是把它藏进了组件参数里。
+   *
+   * 因此这里保留逐页静态构造：页面直接读 `this.xxx`，ArkUI 的依赖跟踪才认得出来。
+   * 数据驱动只用在**登记表**（`TOOL_META` 决定有哪些工具、标题与搜索命中），路由构造保持显式。
+   */
   @Builder private toolRoutes(name: string) {
     if (name === 'scanner') {
       HdsNavDestination() {
@@ -471,7 +706,9 @@ struct Index {
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
-                onOpenHistory: (): void => { this.navigate('history'); } })
+                onOpenHistory: (): void => { this.navigate('history'); },
+                initialValue: this.pendingInput,
+                onInitialConsumed: (): void => { this.pendingInput = ''; } })
             }
             else if (name === 'barcode') {
               BarcodePage({ english: this.english, immersiveSupported: this.immersiveSupported,
@@ -491,7 +728,9 @@ struct Index {
             }
             else if (name === 'units') {
               UnitsPage({ english: this.english, immersiveSupported: this.immersiveSupported,
-                materialLevel: this.materialLevel, onCopy: (value: string): void => { this.copy(value); } })
+                materialLevel: this.materialLevel, data: this.data,
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
             }
             else if (name === 'timers') {
               TimersPage({ english: this.english, immersiveSupported: this.immersiveSupported,
@@ -512,11 +751,19 @@ struct Index {
             else if (name === 'timestamp') {
               TimestampPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
-                onCopy: (value: string): void => { this.copy(value); } })
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
+                initialValue: this.pendingInput,
+                onInitialConsumed: (): void => { this.pendingInput = ''; } })
             }
             else if (name === 'text') {
               TextPage({ english: this.english, immersiveSupported: this.immersiveSupported,
-                materialLevel: this.materialLevel, onCopy: (value: string): void => { this.copy(value); } })
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
+                initialValue: this.pendingInput,
+                onInitialConsumed: (): void => { this.pendingInput = ''; },
+                onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'random') {
               RandomPage({ english: this.english, immersiveSupported: this.immersiveSupported,
@@ -529,6 +776,29 @@ struct Index {
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
+            else if (name === 'loan') {
+              LoanPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'color') {
+              ColorPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'health') {
+              HealthPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'science') {
+              SciencePage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); } })
+            }
             else if (name === 'documents') {
               DocumentsPage({ english: this.english, scannerSupported: this.scannerSupported,
                 documentUris: this.documentUris, documentPdf: this.documentPdf,
@@ -539,11 +809,17 @@ struct Index {
             else if (name === 'level') {
               LevelPage({ english: this.english, materialLevel: this.materialLevel, active: this.appActive })
             }
+            else if (name === 'compass') {
+              CompassPage({ english: this.english, active: this.appActive })
+            }
             else if (name === 'history') {
               HistoryPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, items: this.history,
                 onCopy: (value: string): void => { this.copy(value); },
-                onDelete: (id: string): void => { this.deleteHistoryItem(id); } })
+                onDelete: (id: string): void => { this.deleteHistoryItem(id); },
+                onDeleteMany: (ids: string[]): void => { this.deleteHistoryItems(ids); },
+                onOpen: (kind: string, content: string): void => { this.openHistoryItem(kind, content); },
+                onClear: (): void => { this.clearHistory(); } })
             }
             else { this.settingsContent() }
           }.width('100%').constraintSize({ maxWidth: 920 })

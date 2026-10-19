@@ -95,21 +95,16 @@ export class DateToolMode {
   id: string = '';
   zh: string = '';
   en: string = '';
-  // 分段控件里的短标签（长标签在内容区做标题，避免窄屏被截断）
-  // 英文短标签控制在 4–5 个字符：约 366 vp 窄屏上每段只有约 50 vp，
-  // "Interval"/"Calendar" 会被系统截断成 "Inte…"/"Cal…"（模拟器实测）。
-  shortZh: string = '';
-  shortEn: string = '';
 }
 
-// 日期工具的菜单项登记表：新增能力时在此追加一项，页面按 id 渲染对应内容。
+// 日期工具的登记表：新增能力时在此追加一项，页面用其中的双语全称做选项行文案，并按 id 渲染对应内容。
 export const DATE_TOOL_MODES: DateToolMode[] = [
-  { id: 'interval', zh: '日期间隔', en: 'Days between dates', shortZh: '间隔', shortEn: 'Days' },
-  { id: 'shift', zh: '日期推算', en: 'Date offset', shortZh: '推算', shortEn: 'Offset' },
-  { id: 'age', zh: '年龄计算', en: 'Age', shortZh: '年龄', shortEn: 'Age' },
-  { id: 'workdays', zh: '工作日', en: 'Working days', shortZh: '工作', shortEn: 'Work' },
-  { id: 'calendar', zh: '星期与周数', en: 'Weekday and week', shortZh: '日历', shortEn: 'Week' },
-  { id: 'lunar', zh: '农历', en: 'Lunar calendar', shortZh: '农历', shortEn: 'Lunar' }
+  { id: 'interval', zh: '日期间隔', en: 'Days between dates' },
+  { id: 'shift', zh: '日期推算', en: 'Date offset' },
+  { id: 'age', zh: '年龄计算', en: 'Age' },
+  { id: 'workdays', zh: '工作日', en: 'Working days' },
+  { id: 'calendar', zh: '星期与周数', en: 'Weekday and week' },
+  { id: 'lunar', zh: '农历', en: 'Lunar calendar' }
 ];
 
 // 纯算术求当月天数，避免在遍历/高频路径里反复创建 Date。

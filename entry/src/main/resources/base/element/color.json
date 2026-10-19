@@ -3,6 +3,146 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "tool_primary",
+      "value": "#2673DD"
+    },
+    {
+      "name": "tool_primary_deep",
+      "value": "#1455A0"
+    },
+    {
+      "name": "tool_success",
+      "value": "#188664"
+    },
+    {
+      "name": "tool_success_deep",
+      "value": "#0F6B50"
+    },
+    {
+      "name": "tool_warning",
+      "value": "#B45309"
+    },
+    {
+      "name": "tool_warning_text",
+      "value": "#80520D"
+    },
+    {
+      "name": "tool_warning_surface",
+      "value": "#FFF3D8"
+    },
+    {
+      "name": "tool_danger",
+      "value": "#B2475B"
+    },
+    {
+      "name": "tool_accent_purple",
+      "value": "#7254C9"
+    },
+    {
+      "name": "tool_accent_amber",
+      "value": "#F5AD2D"
+    },
+    {
+      "name": "tool_accent_orange",
+      "value": "#E88823"
+    },
+    {
+      "name": "tool_favorite_active",
+      "value": "#A65E00"
+    },
+    {
+      "name": "tool_neutral_dark",
+      "value": "#334155"
+    },
+    {
+      "name": "tool_text_primary",
+      "value": "#172033"
+    },
+    {
+      "name": "tool_text_strong",
+      "value": "#243044"
+    },
+    {
+      "name": "tool_text_secondary",
+      "value": "#475569"
+    },
+    {
+      "name": "tool_text_muted",
+      "value": "#64748B"
+    },
+    {
+      "name": "tool_text_subtle",
+      "value": "#536077"
+    },
+    {
+      "name": "tool_text_faint",
+      "value": "#94A3B8"
+    },
+    {
+      "name": "tool_surface",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "tool_background",
+      "value": "#F5F7FA"
+    },
+    {
+      "name": "tool_border",
+      "value": "#E2E8F0"
+    },
+    {
+      "name": "tool_border_soft",
+      "value": "#DBE4EF"
+    },
+    {
+      "name": "tool_border_light",
+      "value": "#D9E2EC"
+    },
+    {
+      "name": "tool_border_muted",
+      "value": "#CBD5E1"
+    },
+    {
+      "name": "tool_text_primary_border",
+      "value": "#17203322"
+    },
+    {
+      "name": "tool_tint_blue",
+      "value": "#DDEDFE"
+    },
+    {
+      "name": "tool_tint_rose",
+      "value": "#FCE8E4"
+    },
+    {
+      "name": "tool_tint_teal",
+      "value": "#E7F4F2"
+    },
+    {
+      "name": "tool_tint_green",
+      "value": "#DFF6E8"
+    },
+    {
+      "name": "tool_tint_amber",
+      "value": "#FFF0D9"
+    },
+    {
+      "name": "tool_tint_purple",
+      "value": "#F5E6FF"
+    },
+    {
+      "name": "tool_tint_indigo",
+      "value": "#E7E9FF"
+    },
+    {
+      "name": "tool_tint_mint",
+      "value": "#DCEEE6"
+    },
+    {
+      "name": "tool_tint_sky",
+      "value": "#E5F2FF"
     }
   ]
 }

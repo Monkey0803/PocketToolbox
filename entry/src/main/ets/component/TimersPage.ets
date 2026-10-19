@@ -4,7 +4,8 @@ import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, CountdownItem, StopwatchData } from '../model/LocalData';
 import { buildImmersiveMaterial } from '../model/Materials';
-import { parseDuration, remainingAt, clampDurationPart } from '../model/TimerMath';
+import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES,
+  lapDurations, fastestLapIndex, slowestLapIndex } from '../model/TimerMath';
 import { scheduleReminder, cancelReminder } from '../services/SystemTools';
 import { LiveViewHandle, startTimerLiveView, updateTimerLiveView, stopTimerLiveView } from '../services/LiveViewTools';
 
@@ -30,6 +31,7 @@ export struct TimersPage {
   @Local seconds: string = '0';
   @Local timers: CountdownItem[] = [];
   @Local watch: StopwatchData = new StopwatchData();
+  @Local repeatTimer: boolean = false;
   @Local now: number = Date.now();
   private ticker: number = -1;
   private liveViewReason: string = '';
@@ -68,10 +70,27 @@ export struct TimersPage {
     let changed: boolean = false;
     this.timers.forEach((timer: CountdownItem) => {
       if (timer.state === 'running' && timer.deadlineMs <= this.now) {
-        timer.state = 'done'; timer.remainingMs = 0; changed = true;
+        if (timer.repeat) {
+          // 重复计时：本轮结束时立刻开始下一轮，并重新排一次系统提醒。
+          timer.deadlineMs = this.now + timer.durationMs;
+          timer.remainingMs = timer.durationMs;
+          this.rescheduleRepeat(timer);
+        } else {
+          timer.state = 'done'; timer.remainingMs = 0;
+        }
+        changed = true;
       }
     });
     if (changed) { this.timers = this.timers.slice(); this.persistTimers(); }
+  }
+
+  // 重复计时的下一轮提醒：失败只影响后台提醒，不影响应用内计时（与 startTimer 的容错一致）。
+  private async rescheduleRepeat(timer: CountdownItem): Promise<void> {
+    try {
+      timer.reminderId = await scheduleReminder(this.ctx(), timer.name, timer.durationMs / 1000, this.english);
+    } catch (_) {
+      timer.reminderId = -1;
+    }
   }
 
   private async persistTimers(): Promise<void> { if (this.data) { await this.data.saveTimers(this.timers); } }
@@ -117,8 +136,16 @@ export struct TimersPage {
     timer.id = Date.now().toString() + Math.random().toString();
     timer.name = this.timerName.trim() || this.tr('倒计时', 'Countdown');
     timer.durationMs = duration; timer.remainingMs = duration;
+    timer.repeat = this.repeatTimer;
     this.timers = [timer].concat(this.timers); await this.persistTimers();
     this.timerName = ''; this.onStatus(this.tr('计时器已添加', 'Timer added'));
+  }
+
+  /** 常用时长预设：直接写回时分秒，仍可用时间选择器微调。 */
+  private applyPreset(minutes: number): void {
+    this.hours = '0';
+    this.minutes = minutes.toString();
+    this.seconds = '0';
   }
 
   private async startTimer(timer: CountdownItem): Promise<void> {
@@ -222,16 +249,59 @@ export struct TimersPage {
   private async toggleWatch(): Promise<void> {
     if (this.watch.running) { this.watch.elapsedMs += Date.now() - this.watch.startedAt; this.watch.running = false; }
     else { this.watch.startedAt = Date.now(); this.watch.running = true; }
-    this.watch = this.watch;
+    this.syncWatch();
     if (this.data) { await this.data.saveStopwatch(this.watch); }
   }
 
   private async resetWatch(): Promise<void> {
+    // 新对象同时清空计次记录
     this.watch = new StopwatchData(); if (this.data) { await this.data.saveStopwatch(this.watch); }
   }
 
+  /**
+   * 把秒表状态换成**新对象**再赋值。
+   *
+   * `this.watch = this.watch` 是同一个引用，ArkUI V2 不会收到变更通知；而秒表暂停、无倒计时运行时，
+   * 页面里只有 `watchElapsedMs()` 会读 `this.now`，读不到就不会因为 tick 重建，于是「点了开始/计次
+   * 但界面不动」。（2026-10-19 模拟器实测：点开始后时间停在 00:05:04、计次按钮状态不变。）
+   */
+  private syncWatch(): void {
+    const next: StopwatchData = new StopwatchData();
+    next.elapsedMs = this.watch.elapsedMs;
+    next.startedAt = this.watch.startedAt;
+    next.running = this.watch.running;
+    next.laps = this.watch.laps.slice();
+    this.watch = next;
+  }
+
+  private watchElapsedMs(): number {
+    return this.watch.elapsedMs + (this.watch.running ? this.now - this.watch.startedAt : 0);
+  }
+
   private watchTime(): string {
-    return this.formatTime(this.watch.elapsedMs + (this.watch.running ? this.now - this.watch.startedAt : 0));
+    return this.formatTime(this.watchElapsedMs());
+  }
+
+  /** 计次：把当前累计时间追加到记录里（暂停时也能记，方便整段计时后分段）。 */
+  private async lapWatch(): Promise<void> {
+    const elapsed: number = this.watchElapsedMs();
+    if (elapsed <= 0) { return; }
+    this.watch.laps = this.watch.laps.concat([elapsed]);
+    this.syncWatch();
+    if (this.data) { await this.data.saveStopwatch(this.watch); }
+  }
+
+  /** 第 index 次计次的单次成绩（差值）。 */
+  private lapDelta(index: number): number {
+    const deltas: number[] = lapDurations(this.watch.laps);
+    return index < deltas.length ? deltas[index] : 0;
+  }
+
+  private lapColor(index: number): ResourceColor {
+    if (this.watch.laps.length < 2) { return ToolPalette.textPrimary; }
+    if (index === fastestLapIndex(this.watch.laps)) { return ToolPalette.successDeep; }
+    if (index === slowestLapIndex(this.watch.laps)) { return ToolPalette.danger; }
+    return ToolPalette.textPrimary;
   }
 
   build() {
@@ -266,6 +336,26 @@ export struct TimersPage {
         .accessibilityText(this.tr('选择倒计时时长', 'Choose countdown duration'))
         .onClick(() => this.openDurationPicker())
       }
+      Text(this.tr('常用时长', 'Quick durations')).fontSize(14).fontColor(ToolPalette.textSecondary)
+        .width('100%')
+      Row({ space: 6 }) {
+        ForEach(DURATION_PRESETS_MINUTES, (minutes: number) => {
+          Button(this.tr(minutes + '分', minutes + 'm')).fontSize(14).height(40).layoutWeight(1)
+            .backgroundColor(ToolPalette.tintBlue).fontColor(ToolPalette.primaryDeep)
+            .onClick(() => this.applyPreset(minutes))
+        }, (minutes: number): string => minutes.toString())
+      }.width('100%')
+      Row({ space: 12 }) {
+        Column({ space: 2 }) {
+          Text(this.tr('重复计时', 'Repeat')).fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
+          Text(this.tr('一轮结束后自动开始下一轮（后台提醒只覆盖当前一轮）',
+            'Starts the next round automatically; background alerts cover the current round only'))
+            .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.repeatTimer })
+          .accessibilityText(this.tr('重复计时', 'Repeat'))
+          .onChange((isOn: boolean) => { this.repeatTimer = isOn; })
+      }.width('100%')
       Row() {
         Button() {
           SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([Color.White])
@@ -281,7 +371,13 @@ export struct TimersPage {
           interactive: true
         }) {
         Column({ space: 10 }) {
-          Text(timer.name).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+          Row({ space: 6 }) {
+            Text(timer.name).fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
+            if (timer.repeat) {
+              SymbolGlyph($r('sys.symbol.repeat')).fontSize(18).fontColor([ToolPalette.accentPurple])
+              Text(this.tr('重复', 'Repeat')).fontSize(12).fontColor(ToolPalette.accentPurple)
+            }
+          }.width('100%')
           Text(this.timerTime(timer)).fontSize(30).fontWeight(FontWeight.Bold).width('100%')
           if (timer.state === 'running' && timer.reminderId < 0 && timer.liveViewId < 0) {
             Text(this.tr('仅应用内计时，实况窗与后台提醒均未启用', 'In-app only; live view and background alert unavailable'))
@@ -331,10 +427,39 @@ export struct TimersPage {
           .accessibilityText(this.watch.running ? this.tr('暂停秒表', 'Pause stopwatch') :
             this.tr('开始或继续秒表', 'Start or resume stopwatch')).onClick(() => this.toggleWatch())
         Button() {
+          SymbolGlyph($r('sys.symbol.flag')).fontSize(24).fontColor([Color.White])
+        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
+          .enabled(this.watchElapsedMs() > 0)
+          .accessibilityText(this.tr('计次', 'Lap')).onClick(() => this.lapWatch())
+        Button() {
           SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(24).fontColor([Color.White])
         }.width(48).height(48).backgroundColor(ToolPalette.textMuted)
           .accessibilityText(this.tr('重置秒表', 'Reset stopwatch')).onClick(() => this.resetWatch())
       }.width('100%').justifyContent(this.actionAlign)
+      if (this.watch.laps.length > 0) {
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18
+        }) {
+          Column({ space: 8 }) {
+            Row({ space: 8 }) {
+              Text(this.tr('计次记录', 'Laps')).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+              Text(this.tr('最快 ' + this.formatTime(this.lapDelta(fastestLapIndex(this.watch.laps))) +
+                ' · 最慢 ' + this.formatTime(this.lapDelta(slowestLapIndex(this.watch.laps))),
+                'Fastest ' + this.formatTime(this.lapDelta(fastestLapIndex(this.watch.laps))) +
+                ' · Slowest ' + this.formatTime(this.lapDelta(slowestLapIndex(this.watch.laps)))))
+                .fontSize(12).fontColor(ToolPalette.textMuted)
+            }.width('100%')
+            ForEach(this.watch.laps, (lap: number, index: number) => {
+              Row({ space: 8 }) {
+                Text('#' + (index + 1)).fontSize(14).fontColor(ToolPalette.textMuted).width(48)
+                Text(this.formatTime(this.lapDelta(index))).fontSize(16)
+                  .fontColor(this.lapColor(index)).layoutWeight(1)
+                Text(this.formatTime(lap)).fontSize(14).fontColor(ToolPalette.textSecondary)
+              }.width('100%')
+            }, (lap: number, index: number): string => index.toString() + ':' + lap.toString())
+          }.width('100%').padding(14)
+        }
+      }
     }.width('100%')
   }
 }

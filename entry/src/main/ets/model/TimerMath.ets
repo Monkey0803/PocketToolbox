@@ -21,3 +21,42 @@ export function clampDurationPart(value: string, max: number): number {
 export function remainingAt(deadlineMs: number, nowMs: number): number {
   return Math.max(0, deadlineMs - nowMs);
 }
+
+/** 秒表计次的常用预设（分钟），界面直接用它铺按钮。 */
+export const DURATION_PRESETS_MINUTES: number[] = [1, 5, 10, 15, 25, 30];
+
+/**
+ * 秒表计次：把每次按「计次」时记录的累计毫秒换成单次成绩。
+ *
+ * 输入必须是递增的非负有限值；否则整组视为无效（返回空数组），避免出现负成绩。
+ */
+export function lapDurations(laps: number[]): number[] {
+  if (!Array.isArray(laps)) { return []; }
+  const deltas: number[] = [];
+  let previous: number = 0;
+  for (const lap of laps) {
+    if (!Number.isFinite(lap) || lap < 0 || lap < previous) { return []; }
+    deltas.push(lap - previous);
+    previous = lap;
+  }
+  return deltas;
+}
+
+/** 单次成绩里的最快 / 最慢下标；并列取先出现的那个，不足两次计次（或无有效成绩）返回 -1（不标色）。 */
+export function fastestLapIndex(laps: number[]): number {
+  return extremeLapIndex(laps, true);
+}
+
+export function slowestLapIndex(laps: number[]): number {
+  return extremeLapIndex(laps, false);
+}
+
+function extremeLapIndex(laps: number[], fastest: boolean): number {
+  const deltas: number[] = lapDurations(laps);
+  if (deltas.length === 0) { return -1; }
+  let best: number = 0;
+  for (let index: number = 1; index < deltas.length; index++) {
+    if (fastest ? deltas[index] < deltas[best] : deltas[index] > deltas[best]) { best = index; }
+  }
+  return deltas.length > 1 ? best : -1;
+}

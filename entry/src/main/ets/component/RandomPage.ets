@@ -1,12 +1,16 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { randomInteger, chooseCandidate } from '../model/RandomTools';
+import { randomInteger, chooseCandidate, shuffleCandidates, groupCandidates, rollDice, coinFlip,
+  indexFromDraw, DICE_COUNTS, GROUP_COUNTS } from '../model/RandomTools';
 
 /**
- * 随机整数与名单抽取页。
+ * 随机选择页（随机整数、骰子、硬币、名单抽取 / 随机排序 / 分组）。
  *
- * 自包含工具页：区间/名单输入与结果都在本组件内；复制与校验提示通过 `@Event` 交回父组件。
+ * 自包含工具页：输入与结果都在本组件内；复制与校验提示通过 `@Event` 交回父组件。
+ * 随机过程走 `model/RandomTools.ets` 的纯函数，本组件只用 `indexFromDraw(Math.random(), bound)`
+ * 提供随机源。骰子颗数与分组组数走 `OptionSelect`（与单位换算页「类别」同一套 UI）。
  */
 @ComponentV2
 export struct RandomPage {
@@ -20,9 +24,30 @@ export struct RandomPage {
   @Local randomMax: string = '100';
   @Local randomItems: string = '';
   @Local randomNumberResult: string = '';
-  @Local randomChoiceResult: string = '';
+  @Local diceCount: number = 2;
+  @Local diceResult: string = '';
+  @Local coinResult: string = '';
+  @Local groupCount: number = 2;
+  @Local listResult: string = '';
+  @Local listResultLabel: string = '';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  private next(bound: number): number { return indexFromDraw(Math.random(), bound); }
+
+  private diceOptions(): SelectOption[] {
+    return DICE_COUNTS.map((count: number): SelectOption => {
+      const option: SelectOption = { value: this.tr(count + ' 颗', count + (count === 1 ? ' die' : ' dice')) };
+      return option;
+    });
+  }
+
+  private groupOptions(): SelectOption[] {
+    return GROUP_COUNTS.map((count: number): SelectOption => {
+      const option: SelectOption = { value: this.tr(count + ' 组', count + ' groups') };
+      return option;
+    });
+  }
 
   private drawNumber(): void {
     const minText: string = this.randomMin.trim();
@@ -38,14 +63,62 @@ export struct RandomPage {
     this.randomNumberResult = result.toString();
   }
 
-  private drawChoice(): void {
+  private roll(): void {
+    const values: number[] | undefined = rollDice(this.diceCount, (bound: number) => this.next(bound));
+    if (values === undefined) {
+      this.onStatus(this.tr('骰子颗数只能选 1 至 5', 'Choose 1 to 5 dice'));
+      return;
+    }
+    let total: number = 0;
+    values.forEach((value: number) => { total += value; });
+    this.onStatus('');
+    this.diceResult = values.join(' · ') + '  ' + this.tr('合计 ' + total, 'total ' + total);
+  }
+
+  private flip(): void {
+    const heads: boolean = coinFlip((bound: number) => this.next(bound));
+    this.onStatus('');
+    this.coinResult = heads ? this.tr('正面', 'Heads') : this.tr('反面', 'Tails');
+  }
+
+  private pickOne(): void {
     const result: string | undefined = chooseCandidate(this.randomItems, Math.random());
     if (result === undefined) {
       this.onStatus(this.tr('请至少输入一个候选项', 'Enter at least one choice'));
       return;
     }
     this.onStatus('');
-    this.randomChoiceResult = result;
+    this.listResultLabel = this.tr('抽取结果', 'Chosen item');
+    this.listResult = result;
+  }
+
+  private shuffleList(): void {
+    if (this.randomItems.trim().length === 0) {
+      this.onStatus(this.tr('请先输入候选项', 'Enter the choices first'));
+      return;
+    }
+    this.onStatus('');
+    this.listResultLabel = this.tr('随机排序', 'Shuffled order');
+    this.listResult = shuffleCandidates(this.randomItems, (bound: number) => this.next(bound)).join('\n');
+  }
+
+  private groupList(): void {
+    const groups: string[][] | undefined =
+      groupCandidates(this.randomItems, this.groupCount, (bound: number) => this.next(bound));
+    if (groups === undefined) {
+      this.onStatus(this.tr('候选项数量需不少于组数（最多 10 组）',
+        'You need at least as many choices as groups (maximum 10 groups)'));
+      return;
+    }
+    this.onStatus('');
+    this.listResultLabel = this.tr('分组结果', 'Groups');
+    this.listResult = groups.map((members: string[], index: number): string =>
+      this.tr('第 ' + (index + 1) + ' 组：', 'Group ' + (index + 1) + ': ') + members.join(this.tr('、', ', ')))
+      .join('\n');
+  }
+
+  private listResultTitle(): string {
+    return this.listResultLabel.length > 0 ? this.listResultLabel : this.tr('结果', 'Result');
   }
 
   build() {
@@ -96,7 +169,41 @@ export struct RandomPage {
           .accessibilityText(this.tr('复制随机数', 'Copy random number'))
           .onClick(() => this.onCopy(this.randomNumberResult))
       }
-      Text(this.tr('名单抽取', 'Pick from a list')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
+
+      Text(this.tr('骰子与硬币', 'Dice and coin')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
+      OptionSelect({
+        label: this.tr('骰子颗数', 'Dice'),
+        options: this.diceOptions(),
+        selectedIndex: DICE_COUNTS.indexOf(this.diceCount),
+        selectedText: this.tr(this.diceCount + ' 颗', this.diceCount + (this.diceCount === 1 ? ' die' : ' dice')),
+        a11yText: this.tr('骰子颗数', 'Number of dice'),
+        onSelected: (index: number): void => { this.diceCount = DICE_COUNTS[index]; this.diceResult = ''; }
+      })
+      Row({ space: 8 }) {
+        Button(this.tr('掷骰子', 'Roll dice')).layoutWeight(1).height(48)
+          .backgroundColor(ToolPalette.accentOrange).onClick(() => this.roll())
+        Button(this.tr('抛硬币', 'Flip a coin')).layoutWeight(1).height(48)
+          .backgroundColor(ToolPalette.accentPurple).onClick(() => this.flip())
+      }.width('100%')
+      if (this.diceResult || this.coinResult) {
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        }) {
+          Column({ space: 8 }) {
+            if (this.diceResult) {
+              Text(this.diceResult).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
+                .copyOption(CopyOptions.LocalDevice)
+            }
+            if (this.coinResult) {
+              Text(this.coinResult).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
+                .copyOption(CopyOptions.LocalDevice)
+            }
+          }.padding(16).width('100%')
+        }
+      }
+
+      Text(this.tr('名单抽取、排序与分组', 'Pick, shuffle and group a list')).fontSize(20)
+        .fontWeight(FontWeight.Bold).width('100%')
       Text(this.tr('每行一个候选项，也可用逗号或分号分隔；重复项只算一次',
         'One choice per line, or separate with commas or semicolons; duplicates count once'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
@@ -108,21 +215,38 @@ export struct RandomPage {
         interactive: true
       }) {
         TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
-          .onChange((value: string) => { this.randomItems = value; this.randomChoiceResult = ''; }).height(150)
+          .onChange((value: string) => {
+            this.randomItems = value; this.listResult = ''; this.listResultLabel = '';
+          }).height(150)
       }
-      Button(this.tr('随机抽取', 'Pick one')).height(48).backgroundColor(ToolPalette.primary)
-        .onClick(() => this.drawChoice())
-      if (this.randomChoiceResult) {
+      Row({ space: 8 }) {
+        Button(this.tr('随机抽取', 'Pick one')).layoutWeight(1).height(48)
+          .backgroundColor(ToolPalette.primary).onClick(() => this.pickOne())
+        Button(this.tr('随机排序', 'Shuffle')).layoutWeight(1).height(48)
+          .backgroundColor(ToolPalette.accentPurple).onClick(() => this.shuffleList())
+      }.width('100%')
+      OptionSelect({
+        label: this.tr('分组组数', 'Groups'),
+        options: this.groupOptions(),
+        selectedIndex: GROUP_COUNTS.indexOf(this.groupCount),
+        selectedText: this.tr(this.groupCount + ' 组', this.groupCount + ' groups'),
+        a11yText: this.tr('分组组数', 'Number of groups'),
+        onSelected: (index: number): void => { this.groupCount = GROUP_COUNTS[index]; this.listResult = ''; }
+      })
+      Button(this.tr('分组', 'Group')).width('100%').height(48).backgroundColor(ToolPalette.success)
+        .onClick(() => this.groupList())
+      if (this.listResult) {
+        Text(this.listResultTitle()).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
         }) {
-          Text(this.randomChoiceResult).fontSize(24).fontWeight(FontWeight.Bold).padding(16).width('100%')
+          Text(this.listResult).fontSize(20).fontWeight(FontWeight.Bold).padding(16).width('100%')
+            .copyOption(CopyOptions.LocalDevice)
         }
         Button() {
           SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
         }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-          .accessibilityText(this.tr('复制抽取结果', 'Copy chosen item'))
-          .onClick(() => this.onCopy(this.randomChoiceResult))
+          .accessibilityText(this.tr('复制结果', 'Copy result')).onClick(() => this.onCopy(this.listResult))
       }
     }.width('100%')
   }

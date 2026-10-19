@@ -1,6 +1,22 @@
 {
   "string": [
     {
+      "name": "shortcut_qr",
+      "value": "生成二维码"
+    },
+    {
+      "name": "shortcut_barcode",
+      "value": "生成条形码"
+    },
+    {
+      "name": "shortcut_science",
+      "value": "科学计算器"
+    },
+    {
+      "name": "shortcut_timers",
+      "value": "计时与秒表"
+    },
+    {
       "name": "module_desc",
       "value": "离线日常工具集合"
     },

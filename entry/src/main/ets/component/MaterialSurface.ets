@@ -12,7 +12,8 @@ import { buildImmersiveMaterial } from '../model/Materials';
 export struct MaterialSurface {
   @Param supported: boolean = false;
   @Param level: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
-  @Param fallback: string = '#FFFFFF';
+  // 退化底色：接受颜色资源（浅色/深色各一份），因此深色模式下无需调用方改动。
+  @Param fallback: ResourceColor = '#FFFFFF';
   @Param corner: number = 16;
   @Param interactive: boolean = false;
   @BuilderParam content: () => void = this.emptyContent;

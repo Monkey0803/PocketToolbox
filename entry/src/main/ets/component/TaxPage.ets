@@ -1,9 +1,10 @@
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { TaxResult, WageInput, parseMoney, moneyText, contributionFromBase, wageTax, oneOffTax,
-  severanceTax, reverseOneOff, reverseWage } from '../model/IncomeTax';
+import { TaxResult, TaxKindEntry, TAX_KINDS, taxKindIndex, WageInput, parseMoney, moneyText,
+  contributionFromBase, wageTax, oneOffTax, severanceTax, reverseOneOff, reverseWage } from '../model/IncomeTax';
 
 /**
  * 居民个人个税估算页（工资累计预扣 / 稿酬 / 劳务 / 特许权 / 离职补偿）。
@@ -49,6 +50,55 @@ export struct TaxPage {
   @Local taxResult: TaxResult | undefined = undefined;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  private taxKindOptions(): SelectOption[] {
+    return TAX_KINDS.map((entry: TaxKindEntry): SelectOption => {
+      const option: SelectOption = { value: this.tr(entry.zh, entry.en) };
+      return option;
+    });
+  }
+
+  private taxKindAt(): number {
+    const index: number = taxKindIndex(this.taxKind);
+    return index < 0 ? 0 : index;
+  }
+
+  private taxKindLabel(): string {
+    const entry: TaxKindEntry | undefined = TAX_KINDS[this.taxKindAt()];
+    return entry === undefined ? '' : this.tr(entry.zh, entry.en);
+  }
+
+  /** 计算方向：「税前算税后」与「税后反推」是互斥选项，走统一的选项行而不是两个按钮。 */
+  private reverseOptions(): SelectOption[] {
+    return [
+      { value: this.tr('税前算税后', 'Gross to net') },
+      { value: this.tr('税后反推', 'Net to gross') }
+    ];
+  }
+
+  /** 社保 / 公积金的录入方式：直接填实缴额，或按基数与比例算。 */
+  private contributionModeOptions(): SelectOption[] {
+    return [
+      { value: this.tr('实缴额', 'Amount') },
+      { value: this.tr('按基数和比例', 'Base + rate') }
+    ];
+  }
+
+  private selectTaxKind(index: number): void {
+    const entry: TaxKindEntry | undefined = TAX_KINDS[index];
+    if (entry === undefined) { return; }
+    this.taxKind = entry.id; this.taxReverse = false; this.taxResult = undefined; this.onStatus('');
+  }
+
+  private selectReverse(index: number): void {
+    this.taxReverse = index === 1; this.taxResult = undefined;
+  }
+
+  private selectContributionMode(kind: string, index: number): void {
+    const byBase: boolean = index === 1;
+    if (kind === 'social') { this.taxSocialByBase = byBase; } else { this.taxHousingByBase = byBase; }
+    this.taxResult = undefined;
+  }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
 
@@ -122,13 +172,6 @@ export struct TaxPage {
     this.taxResult = result;
   }
 
-  @Builder private taxKindButton(kind: string, zh: string, en: string) {
-    Button(this.tr(zh, en)).width('48%').height(48).margin({ bottom: 8 })
-      .backgroundColor(this.taxKind === kind ? ToolPalette.primary : ToolPalette.border)
-      .fontColor(this.taxKind === kind ? Color.White : ToolPalette.textStrong)
-      .onClick(() => { this.taxKind = kind; this.taxReverse = false; this.taxResult = undefined; this.onStatus(''); })
-  }
-
   @Builder private taxField(zh: string, en: string, value: string, update: (value: string) => void) {
     Column({ space: 6 }) {
       Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
@@ -162,24 +205,23 @@ export struct TaxPage {
     Column({ space: 14 }) {
       Text(this.tr('中国大陆居民个人 · 本机估算', 'Mainland China resident · on-device estimate'))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
-      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-        this.taxKindButton('wage', '工资个税', 'Wages')
-        this.taxKindButton('manuscript', '稿酬', 'Manuscript')
-        this.taxKindButton('severance', '离职补偿', 'Severance')
-        this.taxKindButton('labor', '劳务报酬', 'Service income')
-        this.taxKindButton('royalty', '特许权使用费', 'Royalties')
-      }.width('100%')
+      OptionSelect({
+        label: this.tr('计税类型', 'Tax type'),
+        options: this.taxKindOptions(),
+        selectedIndex: this.taxKindAt(),
+        selectedText: this.taxKindLabel(),
+        a11yText: this.tr('计税类型', 'Tax type'),
+        onSelected: (index: number): void => this.selectTaxKind(index)
+      })
       if (this.taxKind === 'wage' || this.taxKind === 'labor' || this.taxKind === 'royalty') {
-        Row({ space: 8 }) {
-          Button(this.tr('税前算税后', 'Gross to net')).layoutWeight(1).height(44)
-            .backgroundColor(!this.taxReverse ? ToolPalette.primary : ToolPalette.border)
-            .fontColor(!this.taxReverse ? Color.White : ToolPalette.textStrong)
-            .onClick(() => { this.taxReverse = false; this.taxResult = undefined; })
-          Button(this.tr('税后反推', 'Net to gross')).layoutWeight(1).height(44)
-            .backgroundColor(this.taxReverse ? ToolPalette.primary : ToolPalette.border)
-            .fontColor(this.taxReverse ? Color.White : ToolPalette.textStrong)
-            .onClick(() => { this.taxReverse = true; this.taxResult = undefined; })
-        }.width('100%')
+        OptionSelect({
+          label: this.tr('计算方向', 'Direction'),
+          options: this.reverseOptions(),
+          selectedIndex: this.taxReverse ? 1 : 0,
+          selectedText: this.taxReverse ? this.tr('税后反推', 'Net to gross') : this.tr('税前算税后', 'Gross to net'),
+          a11yText: this.tr('计算方向', 'Calculation direction'),
+          onSelected: (index: number): void => this.selectReverse(index)
+        })
       }
       this.taxField(this.taxReverse ? '目标税后金额（元）' : '税前收入（元）',
         this.taxReverse ? 'Target net amount (CNY)' : 'Gross income (CNY)',
@@ -204,16 +246,14 @@ export struct TaxPage {
               .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
           }
         }.width('100%')
-        Row({ space: 8 }) {
-          Button(this.tr('社保实缴额', 'Social amount')).layoutWeight(1).height(44)
-            .backgroundColor(!this.taxSocialByBase ? ToolPalette.primary : ToolPalette.border)
-            .fontColor(!this.taxSocialByBase ? Color.White : ToolPalette.textStrong)
-            .onClick(() => { this.taxSocialByBase = false; this.taxResult = undefined; })
-          Button(this.tr('按基数和比例', 'Base and rate')).layoutWeight(1).height(44)
-            .backgroundColor(this.taxSocialByBase ? ToolPalette.primary : ToolPalette.border)
-            .fontColor(this.taxSocialByBase ? Color.White : ToolPalette.textStrong)
-            .onClick(() => { this.taxSocialByBase = true; this.taxResult = undefined; })
-        }.width('100%')
+        OptionSelect({
+          label: this.tr('社保', 'Social'),
+          options: this.contributionModeOptions(),
+          selectedIndex: this.taxSocialByBase ? 1 : 0,
+          selectedText: this.taxSocialByBase ? this.tr('按基数和比例', 'Base + rate') : this.tr('实缴额', 'Amount'),
+          a11yText: this.tr('社保录入方式', 'Social insurance input'),
+          onSelected: (index: number): void => this.selectContributionMode('social', index)
+        })
         if (this.taxSocialByBase) {
           this.taxField('社保基数（元）', 'Social insurance base (CNY)', this.taxSocialBase,
             (value: string) => this.taxSocialBase = value)
@@ -223,16 +263,14 @@ export struct TaxPage {
           this.taxField('本期个人社保实缴额（元）', 'Personal social contribution (CNY)', this.taxSocialAmount,
             (value: string) => this.taxSocialAmount = value)
         }
-        Row({ space: 8 }) {
-          Button(this.tr('公积金实缴额', 'Housing amount')).layoutWeight(1).height(44)
-            .backgroundColor(!this.taxHousingByBase ? ToolPalette.primary : ToolPalette.border)
-            .fontColor(!this.taxHousingByBase ? Color.White : ToolPalette.textStrong)
-            .onClick(() => { this.taxHousingByBase = false; this.taxResult = undefined; })
-          Button(this.tr('按基数和比例', 'Base and rate')).layoutWeight(1).height(44)
-            .backgroundColor(this.taxHousingByBase ? ToolPalette.primary : ToolPalette.border)
-            .fontColor(this.taxHousingByBase ? Color.White : ToolPalette.textStrong)
-            .onClick(() => { this.taxHousingByBase = true; this.taxResult = undefined; })
-        }.width('100%')
+        OptionSelect({
+          label: this.tr('公积金', 'Housing'),
+          options: this.contributionModeOptions(),
+          selectedIndex: this.taxHousingByBase ? 1 : 0,
+          selectedText: this.taxHousingByBase ? this.tr('按基数和比例', 'Base + rate') : this.tr('实缴额', 'Amount'),
+          a11yText: this.tr('公积金录入方式', 'Housing fund input'),
+          onSelected: (index: number): void => this.selectContributionMode('housing', index)
+        })
         if (this.taxHousingByBase) {
           this.taxField('公积金基数（元）', 'Housing fund base (CNY)', this.taxHousingBase,
             (value: string) => this.taxHousingBase = value)

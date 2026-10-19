@@ -2,6 +2,31 @@
 // Rules reviewed 2026-10-12 against the National Tax Administration:
 // https://fgk.chinatax.gov.cn/zcfgk/c100015/c5200946/content.html
 // https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202364/content.html
+/** 计税类型登记表：界面选项行与计算分支都用它，新增类型只需加登记项。 */
+export class TaxKindEntry {
+  readonly id: string;
+  readonly zh: string;
+  readonly en: string;
+
+  constructor(id: string, zh: string, en: string) {
+    this.id = id;
+    this.zh = zh;
+    this.en = en;
+  }
+}
+
+export const TAX_KINDS: TaxKindEntry[] = [
+  new TaxKindEntry('wage', '工资个税', 'Wages'),
+  new TaxKindEntry('manuscript', '稿酬', 'Manuscript'),
+  new TaxKindEntry('severance', '离职补偿', 'Severance'),
+  new TaxKindEntry('labor', '劳务报酬', 'Service income'),
+  new TaxKindEntry('royalty', '特许权使用费', 'Royalties')
+];
+
+export function taxKindIndex(id: string): number {
+  return TAX_KINDS.findIndex((entry: TaxKindEntry) => entry.id === id);
+}
+
 export class TaxResult {
   grossCents: number = 0;
   contributionCents: number = 0;

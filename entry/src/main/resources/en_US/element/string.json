@@ -1,5 +1,9 @@
 {
   "string": [
+    { "name": "shortcut_qr", "value": "Create a QR code" },
+    { "name": "shortcut_barcode", "value": "Create a barcode" },
+    { "name": "shortcut_science", "value": "Scientific calculator" },
+    { "name": "shortcut_timers", "value": "Timers and stopwatch" },
     { "name": "module_desc", "value": "Offline everyday utilities" },
     { "name": "EntryAbility_desc", "value": "Pocket Toolbox" },
     { "name": "EntryAbility_label", "value": "Pocket Toolbox" }

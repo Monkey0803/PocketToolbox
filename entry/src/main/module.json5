@@ -13,7 +13,9 @@
       { "name": "ohos.permission.ACCELEROMETER" }
     ],
     "metadata": [
-      { "name": "ohos.arkui.UIMaterial.state", "value": "enable" }
+      { "name": "ohos.arkui.UIMaterial.state", "value": "enable" },
+      // 桌面长按图标的快捷方式直达工具（见 resources/base/profile/shortcuts_config.json）
+      { "name": "ohos.ability.shortcuts", "resource": "$profile:shortcuts_config" }
     ],
     "deliveryWithInstall": true,
     "installationFree": false,
