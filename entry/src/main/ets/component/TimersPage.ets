@@ -59,8 +59,9 @@ export struct TimersPage {
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
+  // 只给时间选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
   private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
   }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
@@ -438,7 +439,8 @@ export struct TimersPage {
       }.width('100%').justifyContent(this.actionAlign)
       if (this.watch.laps.length > 0) {
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18,
+          lightEffect: true
         }) {
           Column({ space: 8 }) {
             Row({ space: 8 }) {

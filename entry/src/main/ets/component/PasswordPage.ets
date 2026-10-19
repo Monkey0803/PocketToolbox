@@ -120,7 +120,8 @@ export struct PasswordPage {
       }.width('100%').justifyContent(this.actionAlign)
       if (this.passwordValue) {
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         Text(this.passwordVisible ? this.passwordValue : '•'.repeat(this.passwordValue.length))
           .fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')

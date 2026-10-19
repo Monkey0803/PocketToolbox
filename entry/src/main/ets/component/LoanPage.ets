@@ -205,7 +205,8 @@ export struct LoanPage {
           })
       }.width('100%')
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         this.resultCard()
       }

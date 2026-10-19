@@ -102,7 +102,8 @@ export struct SciencePage {
       this.angleSelect()
       this.quickKeys()
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         this.resultCard()
       }

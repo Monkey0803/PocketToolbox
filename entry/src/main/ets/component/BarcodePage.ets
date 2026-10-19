@@ -199,7 +199,8 @@ export struct BarcodePage {
       if (this.barcodeResult) {
         Text(this.tr('条形码内容', 'Barcode value')).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 14
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 14,
+          lightEffect: true
         }) {
           Text(this.barcodeResult).fontSize(20).copyOption(CopyOptions.LocalDevice).padding(14).width('100%')
         }

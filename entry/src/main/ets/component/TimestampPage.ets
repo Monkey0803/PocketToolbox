@@ -336,7 +336,8 @@ export struct TimestampPage {
           .onClick(() => this.useNow())
       }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         Column({ space: 10 }) {
           if (!this.result.ok) {
@@ -359,7 +360,8 @@ export struct TimestampPage {
       }
       if (this.result.ok) {
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           this.zoneSection()
         }

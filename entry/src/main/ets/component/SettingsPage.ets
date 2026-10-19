@@ -47,7 +47,8 @@ export struct SettingsPage {
       Text(this.tr('设备信息', 'Device info')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel,
-        fallback: ToolPalette.surface, corner: 16
+        fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         Column({ space: 8 }) {
           ForEach(this.infoRows, (row: InfoRow) => {

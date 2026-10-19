@@ -213,7 +213,8 @@ export struct UnitsPage {
       }.width('100%').padding(14)
       }
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18,
+        lightEffect: true
       }) {
         Row({ space: 12 }) {
           Column({ space: 2 }) {
@@ -242,7 +243,8 @@ export struct UnitsPage {
         }
       })
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18,
+        lightEffect: true
       }) {
         Column({ space: 10 }) {
           Text(this.tr('同类其他单位', 'Other units in this category'))

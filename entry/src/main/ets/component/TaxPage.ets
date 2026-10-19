@@ -349,7 +349,8 @@ export struct TaxPage {
         .onClick(() => this.calculateTax())
       if (this.taxResult) {
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
         Column({ space: 10 }) {
           this.taxHeading('计算结果', 'Result')

@@ -132,7 +132,8 @@ export struct ColorPage {
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       this.inputBlock('color', '颜色', 'Colour', '#0D3B66 或 rgb(13, 59, 102)')
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         Column({ space: 12 }) {
           Row() {
@@ -150,7 +151,8 @@ export struct ColorPage {
       }
       this.inputBlock('background', '对比背景色', 'Background', '#FFFFFF')
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         Column({ space: 12 }) {
           Text(this.tr('对比度', 'Contrast')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')

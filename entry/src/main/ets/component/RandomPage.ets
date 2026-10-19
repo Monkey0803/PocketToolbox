@@ -159,7 +159,8 @@ export struct RandomPage {
         .onClick(() => this.drawNumber())
       if (this.randomNumberResult) {
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Text(this.randomNumberResult).fontSize(30).fontWeight(FontWeight.Bold).padding(16).width('100%')
         }
@@ -187,7 +188,8 @@ export struct RandomPage {
       }.width('100%')
       if (this.diceResult || this.coinResult) {
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Column({ space: 8 }) {
             if (this.diceResult) {
@@ -238,7 +240,8 @@ export struct RandomPage {
       if (this.listResult) {
         Text(this.listResultTitle()).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Text(this.listResult).fontSize(20).fontWeight(FontWeight.Bold).padding(16).width('100%')
             .copyOption(CopyOptions.LocalDevice)

@@ -362,7 +362,8 @@ export struct QrPage {
       if (this.qrResult) {
         Text(this.tr('当前内容', 'Current content')).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 14
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 14,
+          lightEffect: true
         }) {
           Text(this.qrResult).fontSize(16).copyOption(CopyOptions.LocalDevice).padding(14).width('100%')
         }

@@ -198,7 +198,8 @@ export struct TextPage {
 
       Text(this.tr('处理结果', 'Result')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
       }) {
         Text(this.textOutput || this.tr('选择上方操作查看结果', 'Choose an action to see the result'))
           .fontSize(16).copyOption(CopyOptions.LocalDevice).padding(16).width('100%')

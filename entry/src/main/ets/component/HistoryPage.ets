@@ -73,7 +73,8 @@ export struct HistoryPage {
   @Builder private itemCard(item: HistoryItem) {
     MaterialSurface({
       supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
-      interactive: historyTargetRoute(item.kind).length > 0
+      interactive: historyTargetRoute(item.kind).length > 0,
+      lightEffect: true
     }) {
       Column({ space: 8 }) {
         Row({ space: 8 }) {
