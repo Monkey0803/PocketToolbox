@@ -25,6 +25,28 @@ export function timeZoneOffsetMinutes(zoneId: string, instant: number): number {
   }
 }
 
+/**
+ * 系统（或应用）当前使用的语言标签，供「跟随系统」的界面语言使用。
+ *
+ * 优先 `getAppPreferredLanguage()`——它已经考虑应用自己的语言配置（含系统里的「应用语言」设置）；
+ * 取不到再退回 `getSystemLanguage()`。两者都失败时返回空串，由纯逻辑
+ * `LanguagePreference.englishFromPreference()` 回退中文，**不要在这里猜**。
+ *
+ * 系统语言变化通常会让应用重建（`aboutToAppear`）或回到前台（`onPageShow`），届时重新取值即可；
+ * 本轮没有订阅 `COMMON_EVENT_LOCALE_CHANGED`（前台常驻时切换系统语言属罕见路径）。
+ */
+export function systemPreferredLanguage(): string {
+  try {
+    const preferred: string = i18n.System.getAppPreferredLanguage();
+    if (preferred.length > 0) { return preferred; }
+  } catch (_) {}
+  try {
+    return i18n.System.getSystemLanguage();
+  } catch (_) {
+    return '';
+  }
+}
+
 // 容错等级 id → Scan Kit 枚举（序号与 model/QrStyle.ets 的登记表一致）
 function errorCorrectionLevel(levelId: string): generateBarcode.ErrorCorrectionLevel {
   const value: number = qrLevelValue(levelId);

@@ -70,6 +70,22 @@ export function parseColorInput(raw: string): RgbColor | undefined {
   return parseColor(value);
 }
 
+/**
+ * 系统颜色选择器（UI Design Kit 的 `HdsColorPicker`）回传的颜色：
+ * 可能是 `#RRGGBB`，也可能是带透明度的 `#AARRGGBB`（ARGB）。
+ * 颜色工具只处理不透明颜色，因此 8 位写法丢掉前两位透明度，其余写法交回 `parseColorInput()`。
+ * 返回 undefined 表示选择器给的不是颜色，调用方应保持原输入不变。
+ */
+export function parsePickedColor(raw: string): RgbColor | undefined {
+  let value: string = raw.trim();
+  if (value.startsWith('#')) { value = value.substring(1); }
+  if (value.length === 8 && /^[0-9a-fA-F]{8}$/.test(value)) {
+    return new RgbColor(parseInt(value.substring(2, 4), 16), parseInt(value.substring(4, 6), 16),
+      parseInt(value.substring(6, 8), 16));
+  }
+  return parseColorInput(raw);
+}
+
 function hex2(value: number): string {
   const text: string = clampByte(value).toString(16).toUpperCase();
   return text.length === 1 ? '0' + text : text;

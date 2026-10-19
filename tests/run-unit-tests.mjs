@@ -61,6 +61,7 @@ const health = await loadEts('../entry/src/main/ets/model/HealthMath.ets');
 const science = await loadEts('../entry/src/main/ets/model/ScientificCalc.ets');
 const startup = await loadEts('../entry/src/main/ets/model/StartupIntent.ets');
 const compass = await loadEts('../entry/src/main/ets/model/CompassMath.ets');
+const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.ets');
 const { createHash } = await import('node:crypto');
 
 function category(id) {
@@ -1312,6 +1313,16 @@ assert.deepEqual([colors.parseColorInput('rgb(13, 59, 102)').r, colors.parseColo
 assert.equal(colors.parseColorInput('rgb(300, 0, 0)'), undefined);
 assert.equal(colors.parseColorInput('#0D3B66') !== undefined, true);
 
+// 系统颜色选择器回传值：`#RRGGBB` 与带透明度的 `#AARRGGBB`（ARGB）都取 RGB 部分
+assert.equal(colors.toHex(colors.parsePickedColor('#0D3B66')), '#0D3B66');
+assert.equal(colors.toHex(colors.parsePickedColor('#FF0D3B66')), '#0D3B66');
+assert.equal(colors.toHex(colors.parsePickedColor('#80123456')), '#123456');
+assert.equal(colors.toHex(colors.parsePickedColor('#f00')), '#FF0000');
+assert.equal(colors.toHex(colors.parsePickedColor('rgb(13, 59, 102)')), '#0D3B66');
+assert.equal(colors.parsePickedColor(''), undefined);
+assert.equal(colors.parsePickedColor('#12345678Z'), undefined);
+assert.equal(colors.parsePickedColor('transparent'), undefined);
+
 assert.equal(colors.toHex(new colors.RgbColor(13, 59, 102)), '#0D3B66');
 assert.equal(colors.toHex(new colors.RgbColor(0, 0, 0)), '#000000');
 assert.equal(colors.toHex(new colors.RgbColor(255, 255, 255)), '#FFFFFF');
@@ -1641,5 +1652,55 @@ assert.equal(compass.isCompassFlat(0, Number.POSITIVE_INFINITY), false);
 assert.ok(compass.compassTiltHint(false).length > 0 && compass.compassTiltHint(true).length > 0);
 assert.ok(compass.compassCalibrationHint(false).length > 0 &&
   compass.compassCalibrationHint(true).length > 0);
+
+// --- 界面语言偏好：跟随系统 / 简体中文 / English（旧版本只存 zh/en，必须兼容）---
+assert.equal(language.LANGUAGE_OPTIONS.length, 3);
+assert.equal(new Set(language.LANGUAGE_OPTIONS.map((option) => option.id)).size, 3);
+assert.equal(language.LANGUAGE_OPTIONS[0].id, 'system');
+assert.equal(language.DEFAULT_LANGUAGE_PREFERENCE, 'system');
+for (const option of language.LANGUAGE_OPTIONS) {
+  assert.ok(option.labelZh.length > 0 && option.labelEn.length > 0, `incomplete language option ${option.id}`);
+}
+// 只有「跟随系统」是描述性文案（随界面语言变化），语言名本身固定
+assert.equal(language.LANGUAGE_OPTIONS[0].descriptive, true);
+assert.equal(language.LANGUAGE_OPTIONS[1].descriptive, false);
+assert.equal(language.LANGUAGE_OPTIONS[2].descriptive, false);
+// 归一化：旧值 zh/en 仍然有效，未知值回退默认
+assert.equal(language.normalizeLanguagePreference('system'), 'system');
+assert.equal(language.normalizeLanguagePreference(' ZH '), 'zh');
+assert.equal(language.normalizeLanguagePreference('EN'), 'en');
+assert.equal(language.normalizeLanguagePreference(''), 'system');
+assert.equal(language.normalizeLanguagePreference('fr'), 'system');
+assert.equal(language.normalizeLanguagePreference('zh-Hans'), 'system');
+// 下标 ↔ 偏好 id
+assert.equal(language.languagePreferenceIndex('system'), 0);
+assert.equal(language.languagePreferenceIndex('zh'), 1);
+assert.equal(language.languagePreferenceIndex('en'), 2);
+assert.equal(language.languagePreferenceIndex('nope'), 0);
+assert.equal(language.languagePreferenceAt(0), 'system');
+assert.equal(language.languagePreferenceAt(2), 'en');
+assert.equal(language.languagePreferenceAt(3), 'system');
+assert.equal(language.languagePreferenceAt(-1), 'system');
+assert.equal(language.languagePreferenceAt(1.5), 'system');
+// 选项文案
+assert.equal(language.languagePreferenceLabel('system', false), '跟随系统');
+assert.equal(language.languagePreferenceLabel('system', true), 'Follow system');
+assert.equal(language.languagePreferenceLabel('zh', true), '简体中文');
+assert.equal(language.languagePreferenceLabel('en', false), 'English');
+// 语言标签只看主子标签
+assert.equal(language.isEnglishLanguage('en'), true);
+assert.equal(language.isEnglishLanguage('en-US'), true);
+assert.equal(language.isEnglishLanguage('EN_us'), true);
+assert.equal(language.isEnglishLanguage(' en-GB '), true);
+assert.equal(language.isEnglishLanguage('eng'), false);
+assert.equal(language.isEnglishLanguage('zh-Hans-CN'), false);
+assert.equal(language.isEnglishLanguage(''), false);
+// 偏好 + 系统语言 → 是否英文
+assert.equal(language.englishFromPreference('en', 'zh-Hans-CN'), true);
+assert.equal(language.englishFromPreference('zh', 'en-US'), false);
+assert.equal(language.englishFromPreference('system', 'en-US'), true);
+assert.equal(language.englishFromPreference('system', 'zh-Hans-CN'), false);
+assert.equal(language.englishFromPreference('system', ''), false);
+assert.equal(language.englishFromPreference('nope', 'en-US'), true);
 
 console.log('All toolbox model assertions passed');

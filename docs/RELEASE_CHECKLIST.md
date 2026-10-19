@@ -2,6 +2,15 @@
 
 ## 当前状态
 
+- **设置页语言新增「跟随系统」（2026-10-19，已完成单测、构建与模拟器复验）**：语言下拉由两项（简体中文 / English）扩为三项，**「跟随系统」排在最前且是默认值**。
+  ① 新增纯逻辑 `model/LanguagePreference.ets`：登记表 `LANGUAGE_OPTIONS`（`system`/`zh`/`en`）、`normalizeLanguagePreference()`（大小写/空白不敏感，旧版本写入的 `zh`/`en` 仍有效，未知值回退默认）、`languagePreferenceIndex()`/`languagePreferenceAt()`、`languagePreferenceLabel()`、`isEnglishLanguage()`（只看主子标签，`en`/`en-US`/`en_US` 算英文、`eng` 不算）、`englishFromPreference()`（显式选择优先；`system` 交给系统语言，取不到回退中文）。
+  ② 持久化的 `language` 键从布尔语义改成**偏好 id**（默认 `system`）；`Index` 新增 `@Local languagePreference` 与 `applyLanguagePreference()` / `setLanguagePreference()`，把偏好解析成 `@Local english`（各工具页仍只认布尔值，不认识偏好 id）；「跟随系统」时在 `onPageShow()` 重新求值，覆盖「系统语言变了 → 应用重建/回前台」的路径。
+  ③ `services/SystemTools.systemPreferredLanguage()`：优先 `i18n.System.getAppPreferredLanguage()`（已考虑应用自己的语言配置），为空再退回 `getSystemLanguage()`，两者都失败返回空串交给纯逻辑回退中文。**没有新增权限**；本轮未订阅 `COMMON_EVENT_LOCALE_CHANGED`。
+  ④ `SettingsPage` 的 `@Event onLanguage(english)` 改为 `onLanguagePreference(preference)` + `@Param languagePreference`，下拉选项与闭合态文案都由纯逻辑映射（只有「跟随系统」随界面语言变成 `Follow system`，语言名本身不翻译）。
+  - **验证**：单测全绿（新增 40+ 条：登记表三项与唯一性、归一化与旧值兼容、下标/id 往返与越界、选项文案、语言标签主子标签判定、`englishFromPreference` 的显式优先与空值回退）；`assembleHap` `BUILD SUCCESSFUL`（编译产物里已确认包含 `model/LanguagePreference`）。
+  - **模拟器复验（API 26，系统语言 `zh-Hans`）**：下拉出现**三项**（跟随系统 / 简体中文 / English），闭合态显示当前偏好；选 `English` 后界面立即变英文（`Settings`/`Language`/`App icon`/`Device info`），此时重开下拉，「跟随系统」显示为 **`Follow system`**（描述性文案随界面语言，语言名本身不翻译）；选回「跟随系统」后界面回到中文、闭合态显示「跟随系统」；`aa force-stop` 后重启，偏好仍是「跟随系统」、界面仍是中文（落盘生效，截图 `docs/screenshots/emulator/settings-language-follow-system-zh.jpeg`）。
+  - **未覆盖（真机必做）**：① **英文系统下的跟随路径**（模拟器系统语言是 `zh-Hans`，无法用「跟随系统」得到英文界面，需要真机把系统语言切成英文或使用应用级语言设置）；② 系统语言切换时应用重建/回前台后的跟随刷新（本轮未订阅 `COMMON_EVENT_LOCALE_CHANGED`）；③ 三项下拉在窄屏与英文界面下的截断情况；④ 深色与屏幕朗读；⑤ 覆盖安装保留旧 `zh`/`en` 偏好的升级路径（逻辑由单测覆盖，未在设备上模拟升级）。逐步步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 23 节。
+
 - **设置页「应用图标」改为无文字的图标网格（2026-10-19，已完成构建与模拟器复验）**：原来的五张图标卡片（预览缩略图 + 中文/英文名称 + 「已选择」文字）改成**只显示图标本身的方形缩略图网格**（`Flex` + `FlexWrap.Wrap`，76 vp 格子、56 vp 缩略图，一行放不下自动换行），**不再显示任何图标名称**；选中态用 `tintBlue` 底色 + `primary` 描边 + 右上角 `sys.symbol.checkmark_circle_fill` 对勾表示。名称没有丢：仍在每个格子的 `accessibilityText` 里（`默认图标/折叠工具/拼接模块/工具抽屉/工具网格`，选中时追加「已选择」），屏幕朗读仍能念出。**因为是固定尺寸的格子，没有用 `MaterialSurface`**（它的根节点固定 `width('100%')`，会把固定尺寸的格子撑变形），改由外层 `Stack` 提供退化底色与圆角——这一点已写进 `AGENTS.md` 的「多个互斥选项统一走 `OptionSelect`」例外说明。
   - **验证**：`assembleHap` `BUILD SUCCESSFUL`（`Flex.space` 需要 `LengthMetrics.vp()`，第一版写成数字后编译报错 `Type 'number' is not assignable to type 'LengthMetrics'`，已修正）；模拟器（约 853 vp 宽形态）复验：设置页只出现 5 个方形缩略图、**文本层已无 `默认图标`/`工具网格`/`已选择` 等名称**；点第 5 个（工具网格）后底色从默认的 `#FFFFFFFF` 变为 `#FFDDEDFE`(tintBlue)、右上角出现对勾、应用图标随之切换为网格款（截图 `docs/screenshots/emulator/settings-icon-grid-zh.jpeg`、`settings-icon-grid-selected-zh.jpeg`）。
   - **未覆盖**：① 窄屏（约 366 vp 手机）下的换行排布——本机连的是 853 vp 宽形态，5 个格子一行放得下（5×76 + 4×12 = 428 vp），窄屏会挤成 3 + 2 两行，需在真机复核；② `accessibilityText` 与屏幕朗读（`uitest dumpLayout` 不导出 `accessibilityText`，仅静态核对）；③ 深色模式下的格子底色与对勾对比度。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 22 节。

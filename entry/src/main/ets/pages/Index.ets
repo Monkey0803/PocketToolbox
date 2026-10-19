@@ -34,9 +34,11 @@ import { ColorPage } from '../component/ColorPage';
 import { HealthPage } from '../component/HealthPage';
 import { SciencePage } from '../component/SciencePage';
 import { consumeStartupTool, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
+import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
+  normalizeLanguagePreference } from '../model/LanguagePreference';
 import { SettingsPage } from '../component/SettingsPage';
 import { TimersPage } from '../component/TimersPage';
-import { saveScannedDocuments } from '../services/SystemTools';
+import { saveScannedDocuments, systemPreferredLanguage } from '../services/SystemTools';
 
 const HDS_MATERIAL_EFFECT: SystemMaterialParams = {
   materialType: hdsMaterial.MaterialType.ADAPTIVE,
@@ -69,6 +71,9 @@ struct Index {
   // 点历史条目后要回填到目标工具输入框的一次性内容（页面在 aboutToAppear 消费，随后清空）。
   @Local pendingInput: string = '';
   @Local english: boolean = false;
+  // 语言偏好 id（`system`/`zh`/`en`）才是持久化的值；`english` 是它 + 系统语言的求解结果，
+  // 各工具页只认 `english`，不认偏好 id（见 model/LanguagePreference.ets）。
+  @Local languagePreference: string = DEFAULT_LANGUAGE_PREFERENCE;
   @Local activeIconName: string = '';
   @Local iconReady: boolean = false;
   @Local iconBusy: boolean = false;
@@ -155,6 +160,10 @@ struct Index {
     this.appActive = true;
     // 兜底：热启动（onNewWant）时若 emitter 事件没赶上，回到前台也能把意图消费掉；已消费则返回空串。
     this.applyStartupIntent();
+    // 「跟随系统」时重新求一次界面语言：系统语言变了（应用被重建，或从设置回到前台）要跟着变。
+    if (this.languagePreference === LANGUAGE_FOLLOW_SYSTEM) {
+      this.applyLanguagePreference(this.languagePreference);
+    }
     if (this.page === 'home' && this.selectedTab === 'settings') { this.refreshIcon(); }
   }
 
@@ -208,7 +217,8 @@ struct Index {
   private async load(): Promise<void> {
     try {
       this.data = await LocalData.open(this.ctx());
-      this.english = (await this.data.getString('language', 'zh')) === 'en';
+      this.applyLanguagePreference(normalizeLanguagePreference(
+        await this.data.getString('language', DEFAULT_LANGUAGE_PREFERENCE)));
       this.history = await this.data.getHistory();
       this.favorites = await this.data.getFavorites();
     } catch (_) { this.fatalError = this.tr('无法读取本地数据', 'Could not load local data'); }
@@ -359,9 +369,19 @@ struct Index {
     if (this.data) { await this.data.saveHistory(this.history); }
   }
 
-  private async setLanguage(english: boolean): Promise<void> {
-    this.english = english;
-    if (this.data) { await this.data.putString('language', english ? 'en' : 'zh'); }
+  /**
+   * 求出当前界面语言：显式选中文/英文时直接用那个；选「跟随系统」时取系统（或应用）语言。
+   *
+   * 系统语言取不到时纯逻辑回退中文，因此这里不需要 `catch` 分支；页面只认 `english` 布尔值。
+   */
+  private applyLanguagePreference(preference: string): void {
+    this.languagePreference = normalizeLanguagePreference(preference);
+    this.english = englishFromPreference(this.languagePreference, systemPreferredLanguage());
+  }
+
+  private async setLanguagePreference(preference: string): Promise<void> {
+    this.applyLanguagePreference(preference);
+    if (this.data) { await this.data.putString('language', this.languagePreference); }
   }
 
   private async clearHistory(): Promise<void> {
@@ -667,7 +687,8 @@ struct Index {
     SettingsPage({
       english: this.english, immersiveSupported: this.immersiveSupported, materialLevel: this.materialLevel,
       activeIconName: this.activeIconName, iconReady: this.iconReady, iconBusy: this.iconBusy,
-      onLanguage: (english: boolean): void => { this.setLanguage(english); },
+      languagePreference: this.languagePreference,
+      onLanguagePreference: (preference: string): void => { this.setLanguagePreference(preference); },
       onChooseIcon: (name: string): void => { this.chooseIcon(name); },
       onClearHistory: (): void => { this.clearHistory(); }
     })

@@ -2,6 +2,8 @@ import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_OPTIONS, LanguageOption, languagePreferenceAt,
+  languagePreferenceIndex, languagePreferenceLabel } from '../model/LanguagePreference';
 import { InfoRow, deviceInfoRows } from '../services/DeviceInfo';
 
 /**
@@ -18,7 +20,9 @@ export struct SettingsPage {
   @Param activeIconName: string = '';
   @Param iconReady: boolean = false;
   @Param iconBusy: boolean = false;
-  @Event onLanguage: (english: boolean) => void = () => {};
+  // 语言偏好 id（`system`/`zh`/`en`）由父组件持有并落盘，页面只把它映射成下拉选项与文案。
+  @Param languagePreference: string = DEFAULT_LANGUAGE_PREFERENCE;
+  @Event onLanguagePreference: (preference: string) => void = () => {};
   @Event onChooseIcon: (name: string) => void = () => {};
   @Event onClearHistory: () => void = () => {};
 
@@ -57,9 +61,11 @@ export struct SettingsPage {
     }.width('100%')
   }
 
-  // 语言选项是中英固定名称，不随当前语言翻译（否则「English」会变成「英语」，用户反而不好找）。
+  // 语言选项来自纯逻辑登记表 `model/LanguagePreference.ets`：语言名本身不翻译（否则「English」会变成
+  // 「英语」，用户反而不好找），只有「跟随系统」这类描述性文案随当前界面语言变化。
   private languageOptions(): SelectOption[] {
-    return [{ value: '简体中文' }, { value: 'English' }];
+    return LANGUAGE_OPTIONS.map((option: LanguageOption): SelectOption =>
+      ({ value: languagePreferenceLabel(option.id, this.english) }));
   }
 
   // 图标选项只放图片预览、不显示名称（名称只留在 accessibilityText 里供屏幕朗读）。
@@ -91,10 +97,10 @@ export struct SettingsPage {
       OptionSelect({
         label: this.tr('语言', 'Language'),
         options: this.languageOptions(),
-        selectedIndex: this.english ? 1 : 0,
-        selectedText: this.english ? 'English' : '简体中文',
+        selectedIndex: languagePreferenceIndex(this.languagePreference),
+        selectedText: languagePreferenceLabel(this.languagePreference, this.english),
         a11yText: this.tr('界面语言', 'App language'),
-        onSelected: (index: number): void => this.onLanguage(index === 1)
+        onSelected: (index: number): void => this.onLanguagePreference(languagePreferenceAt(index))
       })
       Text(this.tr('应用图标', 'App icon')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 一行放不下时自动换行（窄屏 3 个一行、宽屏 5 个一行），只显示图标本身。

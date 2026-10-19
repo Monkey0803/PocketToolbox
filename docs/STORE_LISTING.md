@@ -36,6 +36,7 @@
 - 新增：健康计算——按中国成人标准给出 BMI 与分类、该身高下的正常体重范围，并按 Mifflin-St Jeor 估算基础代谢（BMR）与每日消耗（TDEE，五档活动量）。结果为估算，不构成医疗建议。
 - 新增：工具搜索支持关键词——`BMI`、`房贷`、`hex`、`抽签`、`农历` 这类别名/缩写都能搜到对应工具。
 - 新增：科学计算器——一行表达式求值，支持括号、`^` 幂（右结合）、`mod` 取模、`sin/cos/tan/asin/acos/atan/ln/log/sqrt/abs` 与常量 `pi`/`e`，三角函数可切 DEG/RAD，非法表达式给出具体原因。
+- 新增：界面语言支持**跟随系统**——语言下拉为「跟随系统 / 简体中文 / English」三项，默认跟随系统（取系统或应用当前语言，取不到时用中文）；原有选择仍然有效。
 - 新增：设置页显示**设备信息**（设备型号、系统版本、API 版本、应用版本、设备类型），只在本机读取、不写存储、不联网、不申请权限。
 - 新增：指南针工具——读取系统方向传感器显示方位角（一位小数）与十六方位名称，盘面随方位旋转、顶部三角指示手机顶部所指方向；倾斜时提示放平、读数漂移时提示画「8」字校准。只在该页面打开时读取，不保存读数、不申请权限。
 - 新增：桌面长按应用图标可用的 4 个快捷方式（生成二维码 / 生成条形码 / 科学计算器 / 计时与秒表），点击直达对应工具页。
@@ -67,6 +68,7 @@
 - New: a Health calculator — BMI with Chinese adult cut-offs, the normal weight range for your height, and Mifflin-St Jeor estimates of your basal metabolic rate (BMR) and daily energy (TDEE) across five activity levels. Estimates only, not medical advice.
 - New: keyword search for tools — aliases and abbreviations such as BMI, mortgage, hex, dice or lunar calendar now find the right tool.
 - New: a Scientific calculator — evaluate a single-line expression with parentheses, `^` power (right-associative), `mod`, `sin/cos/tan/asin/acos/atan/ln/log/sqrt/abs` and the constants `pi`/`e`; trigonometry switches between degrees and radians, and invalid input reports the exact reason.
+- New: the interface language can **follow the system** — the language menu now offers Follow system / 简体中文 / English, defaulting to following the system (your system or app language, falling back to Chinese); your previous choice keeps working.
 - New: the Settings tab shows device information (model, system version, API level, app version, device type). It is read on-device only — nothing is stored or uploaded, and no permission is required.
 - New: a Compass tool — reads the system direction sensor to show the bearing (one decimal place) and the 16-point name, with a rose that rotates as you turn and a fixed marker showing where the top of the device points; it hints when the device is tilted and suggests the figure-8 calibration when the reading drifts. The sensor is read only while the page is open, no reading is stored, and no permission is required.
 - New: four home-screen shortcuts (Create a QR code / Create a barcode / Scientific calculator / Timers and stopwatch) that open the matching tool directly.

@@ -1,7 +1,8 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { HdsColorPicker } from '@kit.UIDesignKit';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { RgbColor, HslColor, parseColorInput, toHex, toRgbText, rgbToHsl, toHslText,
+import { RgbColor, HslColor, parseColorInput, parsePickedColor, toHex, toRgbText, rgbToHsl, toHslText,
   contrastRatio, contrastVerdict, contrastVerdictText, suggestedForeground,
   colorErrorText } from '../model/ColorTools';
 
@@ -10,6 +11,11 @@ import { RgbColor, HslColor, parseColorInput, toHex, toRgbText, rgbToHsl, toHslT
  *
  * 自包含工具页：两个输入框（颜色、对比背景）与全部结果都在本组件内；复制与一次性提示经 `@Event` 交回父组件。
  * 转换与对比度公式都在纯逻辑 `model/ColorTools.ets`，本页只做解析、显示与中英文文案。
+ *
+ * 取色用系统自带的颜色选择器：UI Design Kit（`@kit.UIDesignKit`）的 `HdsColorPicker` 是一个色轮取色按钮，
+ * 点它会拉起系统取色面板（网格 / 光谱 / 滑块、不透明度、Hex 与收藏），选中即通过 `onColorSelected` 回传颜色。
+ * 两个输入框右侧各放一个，回传值经 `parsePickedColor()` 归一（系统可能给 `#AARRGGBB`）后回填对应输入框，
+ * 因此手输与取色共用同一条解析链路；本页不自绘取色面板。
  */
 @ComponentV2
 export struct ColorPage {
@@ -74,13 +80,25 @@ export struct ColorPage {
   @Builder private inputBlock(id: string, zh: string, en: string, placeholder: string) {
     Column({ space: 6 }) {
       Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
-      MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
-        corner: 16, interactive: true
-      }) {
-        TextInput({ text: this.fieldText(id), placeholder: placeholder })
-          .onChange((value: string) => this.setFieldText(id, value)).height(52)
-      }
+      // 行内输入框：MaterialSurface 放进带 layoutWeight() 的普通 Column 再作为 Row 的子项，不要直接做 Row 的子项。
+      Row({ space: 10 }) {
+        Column() {
+          MaterialSurface({
+            supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+            corner: 16, interactive: true
+          }) {
+            TextInput({ text: this.fieldText(id), placeholder: placeholder })
+              .onChange((value: string) => this.setFieldText(id, value)).height(52)
+          }
+        }.layoutWeight(1)
+        // 系统颜色选择器：色轮按钮，点在系统面板里选色，回来时把颜色写进上面这个输入框。
+        HdsColorPicker({
+          initialColor: this.fieldText(id),
+          onColorSelected: (selectedColor: string): void => { this.applyPicked(id, selectedColor); },
+          options: { circleRadius: 30 }
+        })
+          .accessibilityText(this.pickerAccessibility(id))
+      }.width('100%')
     }.width('100%')
   }
 
@@ -88,14 +106,29 @@ export struct ColorPage {
     return id === 'color' ? this.colorInput : this.backgroundInput;
   }
 
+  /** 色轮的无障碍名称：只收常量 id，文字在构建函数体内现取，切换语言才会跟着变。 */
+  private pickerAccessibility(id: string): string {
+    if (id === 'color') {
+      return this.tr('用系统颜色选择器选择颜色', 'Pick a colour with the system colour picker');
+    }
+    return this.tr('用系统颜色选择器选择对比背景色', 'Pick a background colour with the system colour picker');
+  }
+
   private setFieldText(id: string, value: string): void {
     if (id === 'color') { this.colorInput = value; } else { this.backgroundInput = value; }
   }
 
+  /** 系统选择器回传值归一后回填到对应字段；不是颜色就保持原输入不变。 */
+  private applyPicked(id: string, raw: string): void {
+    const parsed: RgbColor | undefined = parsePickedColor(raw);
+    if (parsed === undefined) { return; }
+    this.setFieldText(id, toHex(parsed));
+  }
+
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('支持 #RGB、#RRGGBB 与 rgb(r, g, b) 三种写法；对比度按 WCAG 2.x 计算（普通文字 AA 需 4.5、AAA 需 7）。',
-        'Accepts #RGB, #RRGGBB and rgb(r, g, b); contrast follows WCAG 2.x (AA needs 4.5, AAA needs 7 for body text).'))
+      Text(this.tr('支持 #RGB、#RRGGBB 与 rgb(r, g, b) 三种写法，也可点右侧色轮用系统颜色选择器取色；对比度按 WCAG 2.x 计算（普通文字 AA 需 4.5、AAA 需 7）。',
+        'Accepts #RGB, #RRGGBB and rgb(r, g, b); tap the colour wheel to pick with the system colour picker. Contrast follows WCAG 2.x (AA needs 4.5, AAA needs 7 for body text).'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       this.inputBlock('color', '颜色', 'Colour', '#0D3B66 或 rgb(13, 59, 102)')
       MaterialSurface({
