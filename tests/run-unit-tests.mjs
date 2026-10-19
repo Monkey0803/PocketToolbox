@@ -811,6 +811,14 @@ assert.equal(calculators.splitBill('0.05', '2', '10').tipCents, 1);
 assert.equal(calculators.splitBill('100.00', '2', '7.555'), undefined);
 assert.equal(calculators.splitBill('100.00', '0', '0'), undefined);
 
+// 计算类型登记表：折扣 / 百分比 / 均摊三项，id 唯一、文案齐全（页面「类型」下拉由它驱动）
+assert.equal(calculators.CALC_MODES.length, 3);
+assert.equal(new Set(calculators.CALC_MODES.map((mode) => mode.id)).size, calculators.CALC_MODES.length);
+assert.deepEqual(calculators.CALC_MODES.map((mode) => mode.id), ['discount', 'percentage', 'split']);
+for (const mode of calculators.CALC_MODES) {
+  assert.ok(mode.zh.length > 0 && mode.en.length > 0, `incomplete calc mode ${mode.id}`);
+}
+
 assert.equal(tax.parseMoney('12.34'), 1234);
 assert.equal(tax.parseMoney('0'), 0);
 assert.equal(tax.parseMoney('1.234'), undefined);

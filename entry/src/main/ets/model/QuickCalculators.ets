@@ -1,3 +1,17 @@
+/** 计算类型登记项：页面用它做「类型」下拉，并按 id 渲染对应内容。 */
+export class CalcMode {
+  id: string = '';
+  zh: string = '';
+  en: string = '';
+}
+
+// 计算类型登记表：新增能力时在此追加一项，页面只映射成 `SelectOption[]` 并按 id 分支渲染。
+export const CALC_MODES: CalcMode[] = [
+  { id: 'discount', zh: '折扣计算', en: 'Discount' },
+  { id: 'percentage', zh: '百分比计算', en: 'Percentage' },
+  { id: 'split', zh: '均摊计算', en: 'Split a bill' }
+];
+
 export class DiscountResult {
   finalCents: number = 0;
   savedCents: number = 0;
