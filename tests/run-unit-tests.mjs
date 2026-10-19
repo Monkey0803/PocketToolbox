@@ -335,12 +335,73 @@ assert.equal(dates.countdownAt('2026-10-01', '2026-10-31', '2026-09-30'), undefi
 assert.equal(dates.countdownAt('2026-10-15', '2026-10-15', '2026-10-15'), undefined);
 assert.equal(dates.countdownAt('2025-02-29', '2026-10-31', '2026-10-15'), undefined);
 
-assert.equal(dates.DATE_TOOL_MODES.length, 6);
+assert.equal(dates.DATE_TOOL_MODES.length, 7);
 const modeIds = new Set(dates.DATE_TOOL_MODES.map((mode) => mode.id));
 assert.equal(modeIds.size, dates.DATE_TOOL_MODES.length);
 for (const mode of dates.DATE_TOOL_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
 }
+
+// --- 星座：固定日期区间口径（与年份无关）、摩羯跨年、区间文案、登记表完整性 ---
+assert.equal(dates.CONSTELLATIONS.length, 12);
+assert.equal(new Set(dates.CONSTELLATIONS.map((sign) => sign.id)).size, 12);
+// constellationAt() 的兜底值就是表尾那一项，因此表尾必须是跨年的摩羯座
+assert.equal(dates.CONSTELLATIONS[dates.CONSTELLATIONS.length - 1].id, 'capricorn');
+for (const sign of dates.CONSTELLATIONS) {
+  assert.ok(sign.id.length > 0 && sign.zh.length > 0 && sign.en.length > 0, `incomplete constellation ${sign.id}`);
+  assert.ok(sign.elementZh.length > 0 && sign.elementEn.length > 0, `missing element ${sign.id}`);
+  assert.ok(sign.rulerZh.length > 0 && sign.rulerEn.length > 0, `missing ruler ${sign.id}`);
+  // 起始日当天必然落在自己身上
+  const month = String(sign.startMonth).padStart(2, '0');
+  const day = String(sign.startDay).padStart(2, '0');
+  assert.equal(dates.constellationAt(`2026-${month}-${day}`).id, sign.id, `start day of ${sign.id}`);
+}
+// 现代守护星与传统说法不同：只有水瓶/双鱼/天蝎登记了传统守护星
+assert.deepEqual(dates.CONSTELLATIONS.filter((sign) => sign.traditionalRulerZh !== '').map((sign) => sign.id),
+  ['aquarius', 'pisces', 'scorpio']);
+// 摩羯跨年：12-22 起到次年 01-19
+assert.equal(dates.constellationAt('2026-12-21').id, 'sagittarius');
+assert.equal(dates.constellationAt('2026-12-22').id, 'capricorn');
+assert.equal(dates.constellationAt('2026-12-31').id, 'capricorn');
+assert.equal(dates.constellationAt('2026-01-01').id, 'capricorn');
+assert.equal(dates.constellationAt('2026-01-19').id, 'capricorn');
+assert.equal(dates.constellationAt('2026-01-20').id, 'aquarius');
+// 常规边界与闰日
+assert.equal(dates.constellationAt('2026-03-20').id, 'pisces');
+assert.equal(dates.constellationAt('2026-03-21').id, 'aries');
+assert.equal(dates.constellationAt('2024-02-29').id, 'pisces');
+assert.equal(dates.constellationAt('2026-11-22').id, 'scorpio');
+assert.equal(dates.constellationAt('2026-11-23').id, 'sagittarius');
+// 日期无效不留半截结果
+assert.equal(dates.constellationAt('2025-02-29'), undefined);
+assert.equal(dates.constellationAt('abc'), undefined);
+assert.equal(dates.constellationAt('2026-13-01'), undefined);
+// 区间文案：结束日 = 下一个星座起始日的前一天（摩羯的下一个是水瓶 → 01-19）
+assert.equal(dates.constellationRangeText(dates.constellationAt('2026-03-21'), false), '3月21日 – 4月19日');
+assert.equal(dates.constellationRangeText(dates.constellationAt('2026-03-21'), true), 'Mar 21 – Apr 19');
+assert.equal(dates.constellationRangeText(dates.constellationAt('2026-01-01'), false), '12月22日 – 1月19日');
+assert.equal(dates.constellationRangeText(dates.constellationAt('2026-01-01'), true), 'Dec 22 – Jan 19');
+assert.equal(dates.constellationRangeText(dates.constellationAt('2024-02-29'), false), '2月19日 – 3月20日');
+assert.equal(dates.constellationRangeText(dates.constellationAt('2026-10-24'), true), 'Oct 24 – Nov 22');
+// 逐日扫一整年（闰年 2024）：只能停留在当前星座或推进到登记表里的下一个，且 12 个星座都出现过
+const signOrder = dates.CONSTELLATIONS.map((sign) => sign.id);
+let previousSign = dates.constellationAt('2023-12-31').id;
+const visitedSigns = new Set([previousSign]);
+for (let month = 1; month <= 12; month++) {
+  const padMonth = String(month).padStart(2, '0');
+  const daysInMonth = new Date(Date.UTC(2024, month, 0)).getUTCDate();
+  for (let day = 1; day <= daysInMonth; day++) {
+    const current = dates.constellationAt(`2024-${padMonth}-${String(day).padStart(2, '0')}`).id;
+    assert.ok(current !== undefined, `no sign for 2024-${padMonth}-${day}`);
+    if (current !== previousSign) {
+      assert.equal(current, signOrder[(signOrder.indexOf(previousSign) + 1) % signOrder.length],
+        `unexpected jump ${previousSign} → ${current} on 2024-${padMonth}-${day}`);
+      previousSign = current;
+    }
+    visitedSigns.add(current);
+  }
+}
+assert.equal(visitedSigns.size, 12);
 
 // --- 时间戳：错误码（empty/format/date/range）、秒毫秒口径、精度、时区偏移、渲染辅助函数 ---
 assert.equal(timeTools.parseStampInput('').error, 'empty');

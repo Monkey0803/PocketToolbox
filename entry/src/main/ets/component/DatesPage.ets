@@ -5,8 +5,9 @@ import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
-  workingDaysBetweenWithHolidays, shiftDate, countdownAt, CalendarSpan, AgeResult, CalendarInfo, CountdownInfo,
-  DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
+  workingDaysBetweenWithHolidays, shiftDate, countdownAt, constellationAt, constellationRangeText,
+  CalendarSpan, AgeResult, CalendarInfo, CountdownInfo,
+  Constellation, DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
 import { LunarDate, lunarDateText } from '../model/LunarTools';
 import { HolidayTable } from '../model/HolidayIcs';
 import { lunarOf } from '../services/LunarCalendar';
@@ -16,7 +17,7 @@ const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '�
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /**
- * 日期计算页（间隔 / 加减 / 年龄 / 工作日 / 日历）。
+ * 日期计算页（间隔 / 推算 / 年龄 / 工作日 / 星期与周数 / 农历 / 星座）。
  *
  * 自包含工具页：日期值、偏移量与各种模式的结果都在本组件内；复制、选择器错误提示通过 `@Event`
  * 交回父组件。计算方式菜单由 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表驱动。
@@ -42,8 +43,9 @@ export struct DatesPage {
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
+  // 只给日期选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
   private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive);
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
   }
 
   aboutToAppear(): void {
@@ -69,6 +71,36 @@ export struct DatesPage {
 
   private lunarText(): string {
     return this.lunarDate === undefined ? '' : lunarDateText(this.lunarDate, this.english);
+  }
+
+  // 星座只由公历「月-日」决定（固定日期区间口径，与年份无关），因此直接由 firstDate 现算，
+  // 不需要像农历那样额外持有状态，也就不会出现「日期变了结果没刷新」的问题。
+  private constellation(): Constellation | undefined {
+    return constellationAt(this.firstDate.trim());
+  }
+
+  private constellationName(): string {
+    const sign: Constellation | undefined = this.constellation();
+    if (sign === undefined) { return ''; }
+    return this.english ? sign.en : sign.zh;
+  }
+
+  private constellationRange(): string {
+    const sign: Constellation | undefined = this.constellation();
+    return sign === undefined ? '' : constellationRangeText(sign, this.english);
+  }
+
+  // 「火象星座 · 守护星 火星」；天蝎/水瓶/双鱼再补一句传统守护星，避免把现代守护星说成唯一说法。
+  private constellationDetail(): string {
+    const sign: Constellation | undefined = this.constellation();
+    if (sign === undefined) { return ''; }
+    let detail: string = this.tr(sign.elementZh, sign.elementEn) + ' · ' +
+      this.tr('守护星', 'Ruler') + ' ' + this.tr(sign.rulerZh, sign.rulerEn);
+    if (sign.traditionalRulerZh !== '') {
+      detail += this.tr('（传统说法 ' + sign.traditionalRulerZh + '）',
+        ' (traditionally ' + sign.traditionalRulerEn + ')');
+    }
+    return detail;
   }
 
   private dateDifference(): string {
@@ -334,7 +366,8 @@ export struct DatesPage {
         }
         this.shiftUnitSelect()
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Text(this.shiftedDate()).fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')
         }
@@ -350,7 +383,8 @@ export struct DatesPage {
         this.dateField('出生日期', 'Birthday', 'first')
         this.dateField('参考日期', 'Reference date', 'second')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Column({ space: 6 }) {
             Text(this.ageHeadline()).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
@@ -368,7 +402,8 @@ export struct DatesPage {
         this.includeFirstToggle()
         this.holidayInfo()
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Column({ space: 6 }) {
             Text(this.workdaysText()).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
@@ -380,7 +415,8 @@ export struct DatesPage {
       } else if (this.dateMode === 'calendar') {
         this.dateField('日期', 'Date', 'first')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Column({ space: 6 }) {
             Text(this.weekdayText()).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
@@ -395,7 +431,8 @@ export struct DatesPage {
       } else if (this.dateMode === 'lunar') {
         this.dateField('日期', 'Date', 'first')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Column({ space: 6 }) {
             Text(this.lunarText() !== '' ? this.lunarText() : this.tr('农历日期不可用', 'Lunar date unavailable'))
@@ -404,11 +441,32 @@ export struct DatesPage {
               .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
           }.padding(16).width('100%')
         }
+      } else if (this.dateMode === 'zodiac') {
+        this.dateField('日期', 'Date', 'first')
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
+        }) {
+          Column({ space: 6 }) {
+            Text(this.constellationName() !== '' ? this.constellationName() : this.tr('日期无效', 'Invalid date'))
+              .fontSize(22).fontWeight(FontWeight.Bold).width('100%')
+            if (this.constellationRange().length > 0) {
+              Text(this.constellationRange()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            }
+            if (this.constellationDetail().length > 0) {
+              Text(this.constellationDetail()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            }
+            Text(this.tr('按常见的固定日期区间判定，非每年不同的天文入宫时刻',
+              'Based on the common fixed date ranges, not the yearly astronomical ingress moments'))
+              .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+          }.padding(16).width('100%')
+        }
       } else {
         this.dateField('起始日期', 'Start date', 'first')
         this.dateField('目标日期', 'End date', 'second')
         MaterialSurface({
-          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
         }) {
           Column({ space: 6 }) {
             Text(this.dateDifference()).fontSize(22).fontWeight(FontWeight.Bold).width('100%')

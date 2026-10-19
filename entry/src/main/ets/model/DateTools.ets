@@ -104,7 +104,8 @@ export const DATE_TOOL_MODES: DateToolMode[] = [
   { id: 'age', zh: '年龄计算', en: 'Age' },
   { id: 'workdays', zh: '工作日', en: 'Working days' },
   { id: 'calendar', zh: '星期与周数', en: 'Weekday and week' },
-  { id: 'lunar', zh: '农历', en: 'Lunar calendar' }
+  { id: 'lunar', zh: '农历', en: 'Lunar calendar' },
+  { id: 'zodiac', zh: '星座', en: 'Zodiac sign' }
 ];
 
 // 纯算术求当月天数，避免在遍历/高频路径里反复创建 Date。
@@ -191,6 +192,129 @@ export function calendarInfo(value: string): CalendarInfo | undefined {
   week1.setUTCDate(week1.getUTCDate() - jan4Offset);
   info.isoWeek = Math.round((thursday.getTime() - week1.getTime()) / (DAY_MS * 7)) + 1;
   return info;
+}
+
+// ---------- 星座 ----------
+
+// 星座只用公历「月-日」判定，与年份无关。口径是大众常用的**固定日期区间**（不是每年不同的天文入宫时刻），
+// 界面必须照此如实标注。
+//
+// 表按年内起始日排序（水瓶 1-20 → … → 摩羯 12-22），**表尾必须是跨年的摩羯座**：
+// `constellationAt()` 的兜底值就是表尾那一项，这样 1 月 1–19 日（早于水瓶座起始日）会自然落到摩羯座。
+// 每个星座的结束日不单独登记，由 `constellationRangeText()` 用「下一个星座起始日的前一天」推出
+// （摩羯座的下一个是水瓶座，因此结束于 1 月 19 日），避免起始日与区间文案互相矛盾。
+export class Constellation {
+  id: string = '';
+  zh: string = '';
+  en: string = '';
+  startMonth: number = 1;
+  startDay: number = 1;
+  elementZh: string = '';
+  elementEn: string = '';
+  // 现代守护星（界面显示的就是它）
+  rulerZh: string = '';
+  rulerEn: string = '';
+  // 传统守护星；只有天蝎/水瓶/双鱼三个星座与现代守护星不同，其余为空串。
+  traditionalRulerZh: string = '';
+  traditionalRulerEn: string = '';
+}
+
+export const CONSTELLATIONS: Constellation[] = [
+  {
+    id: 'aquarius', zh: '水瓶座', en: 'Aquarius', startMonth: 1, startDay: 20,
+    elementZh: '风象星座', elementEn: 'Air sign', rulerZh: '天王星', rulerEn: 'Uranus',
+    traditionalRulerZh: '土星', traditionalRulerEn: 'Saturn'
+  },
+  {
+    id: 'pisces', zh: '双鱼座', en: 'Pisces', startMonth: 2, startDay: 19,
+    elementZh: '水象星座', elementEn: 'Water sign', rulerZh: '海王星', rulerEn: 'Neptune',
+    traditionalRulerZh: '木星', traditionalRulerEn: 'Jupiter'
+  },
+  {
+    id: 'aries', zh: '白羊座', en: 'Aries', startMonth: 3, startDay: 21,
+    elementZh: '火象星座', elementEn: 'Fire sign', rulerZh: '火星', rulerEn: 'Mars',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'taurus', zh: '金牛座', en: 'Taurus', startMonth: 4, startDay: 20,
+    elementZh: '土象星座', elementEn: 'Earth sign', rulerZh: '金星', rulerEn: 'Venus',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'gemini', zh: '双子座', en: 'Gemini', startMonth: 5, startDay: 21,
+    elementZh: '风象星座', elementEn: 'Air sign', rulerZh: '水星', rulerEn: 'Mercury',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'cancer', zh: '巨蟹座', en: 'Cancer', startMonth: 6, startDay: 22,
+    elementZh: '水象星座', elementEn: 'Water sign', rulerZh: '月亮', rulerEn: 'Moon',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'leo', zh: '狮子座', en: 'Leo', startMonth: 7, startDay: 23,
+    elementZh: '火象星座', elementEn: 'Fire sign', rulerZh: '太阳', rulerEn: 'Sun',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'virgo', zh: '处女座', en: 'Virgo', startMonth: 8, startDay: 23,
+    elementZh: '土象星座', elementEn: 'Earth sign', rulerZh: '水星', rulerEn: 'Mercury',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'libra', zh: '天秤座', en: 'Libra', startMonth: 9, startDay: 23,
+    elementZh: '风象星座', elementEn: 'Air sign', rulerZh: '金星', rulerEn: 'Venus',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'scorpio', zh: '天蝎座', en: 'Scorpio', startMonth: 10, startDay: 24,
+    elementZh: '水象星座', elementEn: 'Water sign', rulerZh: '冥王星', rulerEn: 'Pluto',
+    traditionalRulerZh: '火星', traditionalRulerEn: 'Mars'
+  },
+  {
+    id: 'sagittarius', zh: '射手座', en: 'Sagittarius', startMonth: 11, startDay: 23,
+    elementZh: '火象星座', elementEn: 'Fire sign', rulerZh: '木星', rulerEn: 'Jupiter',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  },
+  {
+    id: 'capricorn', zh: '摩羯座', en: 'Capricorn', startMonth: 12, startDay: 22,
+    elementZh: '土象星座', elementEn: 'Earth sign', rulerZh: '土星', rulerEn: 'Saturn',
+    traditionalRulerZh: '', traditionalRulerEn: ''
+  }
+];
+
+const MONTH_EN: string[] = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// 日期无效返回 undefined。
+export function constellationAt(value: string): Constellation | undefined {
+  const date: Date | undefined = parseDate(value);
+  if (date === undefined) { return undefined; }
+  const month: number = date.getUTCMonth() + 1;
+  const day: number = date.getUTCDate();
+  // 兜底即表尾的摩羯座：1 月 1–19 日的 (月, 日) 小于表里任何起始日，循环不会命中任何一项。
+  let found: Constellation = CONSTELLATIONS[CONSTELLATIONS.length - 1];
+  for (let i = 0; i < CONSTELLATIONS.length; i++) {
+    const item: Constellation = CONSTELLATIONS[i];
+    if (item.startMonth < month || (item.startMonth === month && item.startDay <= day)) {
+      found = item;
+    }
+  }
+  return found;
+}
+
+function constellationDayText(month: number, day: number, english: boolean): string {
+  return english ? (MONTH_EN[month - 1] + ' ' + day) : (month + '月' + day + '日');
+}
+
+// 星座日期区间文案：'3月21日 – 4月19日' / 'Mar 21 – Apr 19'。
+// 「前一天」固定用闰年 2000 计算，避免 2 月 28/29 日差异影响结束日。
+export function constellationRangeText(target: Constellation, english: boolean): string {
+  const next: Constellation = CONSTELLATIONS[(CONSTELLATIONS.indexOf(target) + 1) % CONSTELLATIONS.length];
+  const end: Date = new Date(0);
+  end.setUTCFullYear(2000, next.startMonth - 1, next.startDay);
+  end.setUTCHours(0, 0, 0, 0);
+  end.setUTCDate(end.getUTCDate() - 1);
+  return constellationDayText(target.startMonth, target.startDay, english) + ' – ' +
+    constellationDayText(end.getUTCMonth() + 1, end.getUTCDate(), english);
 }
 
 // 工作日天数：仅排除周六周日。两个日期顺序无关；includeFirst 为 false 时从次日算起，
