@@ -457,22 +457,38 @@ struct Index {
   }
 
   @Builder private card(icon: Resource, color: Resource, target: string) {
-    Row({ space: 4 }) {
-      Column({ space: 10 }) {
-        SymbolGlyph(icon).fontSize(32).fontColor([ToolPalette.textPrimary])
+    // 收藏按钮是「可跳转区域」的**兄弟节点**而不是子节点：整张卡片的 onClick 负责跳转，
+    // 星标若嵌在里面，点击星标是否还会触发父节点的 onClick 取决于手势竞争，容易一点就误跳工具页。
+    // 放在同一个 Stack 里、由顶层（后声明的）兄弟节点接住点击，行为是确定的。
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Column({ space: 8 }) {
+        // 图标行的 44 vp 与收藏按钮的 44 vp 同高，两者中线因此严格对齐。
+        Row() {
+          SymbolGlyph(icon).fontSize(30).fontColor([ToolPalette.textPrimary])
+        }.width('100%').height(44).alignItems(VerticalAlign.Center)
+
+        // 工具图标与收藏星同一行居中对齐，标题紧跟在下面：内容整体顶对齐（不再垂直居中），
+        // 这样 1 行标题与英文折成 2 行的标题之间，图标与标题的起始位置都落在同一条线上。
         Text(this.toolTitle(target)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
-      }.alignItems(HorizontalAlign.Start).justifyContent(FlexAlign.Center).layoutWeight(1).height('100%')
+          .width('100%')
+      }.alignItems(HorizontalAlign.Start).width('100%').height('100%')
         .onClick(() => this.navigate(target))
+
+      // 收藏按钮只留 20 vp 的星形，44 vp 的透明 Button 只负责可点区域：
+      // 原来的「卡片色底 + 描边圆环 + 25 vp 图标」在卡片里显得比工具图标还重。
       Button() {
         SymbolGlyph(this.isFavorite(target) ? $r('sys.symbol.star_fill') : $r('sys.symbol.star'))
-          .fontSize(25).fontColor([this.isFavorite(target) ? ToolPalette.favoriteActive : ToolPalette.textSubtle])
+          .fontSize(20).fontColor([this.isFavorite(target) ? ToolPalette.favoriteActive : ToolPalette.textSubtle])
       }
-        .backgroundColor(color).border({ width: 1, color: ToolPalette.textPrimaryBorder }).width(44).height(44)
+        .backgroundColor(Color.Transparent).borderRadius(22).width(44).height(44)
         .accessibilityText(this.isFavorite(target) ? this.tr('取消收藏', 'Remove from favorites') :
           this.tr('收藏工具', 'Add to favorites'))
         .enabled(this.data !== undefined && !this.favoriteSaving)
         .onClick(() => this.toggleFavorite(target))
-    }.alignItems(VerticalAlign.Top).padding(12).width('100%').height(128)
+    }
+      // 顶部与右侧留白小于左侧/底部：收藏按钮的 44 vp 点击区自带内边距，收紧后星形视觉位置才与图标齐平。
+      .padding({ left: 14, right: 6, top: 8, bottom: 10 })
+      .width('100%').height(128)
       .backgroundColor(color).borderRadius(20)
   }
 
