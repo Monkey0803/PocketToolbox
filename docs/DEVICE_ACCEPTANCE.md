@@ -460,6 +460,17 @@
 - [ ] **系统权限列表**：安装后权限应仍是 3 项（`PUBLISH_AGENT_REMINDER`/`DETECT_GESTURE`/`ACCELEROMETER`）——方向传感器不需要新增权限。
 - [ ] **宽屏与深色**：平板/折叠屏下盘面与文字居中、不被拉伸；深色模式下刻度、方位字与三角对比度足够。
 
+## 21. 星座（2026-10-19，日期计算第 7 个方式）
+
+**模拟器已复验的部分**：方式下拉第 7 项为「星座」/ `Zodiac sign`；选中并保持默认日期 2026-10-19 时结果卡为 **天秤座 / 9月23日 – 10月23日 / 风象星座 · 守护星 金星 / 按常见的固定日期区间判定，非每年不同的天文入宫时刻**（截图 `screenshots/emulator/date-zodiac-mode-zh.jpeg`）；把日期改到 2026-11-19 后结果卡随之变为 **天蝎座 / 10月24日 – 11月22日 / 水象星座 · 守护星 冥王星（传统说法 火星）**（截图 `screenshots/emulator/date-zodiac-scorpio-after-date-change-zh.jpeg`）。纯逻辑另有 40+ 条断言（含逐日扫完闰年 2024、摩羯跨年、闰日、两端区间文案中英）。
+
+- [x] **改日期后结果卡跟随刷新（高危项，模拟器已通过）**：进入 日期计算 → 方式选「星座」→ 点日期卡片，把日期从 10 月 19 日改到 **11 月 19 日** → 日期卡片与结果卡**同时**变成 `2026-11-19` 与 **天蝎座 / 10月24日 – 11月22日 / 水象星座 · 守护星 冥王星（传统说法 火星）**（截图 `screenshots/emulator/date-zodiac-scorpio-after-date-change-zh.jpeg`）。若日期已变而结果停在旧值，说明写法退化成了 `@Builder` 按值传参（见 `AGENTS.md`）。
+- [ ] **各边界的抽样核对（真机）**：改到 1 月 1 日（摩羯座，跨年兜底）、1 月 20 日（水瓶座）、2 月 29 日（闰日，双鱼座）、3 月 20 日（双鱼座）、3 月 21 日（白羊座）、12 月 21 日（射手座）、12 月 22 日（摩羯座）。模拟器上已用「逐日扫完闰年 2024」的单测覆盖这组边界，真机上再抽 2–3 个点位确认滚轮粒度即可。
+- [ ] **口径文案**：结果卡必须显示「按常见的固定日期区间判定，非每年不同的天文入宫时刻」——本工具**不提供**每日运势/占卜内容，不要出现「预测」「运势」这类表述。
+- [x] **传统守护星（模拟器已通过）**：天蝎座那条已显示「（传统说法 火星）」；其余九个星座不应出现该括号（喝水瓶/双鱼时一并复核）。
+- [ ] **英文界面**：切到 English 后依次核对 `Libra` / `Sep 23 – Oct 23` / `Air sign · Ruler Venus` / `Based on the common fixed date ranges, not the yearly astronomical ingress moments` 不截断。
+- [ ] **窄屏与深色**：约 366 vp 窄屏下区间与「元素 · 守护星」两行是否换行溢出；深色模式下正文与次要文字的对比度。
+
 ## 20. 桌面长按快捷方式直达工具（2026-10-19）
 
 **本轮已解决（配置侧 + 接线侧，模拟器可验证的部分全部通过）**：原记录的「端到端未复现」已定位到两处——① `shortcuts_config.json` 的 `wants` 用了 `targetBundle`/`targetClass`，与当前 SDK `toolchains/modulecheck/shortcuts.json` 允许的 `bundleName`/`moduleName`/`abilityName`/`parameters` 不符（该 schema 的 description 里仍留着旧名，容易误导）；② 目标工具原先依赖「启动器自动注入 shortcutId」，而这个键名在 SDK 里根本查不到。现在 `wants[].parameters` 显式登记 `{"tool":"<工具 id>"}`，`EntryAbility` 的 `onCreate`/`onNewWant` 走可单测的 `pickStartupTool()`（`tool` 优先，三个可能的 shortcutId 键名兜底），并补上了热启动的 `onNewWant` + `emitter`。模拟器实测：冷启动、热启动、兜底键三条路径都能直达对应工具页（见 `RELEASE_CHECKLIST.md` 对应条目）；演示命令：`aa force-stop com.example.pockettoolbox` → `aa start -b com.example.pockettoolbox -a EntryAbility --ps tool science`（冷启动）、应用运行中再执行同一条换成别的 id（热启动）。**仍然只能真机验证的是「启动器是否展示并点击这些快捷方式」**——模拟器启动器长按应用图标只有「卸载」，没有快捷方式条目。

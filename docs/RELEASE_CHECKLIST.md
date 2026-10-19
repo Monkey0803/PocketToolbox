@@ -7,7 +7,8 @@
   ② 页面 `component/DatesPage.ets` 只加一个 `dateMode === 'zodiac'` 分支：复用 `dateField('Date','first')` + 一张 `MaterialSurface` 结果卡（星座名 / 日期区间 / 元素 · 守护星 / 口径说明），结果由 `this.firstDate` 现算，不持有额外状态。
   ③ 验证：单测新增 40+ 条（登记表 12 项与完整性、**逐日扫完闰年 2024 只允许停留在当前星座或推进到下一个且 12 个都出现**、摩羯跨年 12-22↔01-19、闰日 02-29、两端区间文案中英、非法日期返回 `undefined`），`All toolbox model assertions passed`；`assembleHap` `BUILD SUCCESSFUL`。
   ④ 模拟器复验（API 26）：方式下拉第 7 项为「星座」，选中后 2026-10-19 显示 **天秤座 / 9月23日 – 10月23日 / 风象星座 · 守护星 金星 / 按常见的固定日期区间判定…**（截图 `docs/screenshots/emulator/date-zodiac-mode-zh.jpeg`）。
-  - **未覆盖**：改日期后结果卡是否跟随刷新（本次复验时模拟器被并行会话占用、日期选择器流程被打断，未能单独复现；写法与已验证的农历行同款，均从 `this.firstDate` 现算）、英文界面截图、窄屏与深色下的换行与对比度。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 24 节。
+  ⑤ **改日期后结果卡跟随刷新（`@Builder` 按值传参的高危项）已在模拟器复现通过**：在日期选择器里把日期从 10 月 19 日改到 11 月 19 日后，日期卡片与结果卡**同时**变成 `2026-11-19` 与 **天蝎座 / 10月24日 – 11月22日 / 水象星座 · 守护星 冥王星（传统说法 火星）**——既证明卡片跟随 `this.firstDate` 重算，也验证了「传统说法」只在现代/传统守护星不同的星座上出现（截图 `docs/screenshots/emulator/date-zodiac-scorpio-after-date-change-zh.jpeg`）。
+  - **未覆盖**：英文界面截图、窄屏与深色下的换行与对比度、真机上日期选择器滚轮的粒度手感。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 21 节。
 
 - **启动页 logo 圆角修复（2026-10-19，已完成构建、单测与模拟器复验）**：冷启动时启动页居中显示的 logo 是硬直角方图（`splash-icon-square-corner-before-fix.jpeg`），与桌面/最近任务里被系统遮罩出圆角的应用图标不一致。
   ① 原因是 `startWindowIcon` 由系统**原样居中显示**、不做圆角遮罩（遮罩只发生在启动器画应用图标时），而 `toolbox_icon.png` 本身是满幅方角图（实测四角像素不透明、无弧度）。
