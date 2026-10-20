@@ -393,6 +393,16 @@
 
 （模拟器回执见下表；上表为真机复核项）
 
+## 25. 输入框底色与四角（2026-10-20）
+
+**模拟器已复验**：修复前灰色输入框的四个角各有一小块白色（外层 `MaterialSurface` 的白底从内层 `TextInput` 自带圆角里露出来，`screenshots/emulator/input-corner-white-before-fix.jpeg`）；现在由外层 `fallback` 独家提供底色与圆角，边角是一段连续的圆角，没有白色夹层（`screenshots/emulator/input-corner-fixed-after-fix.jpeg`）。逐个工具页 dump 复核：**24 个输入节点（`TextInput`/`TextArea`/`Search`）的 `backgroundColor` 全部是 `#00000000`**。
+
+- [x] **四角无白块（模拟器已通过）**：折扣与均摊页的原价/折数/立减三个输入框，四角应是连续圆角；取样像素应为「页面底色 → 输入框白底」的平滑过渡，不出现 `#FFFFFF` 夹层。
+- [x] **全 App 输入类组件均为透明底（模拟器已通过）**：`qr`/`barcode`/`calculator`/`tax`/`units`/`timers`/`timestamp`/`text`/`random`/`password`/`loan`/`color`/`health`/`science`/`dates`（推算方式）等页面的输入框与多行文本框逐一 dump 确认（做法：`aa start --ps tool <id>` + `uitest dumpLayout` 后读节点的 `backgroundColor`）。
+- [ ] **真机材质下的观感**：真机开启沉浸材质后，输入框里应透出材质（输入框不再自带灰底把材质盖住）；不支持材质的设备退化为 `ToolPalette.surface` 纯色底。
+- [ ] **深色模式对比度**：系统深色下输入框底色与页面底色、文字与底色的对比度。
+- [ ] **可编辑性可辨识**：输入框与只读结果卡现在同为 `surface` 底，确认用户仍能一眼看出哪些是可输入的（必要时再补描边，本轮未加）。
+
 ## 23. 设置页语言「跟随系统」（2026-10-19）
 
 语言下拉现在是三项：**跟随系统 / 简体中文 / English**（「跟随系统」在最前、也是没有偏好记录时的默认值）。持久化的 `language` 键存偏好 id（`system`/`zh`/`en`），旧版本写入的 `zh`/`en` 仍然有效；界面语言由纯逻辑 `model/LanguagePreference.ets` 从「偏好 + 系统语言」求出。

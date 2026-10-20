@@ -152,6 +152,7 @@ export struct BarcodePage {
         interactive: true
       }) {
         TextInput({ text: this.barcodeText, placeholder: this.tr('条形码内容', 'Barcode content') })
+          .backgroundColor(Color.Transparent)
           .onChange((value: string) => { this.barcodeText = value; this.barcodePixel = undefined; this.barcodeResult = ''; })
           .type(barcodeNumeric(this.barcodeKind) ? InputType.Number : InputType.Normal)
           .enabled(!this.barcodeBusy).height(52)

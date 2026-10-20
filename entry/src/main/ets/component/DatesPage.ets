@@ -362,6 +362,7 @@ export struct DatesPage {
           interactive: true
         }) {
           TextInput({ text: this.dayOffset, placeholder: this.shiftPlaceholder() })
+            .backgroundColor(Color.Transparent)
             .type(InputType.Normal).onChange((value: string) => this.dayOffset = value).height(52)
         }
         this.shiftUnitSelect()

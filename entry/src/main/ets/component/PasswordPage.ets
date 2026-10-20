@@ -101,7 +101,8 @@ export struct PasswordPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.passwordLength, placeholder: '16' }).type(InputType.Number)
+        TextInput({ text: this.passwordLength, placeholder: '16' })
+          .backgroundColor(Color.Transparent).type(InputType.Number)
           .onChange((value: string) => { this.passwordLength = value; this.invalidatePassword(); }).height(52)
       }
       Text(this.tr('选择字符类型', 'Character sets')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')

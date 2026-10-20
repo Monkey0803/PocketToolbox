@@ -93,6 +93,7 @@ export struct LoanPage {
         corner: 16, interactive: true
       }) {
         TextInput({ text: this.fieldText(id), placeholder: this.tr(placeholderZh, placeholderEn) })
+          .backgroundColor(Color.Transparent)
           .type(InputType.NUMBER_DECIMAL)
           .onChange((value: string) => this.setFieldText(id, value)).height(52)
       }

@@ -97,6 +97,7 @@ export struct SciencePage {
         corner: 16, interactive: true
       }) {
         TextInput({ text: this.expression, placeholder: calcHintText(this.english) })
+          .backgroundColor(Color.Transparent)
           .onChange((value: string) => { this.expression = value; }).height(52)
       }
       this.angleSelect()

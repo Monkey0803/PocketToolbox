@@ -316,6 +316,7 @@ export struct TimestampPage {
         interactive: true
       }) {
         TextInput({ text: this.input, placeholder: this.tr('时间戳或日期时间', 'Timestamp or date and time') })
+          .backgroundColor(Color.Transparent)
           .onChange((value: string) => this.input = value).height(52)
       }
       OptionSelect({

@@ -184,6 +184,7 @@ export struct TaxPage {
       }) {
         TextInput({ text: value, placeholder: zh.includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
           this.tr('金额（元）', 'Amount (CNY)') })
+          .backgroundColor(Color.Transparent)
           .type(InputType.Normal).height(48).accessibilityText(this.tr(zh, en))
           .onChange((next: string) => { update(next); this.taxResult = undefined; })
       }
@@ -241,7 +242,8 @@ export struct TaxPage {
             corner: 16,
             interactive: true
           }) {
-            TextInput({ text: this.taxPeriod, placeholder: '1' }).type(InputType.Number).height(48)
+            TextInput({ text: this.taxPeriod, placeholder: '1' })
+              .backgroundColor(Color.Transparent).type(InputType.Number).height(48)
               .accessibilityText(this.tr('本年任职受雇期数', 'Employment period this year'))
               .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
           }

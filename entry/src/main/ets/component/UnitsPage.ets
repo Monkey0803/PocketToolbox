@@ -177,7 +177,8 @@ export struct UnitsPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.unitInput, placeholder: '0' }).type(InputType.Normal)
+        TextInput({ text: this.unitInput, placeholder: '0' })
+          .backgroundColor(Color.Transparent).type(InputType.Normal)
           .onChange((value: string) => this.unitInput = value).height(54)
       }
       MaterialSurface({

@@ -316,6 +316,7 @@ export struct TimersPage {
         interactive: true
       }) {
         TextInput({ text: this.timerName, placeholder: this.tr('名称，可选', 'Name, optional') })
+          .backgroundColor(Color.Transparent)
           .onChange((value: string) => this.timerName = value)
       }
       MaterialSurface({

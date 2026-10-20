@@ -134,6 +134,7 @@ export struct RandomPage {
             interactive: true
           }) {
             TextInput({ text: this.randomMin, placeholder: this.tr('最小值', 'Minimum') })
+              .backgroundColor(Color.Transparent)
               .type(InputType.Normal).onChange((value: string) => {
                 this.randomMin = value; this.randomNumberResult = '';
               }).height(52)
@@ -149,6 +150,7 @@ export struct RandomPage {
             interactive: true
           }) {
             TextInput({ text: this.randomMax, placeholder: this.tr('最大值', 'Maximum') })
+              .backgroundColor(Color.Transparent)
               .type(InputType.Normal).onChange((value: string) => {
                 this.randomMax = value; this.randomNumberResult = '';
               }).height(52)
@@ -217,6 +219,7 @@ export struct RandomPage {
         interactive: true
       }) {
         TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
+          .backgroundColor(Color.Transparent)
           .onChange((value: string) => {
             this.randomItems = value; this.listResult = ''; this.listResultLabel = '';
           }).height(150)

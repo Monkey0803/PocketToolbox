@@ -179,6 +179,7 @@ export struct TextPage {
         interactive: true
       }) {
         TextArea({ text: this.textInput, placeholder: this.tr('输入或粘贴文本', 'Type or paste text') })
+          .backgroundColor(Color.Transparent)
           .onChange((value: string) => this.updateTextInput(value, true))
           .height(180)
       }

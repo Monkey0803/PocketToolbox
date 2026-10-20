@@ -246,6 +246,7 @@ export struct QrPage {
         corner: 16, interactive: true
       }) {
         TextInput({ text: this.fieldValue(id), placeholder: this.fieldPlaceholder(id) })
+          .backgroundColor(Color.Transparent)
           .onChange((input: string) => this.setFieldValue(id, input)).height(52)
       }
     }.width('100%')

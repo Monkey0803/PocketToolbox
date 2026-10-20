@@ -88,6 +88,7 @@ export struct ColorPage {
             corner: 16, interactive: true
           }) {
             TextInput({ text: this.fieldText(id), placeholder: placeholder })
+              .backgroundColor(Color.Transparent)
               .onChange((value: string) => this.setFieldText(id, value)).height(52)
           }
         }.layoutWeight(1)
