@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { uiMaterial } from '@kit.ArkUI';
+import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
@@ -397,9 +397,13 @@ export struct TimersPage {
       }
       Text(this.tr('常用时长', 'Quick durations')).fontSize(14).fontColor(ToolPalette.textSecondary)
         .width('100%')
-      Row({ space: 6 }) {
+      // 一行放不下时自动换行：按内容宽度排布，不再用 layoutWeight 均分整行——
+      // 345 vp 的折叠态每格只有约 44 vp，6 个预设会被系统截断成「…」（2026-10-20 折叠态实测，
+      // 与科学计算器常用键、亲戚称呼步骤条同一套写法）。
+      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
         ForEach(DURATION_PRESETS_MINUTES, (minutes: number) => {
-          Button(this.tr(minutes + '分', minutes + 'm')).fontSize(14).height(40).layoutWeight(1)
+          Button(this.tr(minutes + '分', minutes + 'm')).fontSize(14).height(40)
+            .padding({ left: 16, right: 16 })
             .backgroundColor(ToolPalette.tintBlue).fontColor(ToolPalette.primaryDeep)
             .onClick(() => this.applyPreset(minutes))
         }, (minutes: number): string => minutes.toString())
