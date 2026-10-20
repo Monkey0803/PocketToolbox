@@ -25,6 +25,29 @@ export function remainingAt(deadlineMs: number, nowMs: number): number {
 /** 秒表计次的常用预设（分钟），界面直接用它铺按钮。 */
 export const DURATION_PRESETS_MINUTES: number[] = [1, 5, 10, 15, 25, 30];
 
+// 两位补零的滚轮列（0..max）。
+function durationColumn(max: number): string[] {
+  const labels: string[] = [];
+  for (let value = 0; value <= max; value++) {
+    labels.push(value < 10 ? '0' + value : value.toString());
+  }
+  return labels;
+}
+
+/**
+ * 时长选择器的三列文案（时 0–23 / 分 0–59 / 秒 0–59，两位补零），供系统 `TextPickerDialog` 的 `range` 直接用。
+ *
+ * 计时页**不用** `showTimePickerDialog`：那个系统对话框顶部会带一行「YYYY年M月D日星期X」的表头
+ * （时长跟日期无关，2026-10-20 实测，且 `TimePickerDialogOptions` 没有隐藏它的开关），
+ * 因此改用同样系统级的三列 `TextPickerDialog`。
+ */
+export const DURATION_COLUMNS: string[][] = [durationColumn(23), durationColumn(59), durationColumn(59)];
+
+/** 把「时/分/秒」字符串收敛成三列滚轮的下标（与 `durationLabel()` 用同一套 clamp）。 */
+export function durationIndices(hours: string, minutes: string, seconds: string): number[] {
+  return [clampDurationPart(hours, 23), clampDurationPart(minutes, 59), clampDurationPart(seconds, 59)];
+}
+
 export class TimerMode {
   id: string = '';
   zh: string = '';

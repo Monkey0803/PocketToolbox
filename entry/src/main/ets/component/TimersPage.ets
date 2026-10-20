@@ -7,6 +7,7 @@ import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, CountdownItem, StopwatchData } from '../model/LocalData';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES,
+  DURATION_COLUMNS, durationIndices,
   lapDurations, fastestLapIndex, slowestLapIndex, TimerMode, TIMER_MODES } from '../model/TimerMath';
 import { scheduleReminder, cancelReminder } from '../services/SystemTools';
 import { LiveViewHandle, startTimerLiveView, updateTimerLiveView, stopTimerLiveView } from '../services/LiveViewTools';
@@ -141,27 +142,30 @@ export struct TimersPage {
       clampDurationPart(this.minutes, 59).toString(), clampDurationPart(this.seconds, 59).toString()));
   }
 
-  // 倒计时时长改用系统时间选择器（TimePickerFormat.HOUR_MINUTE_SECOND）：滚轮选择时分秒，
-  // 并按应用级沉浸光感配置传入沉浸式材质；设备不支持时保持普通背景的对话框。
+  // 时长选择器用系统 `TextPickerDialog`（三列滚轮：时 / 分 / 秒）。
+  // 不用 `showTimePickerDialog`：那个系统对话框顶部固定带一行「YYYY年M月D日星期X」表头，
+  // 而时长与日期无关，`TimePickerDialogOptions` 里也没有隐藏它的选项（2026-10-20 实测）。
+  // 沉浸材质按应用级光感配置传入（`TextPickerDialogOptionsExt.systemMaterial`，见重载签名）。
   private openDurationPicker(): void {
-    const base: Date = new Date();
-    base.setHours(clampDurationPart(this.hours, 23), clampDurationPart(this.minutes, 59),
-      clampDurationPart(this.seconds, 59), 0);
+    const columns: string[][] = DURATION_COLUMNS;
+    const indices: number[] = durationIndices(this.hours, this.minutes, this.seconds);
     try {
-      this.getUIContext().showTimePickerDialog({
-        selected: base,
-        format: TimePickerFormat.HOUR_MINUTE_SECOND,
-        useMilitaryTime: true,
-        enableCascade: false,
+      this.getUIContext().showTextPickerDialog({
+        range: columns,
+        selected: indices,
+        value: [columns[0][indices[0]], columns[1][indices[1]], columns[2][indices[2]]],
+        canLoop: true,
         systemMaterial: this.immersiveMaterial(true),
-        onAccept: (value: TimePickerResult) => {
-          this.hours = value.hour.toString();
-          this.minutes = value.minute.toString();
-          this.seconds = value.second.toString();
+        onAccept: (result: TextPickerResult) => {
+          const picked: number[] = result.index as number[];
+          if (!Array.isArray(picked) || picked.length !== 3) { return; }
+          this.hours = picked[0].toString();
+          this.minutes = picked[1].toString();
+          this.seconds = picked[2].toString();
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开时间选择器', 'Could not open the time picker'));
+      this.onStatus(this.tr('无法打开时长选择器', 'Could not open the duration picker'));
     }
   }
 

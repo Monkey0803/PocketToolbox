@@ -202,6 +202,17 @@ assert.equal(new Set(timers.TIMER_MODES.map((mode) => mode.id)).size, timers.TIM
 for (const mode of timers.TIMER_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
 }
+// 时长选择器的三列滚轮（时/分/秒，两位补零；供系统 TextPickerDialog 的 range 直接用）。
+assert.equal(timers.DURATION_COLUMNS.length, 3);
+assert.deepEqual(timers.DURATION_COLUMNS.map((column) => column.length), [24, 60, 60]);
+assert.equal(timers.DURATION_COLUMNS[0][0], '00');
+assert.equal(timers.DURATION_COLUMNS[0][23], '23');
+assert.equal(timers.DURATION_COLUMNS[1][5], '05');
+assert.equal(timers.DURATION_COLUMNS[1][59], '59');
+assert.equal(timers.DURATION_COLUMNS[2][9], '09');
+assert.deepEqual(timers.durationIndices('23', '59', '59'), [23, 59, 59]);
+assert.deepEqual(timers.durationIndices('7', '70', '-1'), [7, 59, 0]);
+assert.deepEqual(timers.durationIndices('', 'junk', '5'), [0, 0, 5]);
 assert.deepEqual(timers.lapDurations([1000, 3000, 6000]), [1000, 2000, 3000]);
 assert.deepEqual(timers.lapDurations([]), []);
 assert.deepEqual(timers.lapDurations([0]), [0]);
