@@ -95,7 +95,19 @@
 
 - **颜色工具改用「方式」下拉（2026-10-20）**：颜色页原先两段（颜色转换 / 对比度检查）常显，现与日期计算页、随机选择页同一套做法——纯逻辑 `model/ColorTools.ets` 新增登记表 `COLOR_MODES`（`convert`/`contrast`，含双语全称），`component/ColorPage.ets` 顶部放一张 `OptionSelect`「方式」，`build()` 按 `colorMode`（id，不是下标）分支渲染，两块内容各自收进 `convertPanel()`／`contrastPanel()`，一次只显示当前方式；两个输入框共用同一份状态，切换方式不丢颜色，页脚隐私说明两种方式下都显示。色轮 `HdsColorPicker`、解析与 WCAG 2.x 公式未改动。`assembleHap` `BUILD SUCCESSFUL`、单测 `All toolbox model assertions passed`（新增登记表条数/顺序/id 唯一/文案非空断言）；模拟器复验两种方式（`#0D3B66` → HEX/RGB/HSL；`对比度比值 11.45 : 1`、`普通文字 AAA`、`大号文字 AAA`、`建议前景色：#000000`）、非法输入提示、切换不丢值与英文界面（`Method` / `Colour conversion` / `Contrast check` / `Foreground` / `Background` / `Ratio` / `Body text` / `Large text` / `Suggested foreground`），见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 25 节；真机上的下拉菜单宽度/位置、深色对比度与色轮回填仍未验收。
 - **计时页改用「方式」下拉（2026-10-20）**：计时页原先「倒计时（新建 + 列表）」与「秒表」两大块常显，现与日期计算页、随机选择、颜色工具同一套做法——纯逻辑 `model/TimerMath.ets` 新增登记表 `TIMER_MODES`（`countdown`/`stopwatch`，含双语全称），`component/TimersPage.ets` 顶部放一张 `OptionSelect`「方式」，`build()` 按 `timerMode`（id，不是下标）分支渲染，两块内容各自收进 `countdownPanel()`／`stopwatchPanel()`。**口径 A（已与用户确认）：切走的那个计时不暂停、不停止**——`timers`／`watch` 与 250 ms 刷新定时器都挂在页面上，切换方式只是不再渲染另一块，切回来读数照旧。`assembleHap` `BUILD SUCCESSFUL`；`TIMER_MODES` 断言已加入 `tests/run-unit-tests.mjs` 并单独跑通（整套单测当时被另一会话在 `RandomTools.ets` 的在途重构挡住，与本次改动无关）；模拟器只完成冷启动路径上的「方式行 + 默认倒计时 + 常用时长 + 添加计时器 + 重启后计时仍在」四条，**秒表面板渲染、切走继续跑、英文界面与无障碍名称仍未复验**（该模拟器当时被另一会话占用），见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 26 节。
-- 逐条可执行的手机验收步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)：覆盖日期工具（方式选项行、周期推算、倒数日、农历、节假日与调休）、多选项统一为「选项行」的重构（第 9 节）、时间戳工具与计时时长选择器、随机选择／颜色工具／计时页的「方式」下拉（第 24、25、26 节），按编号回执即可定位问题。
+- **随机选择扩展为 7 项能力（2026-10-20）**：在「方式」下拉的三块面板内补齐实用能力，登记表与纯函数集中在 `model/RandomTools.ets`、UI 集中在 `component/RandomPage.ets`，**不新增工具卡片、不新增权限、不引入持久化**：
+  ① 随机整数可一次抽 `DRAW_COUNTS` 个**不重复**数字（`randomIntegers()`，Set 去重拒绝采样，尝试上限 `count*200+200`；页面先用 `rangeSize()` 区分「区间非法」与「区间不够抽」）；
+  ② 骰子加 `DICE_SIDES`（D4–D20）与「加值」输入（`parseDiceModifier()`/`diceNotationText()`/`diceTotal()`，记法如 `2d6+3`），`rollDice(count, sides, nextIndex)` 签名随之调整；
+  ③ 硬币加 `COIN_COUNTS`，`flipCoins()` 一次抛多枚并按正反面计数；
+  ④ 名单抽取可一次抽多名（`drawCandidates()` 洗牌后取前 N，不重复）；
+  ⑤ 新增「抽取方式」`LIST_DRAW_MODES`（等概率 / 按权重）：`parseWeightedCandidates()`＋`drawWeightedCandidates()` 支持 `名称*权重`（同名取第一次、权重非 1..1000 的整数按无权重处理、无放回抽取），权重只作用于抽取；
+  ⑥ 新增「分组方式」`GROUP_MODES`（按组数 / 按每组人数）与 `GROUP_SIZES`，`groupCandidatesBySize()` 依次切块、最后一组可能少于设定人数且不合并；
+  ⑦ 随机页的复制统一走 `copyResult()`（先复制再 `onRecord('random', 带上下文的整句)`），`model/HistoryKinds.ets` 新增类别 `random`「随机结果」（只展示、不回填）。
+  `RandomMode` 类改名 `RandomOption` 供三张选项表共用；`TOOL_META` 的 `random` 关键词补 `抽奖`/`随机数`/`摇号`/`跑团`。
+  - **验证**：单测 `All toolbox model assertions passed`（新增约 80 条断言；**上一轮另一会话记录的「整套单测被 `RandomTools` 在途重构挡住」已由此解除**）；`assembleHap --mode module -p product=default` `BUILD SUCCESSFUL`。
+  - **模拟器复验（API 26）**：抽 5 个不重复整数（`26 · 49 · 97 · 40 · 85`）、区间不足 toast、`2d20+3：16 · 11  合计 30`、3 枚硬币「正面 3 · 反面 0」、`张三*3,李四,王五,赵六` 按权重抽 2 名（`赵六、王五`）、按每组 2 人分组（`第 1 组：王五、张三*3` / `第 2 组：赵六、李四`）、复制后历史页出现「随机结果」条目且点它不跳转、中英双语全部新选项文案；截图 `docs/screenshots/emulator/random-number-5-zh.jpeg`、`random-range-short-zh.jpeg`、`random-dice-d20-zh.jpeg`、`random-group-size-zh.jpeg`、`random-list-en.jpeg`。逐条回执见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 27 节。
+  - **未覆盖**：真机下拉菜单宽度/位置与深色对比度、窄屏（约 360 vp）下新选项行的换行、纯图标复制按钮的 `accessibilityText`、加权分布的大样本统计。
+- 逐条可执行的手机验收步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)：覆盖日期工具（方式选项行、周期推算、倒数日、农历、节假日与调休）、多选项统一为「选项行」的重构（第 9 节）、时间戳工具与计时时长选择器、随机选择／颜色工具／计时页的「方式」下拉（第 24、25、26 节）、随机选择的 7 项扩展能力（第 27 节），按编号回执即可定位问题。
 - 工程 API 26，开发包名 `com.example.pockettoolbox`。**发布签名前必须替换为开发者账号下的正式包名**，并核对应用名称、版本号与设备类型。
 - DevEco Studio 已在本机配置调试签名；`assembleHap` 已生成可安装的 `entry-default-signed.hap`，并在 PLR-AL00（Mate 70 Pro，HarmonyOS 7 / API 26）安装启动。`build-profile.json5` 包含本机调试签名资料且已忽略，不是发布签名。
 - 代理提醒权益尚未申请/开通，后台及进程结束后的到期提醒未验收。普通本地通知不能替代该验收项。

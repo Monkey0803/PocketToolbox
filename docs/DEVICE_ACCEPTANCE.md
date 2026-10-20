@@ -1000,6 +1000,29 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 - [ ] **待复验（下一轮模拟器空闲时或真机上做）**：① 切到「秒表」方式后秒表面板渲染（读数、开始/暂停、计次、重置、计次记录卡）；② **口径 A 的关键行为**——倒计时跑起来后切到秒表、等几秒再切回，剩余时间应已递减（说明切走期间仍在跑）；秒表同理；③ 英文界面（`Method` / `Countdown` / `Stopwatch`）；④ 纯图标按钮的 `accessibilityText`（`dumpLayout` 不导出）。
 - 说明：本轮模拟器被另一个会话同时占用，命令之间页面会被切走（多次出现「`aa start … --ps tool timers` 后落回桌面或别的工具页」），因此只完成了冷启动路径上的前两条；上面未打勾的条目**不是通过，也不是失败**，只是没测到。
 
+## 27. 随机选择扩展：多抽、不重复号码、骰子面数与加值、多枚硬币、加权抽取、按人数分组、结果进历史（2026-10-20）
+
+入口：工具网格「随机选择」（`aa start … --ps tool random` 可直达；本轮该链路再次复验通过）。
+
+实现：纯逻辑 `entry/src/main/ets/model/RandomTools.ets` 新增登记表 `DICE_SIDES`（D4–D20）/`DRAW_COUNTS`（抽取个数，随机整数与名单共用，上限 20）/`COIN_COUNTS`/`GROUP_SIZES`/`GROUP_MODES`（按组数 / 按每组人数）/`LIST_DRAW_MODES`（等概率 / 按权重），登记项类型由 `RandomMode` 改名 `RandomOption` 供三张选项表共用；新增纯函数 `rangeSize()`、`randomIntegers()`（Set 去重拒绝采样，尝试上限 `count*200+200`，用尽返回 `undefined` 而不是死循环）、`drawCandidates()`、`flipCoins()`、`groupCandidatesBySize()`（依次切块、最后一组可能少于设定人数且不合并）、`parseWeightedCandidates()`/`drawWeightedCandidates()`（`名称*权重`，同名只取第一次，权重非 1..1000 的整数时整 token 当名称，无放回抽取）、`parseDiceModifier()`/`diceNotationText()`/`diceTotal()`；`rollDice()` 签名改为 `(count, sides, nextIndex)`。页面 `component/RandomPage.ets` 的三块面板各加 `OptionSelect`，骰子面板补「加值」输入行与结果卡上的复制按钮，名单面板按 `groupMode`/`drawMode` 分支；复制统一走 `copyResult()`（先 `onCopy` 再 `onRecord('random', 带上下文的整句)`）。历史类别新增 `random`「随机结果」（`model/HistoryKinds.ets`），`historyTargetRoute('random')` 返回空串——只展示不回填。
+
+| 条目 | 结果 | 证据 / 现象 |
+|---|---|---|
+| 随机整数一次抽多个不重复 | 通过 | `抽取个数` 选「5 个」，区间 1–100 → 结果卡 `26 · 49 · 97 · 40 · 85`（5 个互不重复），按钮文案变为「生成 5 个不重复整数」（截图 `docs/screenshots/emulator/random-number-5-zh.jpeg`） |
+| 区间不足提示 | 通过 | 区间改成 1–3、个数 5 → 系统 toast「区间内可用数字不足，请减少抽取个数或扩大区间」，不产生结果卡（截图 `docs/screenshots/emulator/random-range-short-zh.jpeg`） |
+| 骰子面数 / 颗数 / 加值 | 通过 | `骰子面数 D20` + `骰子颗数 2 颗` + `加值 3` → 结果卡 `2d20+3：16 · 11  合计 30`（记法含加值、合计 = 两颗之和 + 3），结果行带复制按钮（截图 `docs/screenshots/emulator/random-dice-d20-zh.jpeg`） |
+| 多枚硬币与正反面计数 | 通过 | `硬币枚数 3 枚` → 结果卡 `正面 3 · 反面 0`；枚数为 1 时仍是「正面 / 反面」单词（旧行为不变） |
+| 加权抽取 | 通过 | 候选项 `张三*3,李四,王五,赵六`，`抽取方式 按权重`、`抽取人数 2 个` → 结果标签「抽取结果（2 名）」、内容 `赵六、王五`（不重复），面板上同时出现权重语法提示行 |
+| 按每组人数分组 | 通过 | `分组方式 按每组人数`、`每组人数 2 人`、候选 4 人 → 结果标签「分组结果（每组 2 人）」、内容 `第 1 组：王五、张三*3` / `第 2 组：赵六、李四`（截图 `docs/screenshots/emulator/random-group-size-zh.jpeg`）；按组数分组仍走原 `groupCandidates()`（标签变为「分组结果（N 组）」） |
+| 结果进历史 | 通过 | 点结果卡复制按钮后：历史页最新一条类别为「随机结果」、时间 `10-20 14:47`、内容 `分组结果（每组 2 人）：第 1 组：王五、张三*3\n第 2 组：赵六、李四`；`类别` 下拉里出现「随机结果」；点该条目**停留在历史页**（无回填、不跳转），点其它类别条目行为不变 |
+| 状态保持与返回链路 | 通过 | 切方式（随机整数 → 骰子与硬币 → 名单抽取…）后再切回，候选文本与结果仍在；从随机页 `--ps tool qr` 进二维码页、再进历史页，两次返回键依次回到二维码页与随机页，随机页输入未被清空 |
+| 英文界面 | 通过 | `Method` / `Random integer` / `Amount` / `1 item` / `Draw a number`；`Sides` / `D6` / `Dice` / `2 dice` / `Modifier` / `Roll dice` / `Coins` / `1 coin` / `Flip a coin`；`Draw by` / `By weight` / `Winners` / `1 item` / `Pick one` / `Shuffle` / `Group by` / `By group size` / `Group size` / `2 people` 与英文权重提示、每组人数提示（截图 `docs/screenshots/emulator/random-list-en.jpeg`） |
+| 单测 | 通过 | `node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增约 80 条：登记表完整性、`rangeSize` 边界、拒绝采样去重与退化守卫 `() => 0` 返回 `undefined`、`drawCandidates` 越界、`rollDice` 面数、`flipCoins` 枚数、加值解析与记法、按人数分组尾组、权重解析与无放回抽取、历史类别 8 项与 `random` 标签/路由） |
+| 构建 | 通过 | `hvigorw assembleHap --mode module -p product=default` → `BUILD SUCCESSFUL in 3 s 437 ms`（SDK/JBR 取自 DevEco 安装目录；含本次改动） |
+
+- [ ] **未覆盖（真机 / 其它形态）**：① 真机上 `Select` 下拉菜单的宽度与位置（窄屏是否截断）、深色模式下的对比度；② 纯图标复制按钮的 `accessibilityText` 与屏幕朗读（`dumpLayout` 不导出该属性，仅静态核对）；③ 加权模式下的权重分布是否符合预期（只验证了「不重复 + 能抽出」与纯函数的确定性断言，未做大规模统计）；④ 手机窄屏（约 360 vp）下新选项行的换行与结果卡字号——本轮模拟器窗口约 736 vp 宽。
+- 说明（口径）：① **权重只作用于「随机抽取」**，随机排序与分组仍按原 token 处理（因此加权候选在分组结果里显示为 `张三*3`，这是既定口径，提示文案已写明「按权重」仅指抽取）；② 随机页的所有新状态都不落盘，离开页面即回到默认值（与改造前一致）；③ 本轮模拟器被另一个会话同时占用，出现过几次点击落到别的工具页的情况，最终每条回执都以 `dumpLayout` 的当次输出为准。
+
 ## 回执格式
 
 ```

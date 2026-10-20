@@ -892,6 +892,7 @@ struct Index {
             else if (name === 'random') {
               RandomPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'password') {

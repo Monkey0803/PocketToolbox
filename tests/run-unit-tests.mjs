@@ -669,12 +669,15 @@ assert.equal(randomGroups.length, 3);
 const groupSizes = randomGroups.map((members) => members.length);
 assert.ok(Math.max(...groupSizes) - Math.min(...groupSizes) <= 1, 'groups must stay balanced');
 assert.deepEqual(randomGroups.flat().slice().sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-assert.deepEqual(randomTools.rollDice(1, () => 0), [1]);
-assert.deepEqual(randomTools.rollDice(2, () => 5), [6, 6]);
-assert.deepEqual(randomTools.rollDice(3, (bound) => bound - 1), [6, 6, 6]);
-assert.equal(randomTools.rollDice(0, () => 0), undefined);
-assert.equal(randomTools.rollDice(6, () => 0), undefined);
-assert.equal(randomTools.rollDice(1.5, () => 0), undefined);
+assert.deepEqual(randomTools.rollDice(1, 6, () => 0), [1]);
+assert.deepEqual(randomTools.rollDice(2, 6, () => 5), [6, 6]);
+assert.deepEqual(randomTools.rollDice(3, 6, (bound) => bound - 1), [6, 6, 6]);
+assert.deepEqual(randomTools.rollDice(1, 20, () => 19), [20]);
+assert.deepEqual(randomTools.rollDice(2, 4, () => 0), [1, 1]);
+assert.equal(randomTools.rollDice(0, 6, () => 0), undefined);
+assert.equal(randomTools.rollDice(6, 6, () => 0), undefined);
+assert.equal(randomTools.rollDice(1.5, 6, () => 0), undefined);
+assert.equal(randomTools.rollDice(1, 7, () => 0), undefined);
 assert.equal(randomTools.DICE_COUNTS.length, 5);
 assert.equal(randomTools.DICE_COUNTS[randomTools.DICE_COUNTS.length - 1], 5);
 assert.equal(randomTools.GROUP_COUNTS.length, 7);
@@ -687,6 +690,99 @@ assert.deepEqual(randomTools.RANDOM_MODES.map((mode) => mode.id), ['number', 'di
 for (const mode of randomTools.RANDOM_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
 }
+// --- 随机选择扩展：多抽、不重复号码、骰子面数与加值、多枚硬币、按人数分组、加权抽取 ---
+assert.deepEqual(randomTools.DICE_SIDES, [4, 6, 8, 10, 12, 20]);
+assert.equal(randomTools.DICE_SIDES.includes(6), true);
+for (const registry of [randomTools.DRAW_COUNTS, randomTools.COIN_COUNTS, randomTools.GROUP_SIZES]) {
+  assert.ok(registry.length > 0, 'count registry must not be empty');
+  registry.forEach((value, index) => {
+    assert.ok(Number.isInteger(value) && value > 0, 'count options must be positive integers');
+    if (index > 0) { assert.ok(value > registry[index - 1], 'count options must be ascending'); }
+  });
+}
+assert.equal(randomTools.DRAW_COUNTS[0], 1);
+assert.equal(randomTools.DRAW_COUNTS[randomTools.DRAW_COUNTS.length - 1], 20);
+assert.equal(randomTools.COIN_COUNTS[randomTools.COIN_COUNTS.length - 1], 10);
+assert.equal(randomTools.GROUP_SIZES[0], 2);
+// 分组方式 / 抽取方式两张登记表：id 顺序、唯一性与文案非空。
+assert.deepEqual(randomTools.GROUP_MODES.map((mode) => mode.id), ['count', 'size']);
+assert.deepEqual(randomTools.LIST_DRAW_MODES.map((mode) => mode.id), ['uniform', 'weighted']);
+for (const registry of [randomTools.GROUP_MODES, randomTools.LIST_DRAW_MODES]) {
+  assert.equal(new Set(registry.map((mode) => mode.id)).size, registry.length);
+  for (const mode of registry) {
+    assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete option ${mode.id}`);
+  }
+}
+// 按序列取数：拒绝采样、洗牌与加权抽取都要不同的取值，常量随机源只用于退化守卫用例。
+const seq = (values) => { let cursor = 0; return () => values[cursor++ % values.length]; };
+assert.equal(randomTools.rangeSize(1, 100), 100);
+assert.equal(randomTools.rangeSize(-1, 1), 3);
+assert.equal(randomTools.rangeSize(4, 3), undefined);
+assert.equal(randomTools.rangeSize(1.5, 10), undefined);
+assert.equal(randomTools.rangeSize(1, 1000001), undefined);
+assert.deepEqual(randomTools.randomIntegers(1, 100, 3, seq([0, 50, 99])), [1, 51, 100]);
+const drawnNumbers = randomTools.randomIntegers(1, 10, 7, seq([0, 2, 4, 6, 8, 1, 3]));
+assert.equal(drawnNumbers.length, 7);
+assert.equal(new Set(drawnNumbers).size, 7);
+drawnNumbers.forEach((value) => assert.ok(value >= 1 && value <= 10, 'value must stay in range'));
+assert.equal(randomTools.randomIntegers(1, 10, 11, seq([0])), undefined);
+assert.equal(randomTools.randomIntegers(1, 10, 0, seq([0])), undefined);
+assert.equal(randomTools.randomIntegers(1, 10, 1.5, seq([0])), undefined);
+// 退化随机源（恒等 0）会用尽尝试次数并返回 undefined，而不是死循环。
+assert.equal(randomTools.randomIntegers(1, 3, 3, () => 0), undefined);
+assert.deepEqual(randomTools.drawCandidates('a,b,c,d', 2, identityIndex), ['a', 'b']);
+assert.deepEqual(randomTools.drawCandidates('a,b,c', 3, identityIndex), ['a', 'b', 'c']);
+assert.equal(randomTools.drawCandidates('a,b,c', 4, identityIndex), undefined);
+assert.equal(randomTools.drawCandidates('', 1, identityIndex), undefined);
+assert.equal(randomTools.drawCandidates('a,b,c', 0, identityIndex), undefined);
+assert.equal(randomTools.drawCandidates('a,b,c', 1.5, identityIndex), undefined);
+const drawnNames = randomTools.drawCandidates('a,b,c,d,e', 3, seq([0, 1, 2, 0, 1]));
+assert.equal(drawnNames.length, 3);
+assert.equal(new Set(drawnNames).size, 3);
+assert.deepEqual(randomTools.groupCandidatesBySize('a,b,c,d,e', 2, identityIndex),
+  [['a', 'b'], ['c', 'd'], ['e']]);
+assert.deepEqual(randomTools.groupCandidatesBySize('a,b,c,d,e,f,g', 3, identityIndex),
+  [['a', 'b', 'c'], ['d', 'e', 'f'], ['g']]);
+assert.equal(randomTools.groupCandidatesBySize('a', 2, identityIndex), undefined);
+assert.equal(randomTools.groupCandidatesBySize('a,b,c', 1, identityIndex), undefined);
+assert.equal(randomTools.groupCandidatesBySize('a,b,c', 2.5, identityIndex), undefined);
+assert.equal(randomTools.groupCandidatesBySize('', 2, identityIndex), undefined);
+assert.deepEqual(randomTools.flipCoins(3, () => 0), [true, true, true]);
+assert.deepEqual(randomTools.flipCoins(2, () => 1), [false, false]);
+assert.equal(randomTools.flipCoins(11, () => 0), undefined);
+assert.equal(randomTools.flipCoins(0, () => 0), undefined);
+assert.equal(randomTools.flipCoins(1.5, () => 0), undefined);
+assert.equal(randomTools.parseDiceModifier(''), 0);
+assert.equal(randomTools.parseDiceModifier('  '), 0);
+assert.equal(randomTools.parseDiceModifier('+3'), 3);
+assert.equal(randomTools.parseDiceModifier('-2'), -2);
+assert.equal(randomTools.parseDiceModifier('100'), 100);
+assert.equal(randomTools.parseDiceModifier('101'), undefined);
+assert.equal(randomTools.parseDiceModifier('x'), undefined);
+assert.equal(randomTools.parseDiceModifier('1.5'), undefined);
+assert.equal(randomTools.diceNotationText(2, 6, 3), '2d6+3');
+assert.equal(randomTools.diceNotationText(1, 20, 0), '1d20');
+assert.equal(randomTools.diceNotationText(2, 6, -1), '2d6-1');
+assert.equal(randomTools.diceTotal([4, 2], 3), 9);
+assert.equal(randomTools.diceTotal([4, 2], 0), 6);
+const weightedItems = randomTools.parseWeightedCandidates('a*3, b, c*2');
+assert.deepEqual(weightedItems.map((item) => [item.name, item.weight]), [['a', 3], ['b', 1], ['c', 2]]);
+assert.deepEqual(randomTools.parseWeightedCandidates('a*3, a, a*5').map((item) => [item.name, item.weight]),
+  [['a', 3]]);
+assert.deepEqual(randomTools.parseWeightedCandidates('a*x, b*0, c*-2, d*2000').map((item) => item.name),
+  ['a*x', 'b*0', 'c*-2', 'd*2000']);
+assert.equal(randomTools.parseWeightedCandidates('a*x').every((item) => item.weight === 1), true);
+assert.deepEqual(randomTools.parseWeightedCandidates('  '), []);
+assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 0), ['a']);
+assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 0.5), ['b']);
+assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 0.999999), ['b']);
+assert.deepEqual(randomTools.drawWeightedCandidates('a,b,c', 2, seq([0])), ['a', 'b']);
+const weightedTwo = randomTools.drawWeightedCandidates('a*5,b*1', 2, seq([0]));
+assert.equal(weightedTwo.length, 2);
+assert.equal(new Set(weightedTwo).size, 2);
+assert.equal(randomTools.drawWeightedCandidates('a,b', 3, () => 0), undefined);
+assert.equal(randomTools.drawWeightedCandidates('', 1, () => 0), undefined);
+assert.equal(randomTools.drawWeightedCandidates('a,b', 0, () => 0), undefined);
 
 const passwordOptions = new passwords.PasswordOptions();
 assert.equal(passwords.validPasswordOptions(passwordOptions), true);
@@ -1353,10 +1449,10 @@ for (const length of [1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 1000]) {
 }
 
 // --- 统一历史：类别文案、筛选与时间/长度处理 ---
-assert.equal(historyKinds.HISTORY_KINDS.length, 7);
-assert.equal(historyKinds.historyFilters().length, 7);
+assert.equal(historyKinds.HISTORY_KINDS.length, 8);
+assert.equal(historyKinds.historyFilters().length, 8);
 assert.equal(historyKinds.historyFilters()[0].id, 'all');
-assert.equal(new Set(historyKinds.HISTORY_KINDS.map((entry) => entry.id)).size, 7);
+assert.equal(new Set(historyKinds.HISTORY_KINDS.map((entry) => entry.id)).size, 8);
 for (const entry of historyKinds.HISTORY_KINDS) {
   assert.ok(entry.zh.length > 0 && entry.en.length > 0, `incomplete history kind ${entry.id}`);
 }
@@ -1367,6 +1463,8 @@ assert.equal(historyKinds.historyKindLabel('units', true), 'Conversion');
 assert.equal(historyKinds.historyKindLabel('timestamp', false), '时间戳');
 assert.equal(historyKinds.historyKindLabel('calculator', false), '计算结果');
 assert.equal(historyKinds.historyKindLabel('calculator', true), 'Calculation');
+assert.equal(historyKinds.historyKindLabel('random', false), '随机结果');
+assert.equal(historyKinds.historyKindLabel('random', true), 'Random result');
 assert.equal(historyKinds.historyKindLabel('all', false), '记录');
 assert.equal(historyKinds.historyKindLabel('nope', true), 'Record');
 assert.equal(historyKinds.historyItemVisible('text', 'all'), true);
@@ -1406,8 +1504,9 @@ assert.equal(historyKinds.historyTargetRoute('scanned'), 'qr');
 assert.equal(historyKinds.historyTargetRoute('text'), 'text');
 assert.equal(historyKinds.historyTargetRoute('timestamp'), 'timestamp');
 assert.equal(historyKinds.historyTargetRoute('units'), '');
-// 计算结果与换算结果一样是整句文案，没有唯一可回填的字段 → 不回填
+// 计算结果与换算结果一样是整句文案，没有唯一可回填的字段 → 不回填（随机结果同口径）
 assert.equal(historyKinds.historyTargetRoute('calculator'), '');
+assert.equal(historyKinds.historyTargetRoute('random'), '');
 assert.equal(historyKinds.historyTargetRoute('nope'), '');
 
 // 回填内容：截断过的条目不回填；时间戳取「最后一个 · 之后」的部分（那是实际复制、可再次解析的值）
