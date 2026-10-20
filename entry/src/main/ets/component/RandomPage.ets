@@ -158,7 +158,9 @@ export struct RandomPage {
           }
         }.layoutWeight(1)
       }.width('100%')
-      Button(this.tr('生成随机数', 'Draw a number')).height(48).backgroundColor(ToolPalette.success)
+      // 文字动作按钮同样不带品牌底色：颜色落在文字上，靠字重与语义色保持可辨（与 IconActionButton 同一口径）。
+      Button(this.tr('生成随机数', 'Draw a number')).height(48)
+        .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
         .onClick(() => this.drawNumber())
       if (this.randomNumberResult) {
         MaterialSurface({
@@ -185,9 +187,11 @@ export struct RandomPage {
       })
       Row({ space: 8 }) {
         Button(this.tr('掷骰子', 'Roll dice')).layoutWeight(1).height(48)
-          .backgroundColor(ToolPalette.accentOrange).onClick(() => this.roll())
+          .backgroundColor(Color.Transparent).fontColor(ToolPalette.warning).fontWeight(FontWeight.Medium)
+          .onClick(() => this.roll())
         Button(this.tr('抛硬币', 'Flip a coin')).layoutWeight(1).height(48)
-          .backgroundColor(ToolPalette.accentPurple).onClick(() => this.flip())
+          .backgroundColor(Color.Transparent).fontColor(ToolPalette.accentPurple).fontWeight(FontWeight.Medium)
+          .onClick(() => this.flip())
       }.width('100%')
       if (this.diceResult || this.coinResult) {
         MaterialSurface({
@@ -227,9 +231,11 @@ export struct RandomPage {
       }
       Row({ space: 8 }) {
         Button(this.tr('随机抽取', 'Pick one')).layoutWeight(1).height(48)
-          .backgroundColor(ToolPalette.primary).onClick(() => this.pickOne())
+          .backgroundColor(Color.Transparent).fontColor(ToolPalette.primary).fontWeight(FontWeight.Medium)
+          .onClick(() => this.pickOne())
         Button(this.tr('随机排序', 'Shuffle')).layoutWeight(1).height(48)
-          .backgroundColor(ToolPalette.accentPurple).onClick(() => this.shuffleList())
+          .backgroundColor(Color.Transparent).fontColor(ToolPalette.accentPurple).fontWeight(FontWeight.Medium)
+          .onClick(() => this.shuffleList())
       }.width('100%')
       OptionSelect({
         label: this.tr('分组组数', 'Groups'),
@@ -239,7 +245,8 @@ export struct RandomPage {
         a11yText: this.tr('分组组数', 'Number of groups'),
         onSelected: (index: number): void => { this.groupCount = GROUP_COUNTS[index]; this.listResult = ''; }
       })
-      Button(this.tr('分组', 'Group')).width('100%').height(48).backgroundColor(ToolPalette.success)
+      Button(this.tr('分组', 'Group')).width('100%').height(48)
+        .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
         .onClick(() => this.groupList())
       if (this.listResult) {
         Text(this.listResultTitle()).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')

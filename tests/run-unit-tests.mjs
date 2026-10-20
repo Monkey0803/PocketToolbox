@@ -64,6 +64,7 @@ const compass = await loadEts('../entry/src/main/ets/model/CompassMath.ets');
 const kinship = await loadEts('../entry/src/main/ets/model/KinshipMath.ets');
 const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.ets');
 const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
+const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
 const { createHash } = await import('node:crypto');
 
 function category(id) {
@@ -2276,5 +2277,171 @@ for (const entry of kinship.KIN_TERMS) {
   }
 }
 assert.equal(kinTermPaths.size, kinship.KIN_TERMS.length);
+
+// ---- 自适应布局：官方断点 → 网格列数 / 内容列宽 / 边距 / 密度（阔直板 · 阔折叠 · 三折叠 · 平板 · 手机） ----
+// 宽度断点：XS < 320、SM 320–600、MD 600–840、LG 840–1440、XL ≥ 1440（与 ArkUI WidthBreakpoint 默认阈值一致）
+assert.equal(layout.WIDTH_XS, 0);
+assert.equal(layout.WIDTH_XL, 4);
+// 0 / 非有限值不是合法窗口尺寸，一律走兜底（390×844，SM 竖屏），不要算出 0 列
+assert.equal(layout.widthBandOf(0), layout.WIDTH_SM);
+assert.equal(layout.widthBandOf(319), layout.WIDTH_XS);
+assert.equal(layout.widthBandOf(320), layout.WIDTH_SM);
+assert.equal(layout.widthBandOf(599), layout.WIDTH_SM);
+assert.equal(layout.widthBandOf(600), layout.WIDTH_MD);
+assert.equal(layout.widthBandOf(839), layout.WIDTH_MD);
+assert.equal(layout.widthBandOf(840), layout.WIDTH_LG);
+assert.equal(layout.widthBandOf(1439), layout.WIDTH_LG);
+assert.equal(layout.widthBandOf(1440), layout.WIDTH_XL);
+assert.equal(layout.widthBandOf(Number.NaN), layout.WIDTH_SM);       // 未测量到 → 兜底 390 vp
+assert.equal(layout.widthBandOf(Number.POSITIVE_INFINITY), layout.WIDTH_SM); // 非法值同样走兜底
+
+// 高度断点按窗口**高宽比（高 / 宽）**：SM < 0.8（矮而宽）、MD 0.8–1.2（近方）、LG ≥ 1.2（竖长）。
+// 与 ArkUI HeightBreakpoint 的默认阈值一致；2026-10-20 模拟器实测确认比值是「高 / 宽」：
+// 440×744 的阔直板竖屏窗口，getWindowHeightBreakpoint() 返回 LG 而不是按「宽 / 高 = 0.59」会得到的 SM。
+assert.equal(layout.heightBandOf(376, 810), layout.HEIGHT_LG);      // 常规手机（2.15）竖长
+assert.equal(layout.heightBandOf(440, 744), layout.HEIGHT_LG);      // 阔直板（1.69）仍属竖长形态
+assert.equal(layout.heightBandOf(707, 773), layout.HEIGHT_MD);      // 双折展开（1.09）近方
+assert.equal(layout.heightBandOf(327, 327), layout.HEIGHT_MD);      // 阔折叠外屏（1.00）近方
+assert.equal(layout.heightBandOf(940, 665), layout.HEIGHT_SM);      // 阔折叠 Pura X Max 展开（0.71）矮而宽
+assert.equal(layout.heightBandOf(1107, 776), layout.HEIGHT_SM);     // 三折叠全展开（0.70）矮而宽
+assert.equal(layout.heightBandOf(1440, 960), layout.HEIGHT_SM);     // 平板横屏（0.67）矮而宽
+assert.equal(layout.heightBandOf(390, 0), layout.HEIGHT_LG);        // 高度缺失 → 兜底 844 vp（2.16）
+
+// 常规手机：2 列、内容列 920、正常密度（这几条是与改造前一致的回归基线）
+const phoneLayout = layout.layoutMetrics(376, 810);
+assert.equal(phoneLayout.widthBand, layout.WIDTH_SM);
+assert.equal(phoneLayout.columns, 2);
+assert.equal(phoneLayout.contentMaxWidth, 920);
+assert.equal(phoneLayout.horizontalPadding, 20);
+assert.equal(phoneLayout.compact, false);
+assert.equal(phoneLayout.topPadding, 20);
+assert.equal(phoneLayout.gridGap, 12);
+assert.equal(phoneLayout.tabBottomPadding, 96);
+assert.equal(layout.layoutMetrics(366, 744).columns, 2);
+
+// 窄幅竖屏（折叠态外屏）：双列卡片会低于 150 vp，降到 1 列
+assert.equal(layout.layoutMetrics(345, 744).columns, 1);
+assert.equal(layout.layoutMetrics(319, 700).columns, 1);
+
+// 窄幅窗口（< 360 vp）同时要换搜索框短占位符：长提示会被系统截断成带省略号的半句
+assert.equal(layout.layoutMetrics(327, 327).narrow, true);   // 阔折叠 3.5" 方形外屏
+assert.equal(layout.layoutMetrics(351, 776).narrow, true);   // 三折叠折叠态
+assert.equal(layout.layoutMetrics(345, 744).narrow, true);
+assert.equal(layout.layoutMetrics(359, 800).narrow, true);
+assert.equal(layout.layoutMetrics(360, 800).narrow, false);
+assert.equal(layout.layoutMetrics(366, 809).narrow, false);  // 常规手机
+assert.equal(layout.layoutMetrics(440, 744).narrow, false);  // 阔直板
+
+// 阔直板 Pura X View 440×744：SM 档、2 列、不收紧（仍是竖长形态）
+const wideBar = layout.layoutMetrics(440, 744);
+assert.equal(wideBar.widthBand, layout.WIDTH_SM);
+assert.equal(wideBar.heightBand, layout.HEIGHT_LG);
+assert.equal(wideBar.columns, 2);
+assert.equal(wideBar.horizontalPadding, 20);
+assert.equal(wideBar.contentMaxWidth, 920);
+assert.equal(wideBar.compact, false);
+
+// 阔折叠 Pura X：展开 440×707 → 2 列；外屏 327×327（近方小屏）→ 1 列
+const puraX = layout.layoutMetrics(440, 707);
+assert.equal(puraX.widthBand, layout.WIDTH_SM);
+assert.equal(puraX.heightBand, layout.HEIGHT_LG);
+assert.equal(puraX.columns, 2);
+assert.equal(puraX.compact, false);
+const puraXOuter = layout.layoutMetrics(327, 327);
+assert.equal(puraXOuter.widthBand, layout.WIDTH_SM);
+assert.equal(puraXOuter.heightBand, layout.HEIGHT_MD);
+assert.equal(puraXOuter.columns, 1);
+
+// 阔折叠 Pura X Max 展开 940×665：LG 档、4 列、内容列放宽到 1080、纵向收紧
+const puraXMax = layout.layoutMetrics(940, 665);
+assert.equal(puraXMax.widthBand, layout.WIDTH_LG);
+assert.equal(puraXMax.heightBand, layout.HEIGHT_SM);
+assert.equal(puraXMax.columns, 4);
+assert.equal(puraXMax.contentMaxWidth, 1080);
+assert.equal(puraXMax.compact, true);
+assert.equal(puraXMax.topPadding, 12);
+assert.equal(puraXMax.sectionGap, 12);
+assert.equal(puraXMax.gridGap, 10);
+assert.equal(puraXMax.tabBottomPadding, 88);
+assert.equal(puraXMax.detailBottomPadding, 16);
+
+// 三折叠 Mate XT：全展开 1107×776 → 4 列、紧凑；双屏 712×776 → 3 列；折叠态 351×776 → 1 列
+const tripleFold = layout.layoutMetrics(1107, 776);
+assert.equal(tripleFold.widthBand, layout.WIDTH_LG);
+assert.equal(tripleFold.heightBand, layout.HEIGHT_SM);
+assert.equal(tripleFold.columns, 4);
+assert.equal(tripleFold.compact, true);
+assert.equal(tripleFold.contentMaxWidth, 1080);
+const tripleFoldHalf = layout.layoutMetrics(712, 776);
+assert.equal(tripleFoldHalf.widthBand, layout.WIDTH_MD);
+assert.equal(tripleFoldHalf.columns, 3);
+const tripleFoldFolded = layout.layoutMetrics(351, 776);
+assert.equal(tripleFoldFolded.widthBand, layout.WIDTH_SM);
+assert.equal(tripleFoldFolded.columns, 1);
+
+// 双折展开 707×773 仍是 3 列（与改造前验收一致的回归基线）
+assert.equal(layout.layoutMetrics(707, 773).columns, 3);
+
+// 平板横屏 1440×960：XL 档、5 列、内容列 1200
+const tablet = layout.layoutMetrics(1440, 960);
+assert.equal(tablet.widthBand, layout.WIDTH_XL);
+assert.equal(tablet.heightBand, layout.HEIGHT_SM);
+assert.equal(tablet.columns, 5);
+assert.equal(tablet.contentMaxWidth, 1200);
+assert.equal(tablet.horizontalPadding, 32);
+assert.equal(tablet.compact, true);
+
+// 各种宽度下卡片都不会被挤到 150 vp 以下，且列数随窗口变宽单调不减
+for (const width of [320, 360, 440, 600, 720, 840, 940, 1107, 1280, 1440, 1600]) {
+  const metrics = layout.layoutMetrics(width, 800);
+  assert.ok(metrics.columns >= 1 && metrics.columns <= 5, `bad columns at ${width} vp`);
+  const contentWidth = Math.min(width - metrics.horizontalPadding * 2, metrics.contentMaxWidth);
+  assert.ok(contentWidth / metrics.columns >= 150, `cards too narrow: ${width} vp / ${metrics.columns} columns`);
+}
+let previousColumns = 0;
+for (let width = 200; width <= 1600; width += 1) {
+  const columns = layout.layoutMetrics(width, 800).columns;
+  assert.ok(columns >= previousColumns, `columns dropped at ${width} vp`);
+  previousColumns = columns;
+}
+
+// Index 传进来的官方断点序号优先于算术（厂商可自定义高度阈值）：只有 SM（矮而宽）才收紧
+const overridden = layout.layoutMetrics(500, 800, layout.WIDTH_LG, layout.HEIGHT_SM);
+assert.equal(overridden.columns, 4);
+assert.equal(overridden.compact, true);
+assert.equal(overridden.contentMaxWidth, 1080);
+const overriddenTall = layout.layoutMetrics(500, 800, layout.WIDTH_LG, layout.HEIGHT_LG);
+assert.equal(overriddenTall.columns, 4);
+assert.equal(overriddenTall.compact, false);
+assert.equal(overriddenTall.topPadding, 20);
+assert.equal(overriddenTall.gridGap, 12);
+
+// 窗口还没测量到时不能采信官方断点：SDK 在窗口宽度 0 / 宽高比 0 时分别返回 WIDTH_XS / HEIGHT_SM，
+// 照用会把首帧锁死在「1 列 + 紧凑」上。
+const unmeasured = layout.layoutMetrics(0, 0, layout.WIDTH_XS, layout.HEIGHT_SM);
+assert.equal(unmeasured.widthBand, layout.WIDTH_SM);      // 兜底 390×844 → SM
+assert.equal(unmeasured.heightBand, layout.HEIGHT_LG);    // 844/390 = 2.16 → 竖长
+assert.equal(unmeasured.columns, 2);
+assert.equal(unmeasured.compact, false);
+assert.equal(unmeasured.narrow, false);
+const measuredOverride = layout.layoutMetrics(327, 327, layout.WIDTH_SM, layout.HEIGHT_MD);
+assert.equal(measuredOverride.heightBand, layout.HEIGHT_MD);   // 有尺寸时官方断点优先
+
+// columnsTemplate：夹取到 1–6 列
+assert.equal(layout.gridColumnsTemplate(1), '1fr');
+assert.equal(layout.gridColumnsTemplate(3), '1fr 1fr 1fr');
+assert.equal(layout.gridColumnsTemplate(5), '1fr 1fr 1fr 1fr 1fr');
+assert.equal(layout.gridColumnsTemplate(0), '1fr');
+assert.equal(layout.gridColumnsTemplate(Number.NaN), '1fr');
+assert.equal(layout.gridColumnsTemplate(99), '1fr 1fr 1fr 1fr 1fr 1fr');
+
+// 异常尺寸不产生坏布局（0 / 负数 / NaN 都走兜底，不会是 0 列或负边距）
+for (const size of [layout.layoutMetrics(0, 0), layout.layoutMetrics(-100, Number.NaN)]) {
+  assert.ok(size.columns >= 1);
+  assert.ok(size.contentMaxWidth >= 320);
+  assert.ok(size.horizontalPadding > 0);
+  assert.ok(size.topPadding > 0);
+  assert.ok(size.tabBottomPadding > 0);
+}
 
 console.log('All toolbox model assertions passed');

@@ -63,7 +63,7 @@ export struct TorchPage {
         Button() {
           SymbolGlyph(this.torchOn ? $r('sys.symbol.flashlight_on_fill') : $r('sys.symbol.flashlight_off'))
             .fontSize(80).fontColor([this.torchOn ? ToolPalette.accentAmber : ToolPalette.textMuted])
-        }.width(144).height(144).backgroundColor(ToolPalette.tintPurple)
+        }.width(144).height(144).backgroundColor(Color.Transparent)
           .enabled(this.torchSupported)
           .accessibilityText(this.torchOn ? this.tr('关闭手电筒', 'Turn off flashlight') :
             this.tr('打开手电筒', 'Turn on flashlight')).onClick(() => this.toggleTorch())

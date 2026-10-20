@@ -1,6 +1,6 @@
 import { bundleManager, common } from '@kit.AbilityKit';
 import { pasteboard, emitter } from '@kit.BasicServicesKit';
-import { uiMaterial, SymbolGlyphModifier } from '@kit.ArkUI';
+import { uiMaterial, SymbolGlyphModifier, UIContext } from '@kit.ArkUI';
 // UI Design Kit 的 HDS 导航与底部页签，提供标题栏/底部页签的沉浸光感材质。
 import { HdsNavigation, HdsNavigationTitleMode, HdsNavDestination, HdsNavDestinationTitleMode,
   HdsNavigationTitleBarOptions, HdsTabs, HdsTabsController, hdsMaterial,
@@ -10,9 +10,11 @@ import { motion } from '@kit.MultimodalAwarenessKit';
 import lazy { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
 import { matchTools, promoteFavorite, moveFavorite } from '../model/ToolMeta';
+import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, WIDTH_MD } from '../model/LayoutAdaptive';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, HistoryItem } from '../model/LocalData';
 import { historyContentSnippet, historyRefill, historyTargetRoute } from '../model/HistoryKinds';
+import { IconActionButton } from '../component/IconActionButton';
 import { MaterialSurface } from '../component/MaterialSurface';
 import { CalculatorPage } from '../component/CalculatorPage';
 import { TextPage } from '../component/TextPage';
@@ -41,6 +43,8 @@ import { SettingsPage } from '../component/SettingsPage';
 import { TimersPage } from '../component/TimersPage';
 import { saveScannedDocuments, systemPreferredLanguage } from '../services/SystemTools';
 import { refreshQuickToolsCards } from '../services/WidgetData';
+import { WindowSizeVp, currentWindowSizeVp, subscribeFoldStatus,
+  unsubscribeFoldStatus } from '../services/WindowLayout';
 
 const HDS_MATERIAL_EFFECT: SystemMaterialParams = {
   materialType: hdsMaterial.MaterialType.ADAPTIVE,
@@ -80,6 +84,9 @@ struct Index {
   @Local iconReady: boolean = false;
   @Local iconBusy: boolean = false;
   @Local widthVp: number = 390;
+  // 窗口逻辑高度：高度断点按宽高比（宽/高）判定，阔折叠展开、三折叠全展开、平板横屏这类「矮而宽」的形态
+  // 要收紧纵向留白（见 model/LayoutAdaptive.ets）。
+  @Local heightVp: number = 844;
   // 一次性提示（复制、保存、校验失败等）统一由 onStatusChange 转成系统 toast；
   // 只有需要持续可见的错误（例如读不到本地数据）才写 fatalError，保留内联横幅。
   @Local status: string = '';
@@ -104,6 +111,12 @@ struct Index {
   private routeStack: string[] = ['home'];
   private holdingSubscribed: boolean = false;
   private operatingSubscribed: boolean = false;
+  private foldSubscribed: boolean = false;
+  // 折叠形态变化（含三折叠的两条转轴）→ 重新读一次窗口尺寸。
+  // 形态值本身不进界面状态：展开/折叠必然改变窗口尺寸，布局只由断点决定，避免同一件事两套判断。
+  private foldCallback: (_status: number) => void = (_status: number): void => {
+    this.refreshWindowSize();
+  };
   // 热启动快捷方式：EntryAbility.onNewWant 落好意图后用 emitter 叫醒已挂载的首屏
   // （冷启动由 aboutToAppear 直接消费，不需要事件）。
   private startupSubscribed: boolean = false;
@@ -125,6 +138,9 @@ struct Index {
   aboutToAppear(): void {
     this.load();
     this.setupAdaptiveUi();
+    // 首帧起就按真实窗口尺寸算布局：`onAreaChange` 也会给一次，这里先读一遍更稳（折叠态冷启动尤其明显）。
+    this.refreshWindowSize();
+    if (subscribeFoldStatus(this.foldCallback)) { this.foldSubscribed = true; }
     try {
       emitter.on({ eventId: STARTUP_INTENT_EVENT_ID }, this.startupCallback);
       this.startupSubscribed = true;
@@ -142,11 +158,13 @@ struct Index {
   aboutToDisappear(): void {
     if (this.holdingSubscribed) { try { motion.off('holdingHandChanged', this.holdingCallback); } catch (_) {} }
     if (this.operatingSubscribed) { try { motion.off('operatingHandChanged', this.operatingCallback); } catch (_) {} }
+    if (this.foldSubscribed) { unsubscribeFoldStatus(this.foldCallback); }
     if (this.startupSubscribed) {
       try { emitter.off(STARTUP_INTENT_EVENT_ID, this.startupCallback); } catch (_) {}
     }
     this.holdingSubscribed = false;
     this.operatingSubscribed = false;
+    this.foldSubscribed = false;
     this.startupSubscribed = false;
   }
 
@@ -224,8 +242,38 @@ struct Index {
     } catch (_) { this.holdingSide = 0; }
   }
 
+  /**
+   * 布局度量：窗口尺寸 + 官方断点 → 网格列数、内容列宽、边距与间距（纯逻辑在 `model/LayoutAdaptive.ets`）。
+   *
+   * 断点优先取 `UIContext` 的官方值（设备厂商可以自定义高度阈值），取不到时由纯逻辑按官方默认阈值算。
+   * 不用 `@Computed`：这里的输入只有一个窗口尺寸，重算代价可以忽略，而普通方法在构建函数体内读取时
+   * 同样会建立依赖，不需要额外引入一份缓存状态。
+   */
+  private metrics(): LayoutMetrics {
+    let widthBand: number = -1;
+    let heightBand: number = -1;
+    try {
+      const ui: UIContext = this.getUIContext();
+      widthBand = ui.getWindowWidthBreakpoint() as number;
+      heightBand = ui.getWindowHeightBreakpoint() as number;
+    } catch (_) {
+      widthBand = -1;
+      heightBand = -1;
+    }
+    return layoutMetrics(this.widthVp, this.heightVp, widthBand, heightBand);
+  }
+
+  /** 直接向系统窗口要一次逻辑尺寸；取不到就保留既有值（`onAreaChange` 仍会在布局后回调）。 */
+  private async refreshWindowSize(): Promise<void> {
+    const size: WindowSizeVp | undefined = await currentWindowSizeVp(this.ctx());
+    if (size === undefined) { return; }
+    this.widthVp = size.widthVp;
+    this.heightVp = size.heightVp;
+  }
+
+  // 智感握姿：把高频操作靠近正在使用的手。宽屏（MD 及以上）不按手机握姿移动控件，保持稳定布局。
   private actionAlignment(fallback: FlexAlign = FlexAlign.Center): FlexAlign {
-    if (this.widthVp >= 600) { return fallback; }
+    if (this.metrics().widthBand >= WIDTH_MD) { return fallback; }
     let side: number = this.operatingSide !== 0 ? this.operatingSide : this.holdingSide;
     return side < 0 ? FlexAlign.Start : side > 0 ? FlexAlign.End : fallback;
   }
@@ -565,7 +613,7 @@ struct Index {
         }
       }, (tool: ToolEntry): string => tool.id)
     }.columnsTemplate(this.gridColumns())
-      .columnsGap(12).rowsGap(12).width('100%')
+      .columnsGap(this.metrics().gridGap).rowsGap(this.metrics().gridGap).width('100%')
   }
 
   // 根页当前 Tab 名称，用于 HdsNavigation 标题栏。
@@ -607,7 +655,7 @@ struct Index {
   }
 
   @Builder private home() {
-    Column({ space: 16 }) {
+    Column({ space: this.metrics().sectionGap }) {
       // 搜索框与其它输入框同一套写法：由 MaterialSurface 提供单层沉浸材质，
       // 因此不再给 Search 自身设置 systemMaterial，也不叠加自己的背景色。
       MaterialSurface({
@@ -617,8 +665,7 @@ struct Index {
         corner: 16,
         interactive: true
       }) {
-        Search({ value: this.toolQuery, placeholder: this.tr('搜索工具，如「二维码」「换算」',
-          'Search tools, e.g. “QR” or “converter”') })
+        Search({ value: this.toolQuery, placeholder: this.searchPlaceholder() })
           .height(48)
           .backgroundColor(Color.Transparent)
           .accessibilityText(this.tr('搜索工具', 'Search tools'))
@@ -634,10 +681,22 @@ struct Index {
     }.width('100%')
   }
 
-  // 网格列数：按宽度自适应（手机 1–2 列、平板 3 列、宽屏 4 列）。
+  /**
+   * 搜索框占位符：窄幅窗口（< 360 vp，例如阔折叠的 3.5" 方形外屏、三折叠折叠态）换短文案——
+   * 长提示会被系统截断成带省略号的半句（2026-10-20 模拟器实测：327 vp 外屏上
+   * 「搜索工具，如「二维码」「换算」」显示成「搜索工具，如「二维码」「…」）。
+   * 例子在搜索无结果的空态文案里仍然保留，不会丢可发现性。
+   */
+  private searchPlaceholder(): string {
+    return this.metrics().narrow ? this.tr('搜索工具', 'Search tools') :
+      this.tr('搜索工具，如「二维码」「换算」', 'Search tools, e.g. “QR” or “converter”');
+  }
+
+  // 网格列数：按官方宽度断点自适应（XS 1 列、SM 1–2 列、MD 3 列、LG 4 列、XL 5 列）。
+  // 窄幅 SM 窗口（< 360 vp，例如三折叠折叠态外屏）降到 1 列：双列时卡片只有约 150 vp，
+  // 中英标题都会折行挤压；上限 5 列则让平板横屏（1440 vp）不再只铺 4 列、右侧空出一大块。
   private gridColumns(): string {
-    return this.widthVp >= 840 ? '1fr 1fr 1fr 1fr' : this.widthVp >= 600 ? '1fr 1fr 1fr' :
-      this.widthVp < 360 ? '1fr' : '1fr 1fr';
+    return gridColumnsTemplate(this.metrics().columns);
   }
 
   // 拖拽预览：跟随手指的卡片外观。参数只放常量下标（预览是瞬时的，不需要跟随状态刷新）。
@@ -668,7 +727,7 @@ struct Index {
         }
       }, (tool: ToolEntry): string => tool.id)
     }.columnsTemplate(this.gridColumns())
-      .columnsGap(12).rowsGap(12).width('100%')
+      .columnsGap(this.metrics().gridGap).rowsGap(this.metrics().gridGap).width('100%')
       .editMode(this.favoritesSorting)
       .onItemDragStart((_event: ItemDragInfo, itemIndex: number) => this.favoriteDragPreview(itemIndex))
       .onItemDrop((_event: ItemDragInfo, itemIndex: number, insertIndex: number, isSuccess: boolean) => {
@@ -677,7 +736,7 @@ struct Index {
   }
 
   @Builder private favoritesPage() {
-    Column({ space: 16 }) {
+    Column({ space: this.metrics().sectionGap }) {
       if (this.favorites.length === 0) {
         Text(this.tr('点击工具卡片上的星标，即可在这里快速找到它。',
           'Tap the star on a tool card to find it here.'))
@@ -688,14 +747,14 @@ struct Index {
             this.tr('拖动卡片调整顺序，完成后点右侧按钮。', 'Drag cards to reorder, then tap the button on the right.') :
             this.tr('长按卡片可置顶或取消收藏。', 'Long-press a card to move it to the top or remove it.'))
             .fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
-          Button() {
-            SymbolGlyph(this.favoritesSorting ? $r('sys.symbol.checkmark') :
-              $r('sys.symbol.arrow_down_and_line_horizontal_and_arrow_up'))
-              .fontSize(24).fontColor([ToolPalette.textPrimary])
-          }.width(44).height(44).backgroundColor(ToolPalette.surface)
-            .accessibilityText(this.favoritesSorting ? this.tr('完成排序', 'Finish sorting') :
-              this.tr('调整收藏顺序', 'Reorder favorites'))
-            .onClick(() => { this.favoritesSorting = !this.favoritesSorting; })
+          IconActionButton({
+            icon: this.favoritesSorting ? $r('sys.symbol.checkmark') :
+              $r('sys.symbol.arrow_down_and_line_horizontal_and_arrow_up'),
+            tintColor: ToolPalette.textPrimary, boxSize: 44, iconSize: 24,
+            a11yText: this.favoritesSorting ? this.tr('完成排序', 'Finish sorting') :
+              this.tr('调整收藏顺序', 'Reorder favorites'),
+            onTap: () => { this.favoritesSorting = !this.favoritesSorting; }
+          })
         }.width('100%').alignItems(VerticalAlign.Center)
         this.favoritesGrid()
       }
@@ -715,8 +774,13 @@ struct Index {
         if (tab === 'tools') { this.home() }
         else if (tab === 'favorites') { this.favoritesPage() }
         else { this.settingsContent() }
-      }.width('100%').constraintSize({ maxWidth: 920 })
-        .padding({ left: 20, right: 20, top: 20 + HDS_TITLE_BAR_HEIGHT, bottom: 96 })
+      }.width('100%').constraintSize({ maxWidth: this.metrics().contentMaxWidth })
+        .padding({
+          left: this.metrics().horizontalPadding,
+          right: this.metrics().horizontalPadding,
+          top: this.metrics().topPadding + HDS_TITLE_BAR_HEIGHT,
+          bottom: this.metrics().tabBottomPadding
+        })
     }.width('100%').height('100%').scrollBar(BarState.Auto).align(Alignment.Top)
   }
 
@@ -887,8 +951,13 @@ struct Index {
                 onClear: (): void => { this.clearHistory(); } })
             }
             else { this.settingsContent() }
-          }.width('100%').constraintSize({ maxWidth: 920 })
-            .padding({ left: 20, right: 20, top: 20 + HDS_TITLE_BAR_HEIGHT, bottom: 20 })
+          }.width('100%').constraintSize({ maxWidth: this.metrics().contentMaxWidth })
+            .padding({
+              left: this.metrics().horizontalPadding,
+              right: this.metrics().horizontalPadding,
+              top: this.metrics().topPadding + HDS_TITLE_BAR_HEIGHT,
+              bottom: this.metrics().detailBottomPadding
+            })
         }.width('100%').height('100%').scrollBar(BarState.Auto).align(Alignment.Top)
       }
       .titleBar(this.titleBarOptions(this.destinationName(this.page)))
@@ -935,6 +1004,9 @@ struct Index {
     .navDestination(this.toolRoutes)
     .backgroundColor(ToolPalette.background)
     .width('100%').height('100%')
-    .onAreaChange((oldArea, newArea) => { this.widthVp = Number(newArea.width); })
+    .onAreaChange((oldArea, newArea) => {
+      this.widthVp = Number(newArea.width);
+      this.heightVp = Number(newArea.height);
+    })
   }
 }

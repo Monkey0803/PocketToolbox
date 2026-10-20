@@ -347,7 +347,8 @@ export struct TaxPage {
           'Resident withholding per payment; continuous income from one project is grouped by month.'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
-      Button(this.tr('计算', 'Calculate')).width('100%').height(52).backgroundColor(ToolPalette.success)
+      Button(this.tr('计算', 'Calculate')).width('100%').height(52)
+        .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
         .onClick(() => this.calculateTax())
       if (this.taxResult) {
         MaterialSurface({

@@ -229,7 +229,7 @@
 
 ## 5. 宽屏（平板 / 折叠屏，若有设备）
 
-- [ ] 各页的选项行（日期「方式」、单位换算「类别/从/到/精度」、条形码「码制」、个税「计税类型/计算方向/社保/公积金」、设置「语言」）在约 707 vp（折叠展开）、1107 vp（三折叠）、1440 vp（平板）下标签不被截断、下拉占满余宽，各页标签列与下拉起点对齐；内容列仍按 920 vp 居中。
+- [ ] 各页的选项行（日期「方式」、单位换算「类别/从/到/精度」、条形码「码制」、个税「计税类型/计算方向/社保/公积金」、设置「语言」）在约 707 vp（折叠展开）、1107 vp（三折叠）、1440 vp（平板）下标签不被截断、下拉占满余宽，各页标签列与下拉起点对齐；内容列按断点居中——MD 及以下上限 920 vp、LG 1080 vp、XL 1200 vp（2026-10-20 从「统一 920 vp」改成按断点放宽，见[第 27 节](#27-自适应布局阔直板--阔折叠--三折叠--平板2026-10-20)；这条同时确认宽屏不再左右空一大块）。
 - [ ] 时间戳结果卡、日期结果卡与农历结果卡在宽屏下占满内容列且文字不被拉伸变形。
 
 ## 6. 回归（不涉及新功能，但改动相邻）
@@ -407,20 +407,91 @@
 
 （模拟器回执见下表；上表为真机复核项）
 
+## 27. 自适应布局：阔直板 / 阔折叠 / 三折叠 / 平板（2026-10-20）
+
+把「窗口尺寸 → 布局」从 `Index.ets` 里写死的 `360/600/840` 三档与统一 920 vp 内容列，改成纯逻辑
+`entry/src/main/ets/model/LayoutAdaptive.ets` 的**官方断点**模型，并把窗口尺寸、折叠形态两条事件接上。
+
+**口径（`layoutMetrics(widthVp, heightVp, widthBand?, heightBand?)`）**
+
+- 宽度断点（官方）：XS < 320、SM 320–600、MD 600–840、LG 840–1440、XL ≥ 1440
+  → 网格列数 **1 /（窄幅 < 360 vp 时 1，否则 2）/ 3 / 4 / 5**；
+- 高度断点（官方，按**高宽比 = 高 / 宽**）：SM < 0.8（矮而宽）、MD 0.8–1.2（近方）、LG ≥ 1.2（竖长）；
+- 内容列最大宽度：MD 及以下 920、LG 1080、XL 1200（原来统一 920——1107 / 1440 vp 下左右各空出两百多 vp）；
+- 左右边距：XS 16、SM 20、MD 与 LG 24、XL 32；
+- `compact`（**只有高宽比 < 0.8 的「矮而宽」为真**）：顶部留白 20→12、区块间距 16→12、网格间距 12→10、页签底部留白 96→88；
+- `narrow`（< 360 vp）：网格 1 列，且搜索框占位符换成短文案——长提示会被系统截断成「搜索工具，如「二维码」「…」。
+
+**接线**：`Index.metrics()` 以 `onAreaChange` 的宽高为底，档位优先取 `UIContext.getWindowWidthBreakpoint()` /
+`getWindowHeightBreakpoint()` 的序号（厂商可自定义高度阈值，取不到时纯逻辑按官方默认阈值算）；
+`aboutToAppear()` 用 `services/WindowLayout.currentWindowSizeVp()`（`window.getLastWindow().getWindowProperties().windowRect
+÷ densityPixels`）先读一次真实窗口尺寸；`services/WindowLayout.subscribeFoldStatus()` 订阅 `display.on('foldStatusChange')`，
+回调**只重新读一次窗口尺寸**——展开/折叠必然改变窗口尺寸，不做「形态值 → 布局」的映射。
+
+**本轮踩到并修掉的高危点**：ArkUI `HeightBreakpoint` 的比值是**高 / 宽**，第一版按「宽 / 高」写，
+440×744 的阔直板竖屏窗口被算成 SM（矮而宽）→ 网格间距 12→10、顶部留白 20→12（搜索框顶部上移 8 vp，模拟器实测）。
+改成「高 / 宽」后 `getWindowHeightBreakpoint()` 在 440×744 上返回 LG、阔折叠 Pura X Max 940×665 返回 SM、
+双折展开 707×773 返回 MD，与下表的量测结果一致。
+
+**量测方式**：`node tests/emulator/emu.mjs grid <density>`（`vp = px × 160 / density`；density 取实例配置：
+Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate X7 500），
+读列数、卡片宽高、内容列宽与左右边距、行列间距，不靠目测。工具会先锁定本应用窗口再统计。
+
+| 形态（模拟器实例 · profile） | 窗口 vp | 断点（宽 / 高） | 期望 | 实测 |
+|---|---|---|---|---|
+| 阔直板 · Pura X View（1320×2232@480） | 440×744 | SM / LG（1.69） | 2 列、边距 20、间距 12、不紧凑 | **2 列**、卡片 194×128、内容列 400、间距 12、搜索框顶 123 vp（`adaptive-widebar-puraxview-440vp.jpeg`） |
+| 阔折叠 Pura X 展开（等价尺寸 1320×2120@480） | 440×707 | SM / LG（1.61） | 同上 | **2 列**、卡片 194×128、内容列 400、间距 12、搜索框顶 123 vp（`adaptive-purax-inner-440vp.jpeg`） |
+| 阔折叠 Pura X 外屏（等价尺寸 980×980@480） | 327×327 | SM 窄幅 / MD（1.00） | 1 列、边距 20、短占位符 | **1 列**、卡片 286.7 宽、内容列 286.7、搜索框顶 123 vp（`adaptive-purax-cover-327vp.jpeg`） |
+| 阔折叠 Pura X Max 展开（2584×1828@440） | 940×665 | LG / SM（0.71） | 4 列、边距 24、内容列 892、间距 10、紧凑 | **4 列**、卡片 215.3×128、内容列 891.6、间距 10.2、搜索框顶 114.9 vp（`adaptive-puraxmax-940vp.jpeg`） |
+| 三折叠 Mate XT 全展开（3184×2232@460） | 1107×776 | LG / SM（0.70） | 4 列、边距 24、内容列封顶 1080、间距 10、紧凑 | **4 列**、卡片 250.4×128、内容列 1032（=1080 上限 − 2×24）、间距 10.1、搜索框顶 114.8 vp（`adaptive-triplefold-triple-1107vp.jpeg`） |
+| 三折叠 Mate XT 双屏（2048×2232@460） | 712×776 | MD / MD（1.09） | 3 列、边距 24、间距 12、不紧凑 | **3 列**、卡片 213.6×128、内容列 664.3、间距 12、搜索框顶 122.8 vp（`adaptive-triplefold-double-712vp.jpeg`） |
+| 三折叠 Mate XT 折叠（1008×2232@460） | 351×776 | SM 窄幅 / LG（2.21） | 1 列、边距 20、短占位符 | **1 列**、卡片 311 宽、内容列 311、搜索框顶 122.8 vp（`adaptive-triplefold-single-351vp.jpeg`） |
+| 双折 Mate X7 展开（2210×2416@500，回归） | 707×773 | MD / MD（1.09） | 3 列、边距 24、间距 12 | **3 列**、卡片 211.8×128、内容列 659.2、间距 11.8（`adaptive-foldable-707vp-regression.jpeg`） |
+| 手机 · 自定义 1316×2832@560（回归，同 PLR-AL00 几何） | 376×809 | SM / LG（2.21） | 2 列、边距 20、间距 12、不紧凑 | **2 列**、卡片 162×128、内容列 336、间距 12、搜索框顶 122.9 vp（`adaptive-phone-376vp-regression.jpeg`） |
+| 低密度手机形态 1280×2832@240（回归） | 853×1888 | LG / LG（2.21） | 4 列、边距 24、间距 12 | **4 列**、卡片 192.7×128、内容列 805.3、间距 12、搜索框顶 122.7 vp（`adaptive-lowdensity-853vp.jpeg`） |
+
+- **折叠态切换即时重排（应用不重启，本轮关键证据）**：在同一个 Mate XT 实例上连续执行
+  `-instance Huawei_TripleFold -foldedState double → single → triple`，**应用全程不重启**，三次量测分别为
+  3 列 / 1 列 / 4 列，边距（24/20/24）、间距（12/12/10）与紧凑标记同步变化——说明
+  `display.on('foldStatusChange')` + `onAreaChange` 这条链路真的触发了重排，而不是只在冷启动时算对一次。
+- **单测**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`
+  （断点边界、10 种形态的列数/内容列宽/边距/间距/紧凑标记、列数随宽度单调不减、卡片宽度下限、异常尺寸兜底、
+  `gridColumnsTemplate` 夹取）。
+- **构建**：`hvigorw assembleHap --mode module -p product=default` → `BUILD SUCCESSFUL`。
+
+**真机仍需复核（模拟器不能替代）**
+
+- [ ] 真机转轴事件与**悬停（半折）**姿态下的重排；三折叠的两条转轴在真机上的形态值序列（11/12/13/21/22/23）。
+- [ ] 阔折叠 3.5" 方形外屏（327×327）的首屏观感：该形态首屏只放得下「搜索框 + 1 张卡片」（标题栏 + 搜索框已占约 195 vp），
+  其余靠滚动，这是方形小外屏的固有限制；确认是否需要在外屏上再压缩头部。
+- [ ] 阔折叠 Pura X Max 展开、三折叠全展开下的沉浸材质观感与字体层级（模拟器内容区不上屏材质）。
+- [ ] 深色模式下新宽度（1080 / 1200 vp 内容列）的对比度与结果卡观感。
+- [ ] 真机大字体（系统字体放大）下 XL 档 5 列卡片标题是否折行溢出。
+
 ## 26. 纯图标按钮去掉彩色圆底，颜色移到图标本身（2026-10-20）
 
 用户反馈（截图圈出二维码页操作行的四个彩色圆底图标）：**去掉背景色，直接用 HMSymbol 图标**。语义色保留，只是从「底色」搬到「图标本身」。
 
-实现：新增 `entry/src/main/ets/component/IconActionButton.ets`（`@ComponentV2`，`@Param icon/tintColor/a11yText/boxSize/iconSize/usable` + `@Event onTap`），底色固定 `Color.Transparent`，`usable` 直接驱动 `.enabled()`。**全 App 共 57 个调用点**（二维码 8、计时 9、条形码 7、历史 4、健康 3、亲属 3、贷款 3、密码 3、文本 3、文档 2、随机 2、科学 2、时间戳 2、单位 2、计算器 1、颜色 1、日期 1、设置 1），替换掉原先「彩色圆底 + 白色图标」的写法（含亲属页原本 `surface` 底的退格键）。颜色映射：`primary`/`success`/`accentPurple`/`danger` 保持原语义，`neutralDark`（浅色深灰、深色下发暗）→ `textSecondary`，`textMuted`/`textPrimary` 不变，**`accentOrange` → `warning`**（`#E88823` 对白底约 2.7:1，低于图形 3:1）。**未改**：带文字的动作按钮（随机选择/个税/常用时长预设）、收藏页排序开关（靠底色表示选中态）、144 vp 手电筒英雄按钮。
+实现：新增 `entry/src/main/ets/component/IconActionButton.ets`（`@ComponentV2`，`@Param icon/tintColor/a11yText/boxSize/iconSize/usable` + `@Event onTap`），底色固定 `Color.Transparent`，`usable` 直接驱动 `.enabled()`。**全 App 共 57 个调用点**（二维码 8、计时 9、条形码 7、历史 4、健康 3、亲属 3、贷款 3、密码 3、文本 3、文档 2、随机 2、科学 2、时间戳 2、单位 2、计算器 1、颜色 1、日期 1、设置 1），替换掉原先「彩色圆底 + 白色图标」的写法（含亲属页原本 `surface` 底的退格键）。颜色映射：`primary`/`success`/`accentPurple`/`danger` 保持原语义，`neutralDark`（浅色深灰、深色下发暗）→ `textSecondary`，`textMuted`/`textPrimary` 不变，**`accentOrange` → `warning`**（`#E88823` 对白底约 2.7:1，低于图形 3:1）。
+
+**第二轮（用户追加要求）**：带文字的动作按钮、收藏页排序开关、144 vp 手电筒英雄按钮也去底色 —— 随机选择 6 个文字按钮（生成随机数 / 掷骰子 / 抛硬币 / 随机抽取 / 随机排序 / 分组）与个税「计算」改为**透明底 + 语义色文字 + `FontWeight.Medium`**（`accentOrange` 同样按对比度改用 `warning`）；收藏页排序开关改用 `IconActionButton`（44 vp，`textPrimary`）；手电筒 144 vp 圆形按钮去掉 `tintPurple`，只剩琥珀色/灰色图标（关闭态 80 vp 灰）。**有意保留**：常用时长预设与亲属步骤的浅色 chip（`tintBlue`/`borderSoft`，靠底色表示「可点的预设值」）、个税「展开扣除与累计数据」的中性灰次要按钮、文本工具 4 个分组菜单行（`surface` 底的行式入口）。
 
 - [x] **二维码页四枚图标无底色（模拟器已通过）**：生成（蓝）/扫码（绿）/相册（紫）/历史（紫）只剩图标本身，无彩色圆底、无描边、无白底（`screenshots/emulator/qr-icons-no-bg-after-fix.jpeg`）。
 - [x] **透明按钮仍可点（模拟器已通过）**：点历史图标进入「历史记录」页（标题与条目正确，`screenshots/emulator/qr-icons-history-tap-after-fix.jpeg`）——说明透明底按钮的命中区域没有随底色一起消失。
 - [x] **结果行复制图标无底色（模拟器已通过）**：颜色工具 HEX / RGB / HSL 三行右侧只剩蓝色剪贴板图标，可点区域仍是 44 vp（`screenshots/emulator/color-icons-no-bg-after-fix.jpeg`）。
 - [x] **禁用态仍可辨识（模拟器已通过）**：计时页秒表「计次」在未计时时为浅紫（`.enabled(false)` 的系统降透明度生效），不是看不见。
 - [x] **深色模式对比度（模拟器已通过，临时把 `EntryAbility` 改成 `COLOR_MODE_DARK` 构建一次后已回退）**：二维码页四枚图标为 `#4C8DF6` / `#35B08A` / `#9B85E0`，计时页「+」为 `#E8A33D`、播放为 `#4C8DF6`、重置为中灰，均清晰可见（`screenshots/emulator/icon-buttons-no-bg-dark-2026-10-20.jpeg`）。
-- [ ] **真机复核**：真机（PLR-AL00 类手机形态）上逐页看一遍，确认彩色图标在真实屏幕与材质下的可辨识度；重点看浅色下 `textMuted` 的重置图标（灰）与紫色「计次」是否偏淡。
+- [x] **真机 20 个工具页全量巡检（2026-10-20，PLR-AL00 / HarmonyOS 7 / API 26，坐标按该机 3x 密度：48 vp = 143 px、44 vp = 131 px）**：`aa force-stop` → `aa start --ps tool <id>` → `uitest dumpLayout` 逐页读标题与可点 `Button` 的 `bounds`，全部落在预期工具页（标题分别为 二维码/条形码/折扣与均摊/个税计算/单位换算/计时/手电筒/日期计算/时间戳/文本工具/随机选择/密码生成/贷款计算/颜色工具/健康计算/科学计算器/文档扫描/水平仪/指南针/亲戚称呼）。可点按钮尺寸：图标操作按钮 `143×143`（48 vp）或 `131×131`（44 vp，结果行/排序开关）、文档扫描 `167×167`（56 vp）、手电筒 `428×428`（144 vp）、文字动作按钮高度一律 `119~143`（40~48 vp）。**没有任何透明按钮从命中树里消失**。
+- [x] **真机二维码页观感（PLR-AL00）**：四枚图标底色消失后仍是清晰的蓝/绿/紫，比模拟器更锐利（`screenshots/phone/icon-no-bg-qr.jpeg`）。
+- [x] **真机文字动作按钮去底色（PLR-AL00）**：随机选择页 6 个按钮只剩语义色文字（绿/橙/紫/蓝/紫/绿，`screenshots/phone/icon-no-bg-random.jpeg`），个税「计算」为绿色文字、中性灰的「展开扣除与累计数据」保持原样（`screenshots/phone/icon-no-bg-tax.jpeg`）；行高仍 48 vp、点得动。
+- [x] **真机收藏页排序开关（PLR-AL00）**：44 vp 透明图标（排序/对勾），点一下进入排序模式、提示行与图标同步切换（`screenshots/phone/icon-no-bg-favorites.jpeg`、`icon-no-bg-favorites-sorting.jpeg`）。测试用的两条临时收藏已取消，设备数据恢复原状。
+- [x] **真机手电筒英雄按钮去底色（PLR-AL00）**：144 vp 可点区域保留，圆形紫色底消失，只剩关闭态的灰色手电筒图标（`screenshots/phone/icon-no-bg-torch.jpeg`）。**未点按开关**，避免打扰设备使用者；闪光灯硬件行为沿用既有验收结论。
+- [x] **真机图标操作行观感（PLR-AL00）**：计时页「+」橙、播放蓝、计次紫（禁用态偏淡）、重置灰，均无底色且可辨（`screenshots/phone/icon-no-bg-timers.jpeg`）；该机为右手握持，操作行按智感握姿靠右对齐，属预期。
+- [ ] **屏幕朗读 / TalkBack**：`uitest dumpLayout` 不导出 `accessibilityText`，需人工开朗读（中文与英文各念一遍 57 处图标名）。
 - [ ] **宽屏 / 折叠屏**：所有操作行仍是同一行、图标不换行、间距一致（`Row` 的 `justifyContent(this.actionAlign)` 未改，仅按钮宽度由 40 → 44 的一处是单位换算页的「交换单位」）。
-- [ ] **无障碍**：`uitest dumpLayout` 不导出 `accessibilityText`，需在真机开 TalkBack/屏幕朗读，逐个图标念出中文与英文名称（本轮只做了代码级核对：每处都传了 `this.tr(...)`）。
+- [ ] **真机深色模式**：PLR-AL00 当前为浅色，需在系统里切深色后再看一遍（模拟器已用强制深色核对过色值）。
+
+> 本节剩下的三项与其它真机待验项（卡片、快捷方式、指南针、语言跟随、材质、握姿……）已汇总成一页可勾选清单：**`docs/PHONE_ACCEPTANCE_CHECKLIST.md`**。
 
 ## 25. 输入框底色与四角（2026-10-20）
 

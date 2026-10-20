@@ -2,12 +2,20 @@
 
 ## 当前状态
 
+- **自适应布局：阔直板 / 阔折叠 / 三折叠 / 平板（2026-10-20，已完成单测、构建与模拟器全形态量测）**：把「窗口尺寸 → 布局」从 `Index.ets` 里写死的 `360/600/840` 三档与统一 920 vp 内容列，改成纯逻辑 `model/LayoutAdaptive.ets` 的官方断点模型，并接上窗口尺寸与折叠形态事件。
+  ① 纯逻辑：`layoutMetrics(widthVp, heightVp, widthBand?, heightBand?)` → 网格列数（1 / 1–2 / 3 / 4 / 5）、内容列上限（920 / 1080 / 1200，原来统一 920）、左右边距（16 / 20 / 24 / 32）、顶部与详情底部留白、区块与网格间距、`compact`（**只有高宽比 < 0.8 的「矮而宽」**才收紧：20→12、16→12、12→10、96→88）、`narrow`（< 360 vp：网格 1 列 + 搜索框短占位符，避免长提示被系统截断）。
+  ② 系统能力：新增 `services/WindowLayout.ets`（`currentWindowSizeVp()` 用 `window.getLastWindow().getWindowProperties().windowRect / densityPixels` 读逻辑尺寸；`subscribeFoldStatus()` 订阅 `display.on('foldStatusChange')`）；`Index.metrics()` 以 `onAreaChange` 的宽高为底、优先把 `UIContext.getWindowWidthBreakpoint()`/`getWindowHeightBreakpoint()` 的序号传给纯逻辑；折叠回调**只重新读一次窗口尺寸**，不做「形态值 → 布局」的映射（展开/折叠必然改变窗口尺寸）。
+  ③ **高危点（本轮踩到并修掉）**：ArkUI `HeightBreakpoint` 的比值是**高 / 宽**。第一版按「宽 / 高」写，模拟器上 440×744 的阔直板竖屏窗口被算成 SM（矮而宽）→ 网格间距 12 变 10、顶部留白 20 变 12；改成「高 / 宽」后 440×744 返回 LG、阔折叠 Pura X Max 940×665 返回 SM、双折展开 707×773 返回 MD，与量测一致。
+  ④ 验证：`assembleHap` `BUILD SUCCESSFUL`；`tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增约 70 条断点、形态、边界与单调性断言）；模拟器（API 26）逐形态量测 10 个窗口（阔直板 440、阔折叠 440 / 327 / 940、三折叠 1107 / 712 / 351、双折 707、低密度 853、自定义手机 376），列数 / 内容列宽 / 边距 / 间距 / 紧凑标记全部与模型一致；在 Mate XT 上**不重启应用**连续切 triple → double → single，三次量测分别为 4 / 3 / 1 列，证明重排链路真的生效。明细见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 27 节，截图 `docs/screenshots/emulator/adaptive-*.jpeg`。
+  ⑤ 工具与文档：`tests/emulator/emu.mjs` 新增 `grid [density]` 命令（直接量列数、卡片宽高、内容列宽与边距、行列间距，并自动锁定本应用窗口——否则会把桌面 App 图标网格当成工具网格量进来）；`AGENTS.md` 新增「自适应布局（阔直板 / 阔折叠 / 三折叠 / 平板）」一节；`docs/DEVICE_ACCEPTANCE.md` 第 5 节口径更新（内容列按断点放宽）+ 新增第 27 节。
+  - **未覆盖**：真机转轴事件与悬停（半折）姿态下的重排、阔折叠 3.5" 方形外屏（327×327）首屏只放得下 1 张卡片 + 搜索框、其余靠滚动的观感是否可接受、真机材质与字体观感、深色模式下新宽度的对比度。
+
 - **纯图标按钮去掉彩色圆底（2026-10-20，已完成构建、单测与模拟器复验）**：用户圈出二维码页操作行的四个彩色圆底图标，要求「把背景色去掉，使用 HMSymbol 自带图标」。
   ① 新增 `component/IconActionButton.ets`（`@ComponentV2`）：`icon`/`tintColor`/`a11yText`/`boxSize`/`iconSize`/`usable` + `onTap`，底色固定透明、颜色只落在 `SymbolGlyph` 上，`.enabled()` 由 `usable` 驱动；`tintColor` 就是原来那个底色，因此**语义色不变**（生成/复制=primary、扫描/分享=success、编辑/历史/计次=accentPurple、删除/清空=danger、中性的复制/重置=textSecondary/textMuted）。
   ② 全 App **57 个调用点**改为该组件（二维码 8、计时 9、条形码 7、历史 4、健康 3、亲属 3、贷款 3、密码 3、文本 3、文档 2、随机 2、科学 2、时间戳 2、单位 2、计算器 1、颜色 1、日期 1、设置 1）。两处颜色口径调整：`neutralDark`（浅色深灰、深色下发暗，作图标色对比不足）→ `textSecondary`；`accentOrange` → `warning`（`#E88823` 对白底约 2.7:1，低于图形 3:1）。单位换算页「交换单位」由 40 vp 提到 44 vp（满足 ≥44 vp 的触控约定）。
-  ③ 未改动（有意保留）：带文字的动作按钮（随机选择/个税/常用时长预设）、收藏页排序开关（靠底色表示选中态）、144 vp 手电筒英雄按钮——它们不是「纯图标操作行」。
-  ④ 验证：`assembleHap` `BUILD SUCCESSFUL`、单测 `All toolbox model assertions passed`；模拟器（API 26）复验二维码页四枚图标无底色、点击历史图标仍能进入历史页、颜色工具三行复制图标无底色、计时页「计次」禁用态仍可辨识；另临时把 `EntryAbility` 改成 `COLOR_MODE_DARK` 构建一次复核深色对比度后**已回退并重新构建**。
-  - **未覆盖**：真机与宽屏/折叠屏的观感、屏幕朗读下的 `accessibilityText`（`dumpLayout` 不导出该字段）。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 26 节。
+  ③ 第二轮（用户追加要求）：随机选择 6 个文字按钮与个税「计算」改为透明底 + 语义色文字；收藏页排序开关改用 `IconActionButton`（44 vp）；手电筒 144 vp 圆形按钮去掉 `tintPurple`。**有意保留**：常用时长预设与亲属步骤的浅色 chip、个税中性灰次要按钮、文本工具分组菜单行。
+  ④ 验证：`assembleHap` `BUILD SUCCESSFUL`、单测 `All toolbox model assertions passed`；模拟器（API 26）复验二维码/颜色/计时/历史四页与强制深色；**真机 PLR-AL00（HarmonyOS 7 / API 26）逐页扫了 20 个工具页**（`dumpLayout` 读标题与可点 `Button` 尺寸：48 vp=143 px、44 vp=131 px、56 vp=167 px、144 vp=428 px，全部符合约定、没有透明按钮从命中树消失），并截图确认二维码、随机选择、个税、计时、收藏排序、手电筒六页观感（`docs/screenshots/phone/icon-no-bg-*.jpeg`）。测试用的两条临时收藏已取消，设备数据恢复原状。
+  - **未覆盖**：屏幕朗读 `accessibilityText`（`dumpLayout` 不导出）、真机系统深色、宽屏/折叠屏。逐条步骤与其余真机待验项已汇总到 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md)（图标改动见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 26 节）。
 
 - **亲戚称呼（亲戚关系计算器，2026-10-20，已完成单测、构建与模拟器复验）**：**新增第 20 个工具卡片** `kinship`（「亲戚称呼」/`Kinship calculator`），**不新增权限、不引入联网、不落盘**。
   ① 纯逻辑 `model/KinshipMath.ets`：原子步骤登记表 `KIN_STEPS`（父/母/兄/弟/姐/妹/夫/妻/子/女，含中英别名）＋称谓登记表 `KIN_TERMS`（约 85 条：祖辈/曾祖辈、父母的兄弟姐妹及其配偶、堂表兄弟姐妹、侄甥、孙辈、岳父母/公婆、配偶的兄弟姐妹、儿媳女婿，以及「爸爸的儿子」「姑妈的儿子」这类长幼歧义项的并列称谓 + 提示）；解析用「去空格/所有格/分隔符 + 贪心最长匹配」，先按 `normalizeKinPath()` 的四类规则消解可确定的关系（爸爸的老婆=妈妈、老公的老婆=本人、哥哥的哥哥=哥哥、子女+父/母 按本人性别返身），再按归一化路径查表；**未收录不猜**，返回关系链描述并标记 `named = false`。

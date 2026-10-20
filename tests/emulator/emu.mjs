@@ -125,6 +125,71 @@ function setText(x, y, value) {
   if (value) t(['shell', 'uitest', 'uiInput', 'text', value]);
 }
 
+// 工具网格几何：把布局树里的 GridItem / Search 量成 vp，用来核对自适应布局
+// （列数、卡片宽度、内容列宽与左右边距、行列间距）。density 是 px per vp（模拟器实例配置里的 density）。
+function measureGrid(density) {
+  const tree = dump();
+  // 布局树里同时有桌面（sceneboard）等窗口，必须先锁定本应用的窗口，
+  // 否则会把桌面的 App 图标网格当成工具网格来量（曾把 4×5 的桌面图标量成「4 列工具卡片」）。
+  const appScene = walk(tree, []).find((node) => node.attributes?.bundleName === BUNDLE);
+  let windowId = '';
+  if (appScene) {
+    const inside = walk(appScene, []).find((node) => (node.attributes?.hostWindowId ?? '').length > 0);
+    if (inside) windowId = inside.attributes.hostWindowId;
+  }
+  if (!windowId) {
+    console.log(`警告：布局树里没有找到 ${BUNDLE} 的窗口，退化为按全树统计`); 
+  }
+  const nodes = nodesWithBounds(tree).filter((item) =>
+    !windowId || item.node.attributes?.hostWindowId === windowId);
+  const vp = (px) => Math.round((px * 160 / density) * 10) / 10;
+  const search = nodes.find((item) => item.node.attributes?.type === 'Search');
+  // 过滤掉尺寸为 0 的占位 GridItem（Grid 复用时会留一个零面积节点，否则会把首行/卡片宽度算成 0）
+  const items = nodes.filter((item) => item.node.attributes?.type === 'GridItem' &&
+    item.bounds.x2 > item.bounds.x1 && item.bounds.y2 > item.bounds.y1);
+  if (items.length === 0) {
+    console.log('没有找到工具网格（GridItem）：先进入「工具」Tab。');
+    return;
+  }
+  // 同一行的卡片 y1 相同（±2 px 容差，避免取整抖动把一行拆成两行）
+  const rows = [];
+  for (const item of items.slice().sort((a, b) => a.bounds.y1 - b.bounds.y1 || a.bounds.x1 - b.bounds.x1)) {
+    const row = rows.find((candidate) => Math.abs(candidate.y1 - item.bounds.y1) <= 2);
+    if (row) {
+      row.items.push(item);
+    } else {
+      rows.push({ y1: item.bounds.y1, items: [item] });
+    }
+  }
+  const columns = Math.max(...rows.map((row) => row.items.length));
+  const firstRow = rows[0].items.slice().sort((a, b) => a.bounds.x1 - b.bounds.x1);
+  const left = Math.min(...items.map((item) => item.bounds.x1));
+  const right = Math.max(...items.map((item) => item.bounds.x2));
+  const gaps = [];
+  for (let i = 1; i < firstRow.length; i++) gaps.push(firstRow[i].bounds.x1 - firstRow[i - 1].bounds.x2);
+  const rowGaps = [];
+  for (let i = 1; i < rows.length; i++) {
+    rowGaps.push(Math.min(...rows[i].items.map((item) => item.bounds.y1)) -
+      Math.max(...rows[i - 1].items.map((item) => item.bounds.y2)));
+  }
+  console.log(`density=${density}px/in（vp = px × 160 / ${density}）`);
+  if (search) {
+    console.log(`search: left=${vp(search.bounds.x1)} top=${vp(search.bounds.y1)} ` +
+      `width=${vp(search.bounds.x2 - search.bounds.x1)} height=${vp(search.bounds.y2 - search.bounds.y1)} vp`);
+  }
+  console.log(`grid: ${items.length} 张卡片 / ${rows.length} 行 · columns=${columns} · ` +
+    `cardWidth=${vp(firstRow[0].bounds.x2 - firstRow[0].bounds.x1)} ` +
+    `cardHeight=${vp(firstRow[0].bounds.y2 - firstRow[0].bounds.y1)} vp · ` +
+    `columnsGap=${gaps.length ? vp(gaps[0]) : '-'} rowsGap=${rowGaps.length ? vp(rowGaps[0]) : '-'} vp`);
+  console.log(`content: left=${vp(left)} right=${vp(right)} width=${vp(right - left)} vp ` +
+    `(窗口宽 - 内容列宽 = ${vp(right - left + left * 2)} vp 对照)`);
+  rows.forEach((row, index) => {
+    console.log(`  row ${index + 1}: ${row.items.length} 张 · y=${vp(row.y1)} vp · ` +
+      `x=${row.items.slice().sort((a, b) => a.bounds.x1 - b.bounds.x1)
+        .map((item) => vp(item.bounds.x1)).join(', ')}`);
+  });
+}
+
 // 标题栏文本：内容区从标题栏下方开始，故取最顶部一条文本即可。
 function titles(tree) {
   return nodesWithBounds(tree ?? dump())
@@ -193,9 +258,13 @@ switch (cmd) {
     console.log(shot(args[0]));
     break;
   }
+  case 'grid': {
+    measureGrid(Number(args[0] ?? process.env.DSH_DENSITY ?? 480));
+    break;
+  }
   default: {
     console.log('用法见 tests/emulator/README.md；常用：launch | title | texts | find <文本> | click <文本> | ' +
-      'tap <x> <y> | input <x> <y> <文本> | swipe <x1> <y1> <x2> <y2> | key <code> | shot <名字>');
+      'tap <x> <y> | input <x> <y> <文本> | swipe <x1> <y1> <x2> <y2> | key <code> | shot <名字> | grid [density]');
     process.exit(cmd ? 1 : 0);
   }
 }
