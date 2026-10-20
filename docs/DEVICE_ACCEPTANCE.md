@@ -936,6 +936,46 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 - [ ] 真机复核（模拟器无法覆盖的部分）：`sys.symbol.family` 与 `sys.symbol.delete_left` 在真机的实际字形、浅色/深色下的图标对比度、英文步骤按钮折成两行时结果卡能否顺畅滚入视口。
 - [ ] 键盘输入路径：输入框内直接键入 `爸爸的哥哥`、`father's older brother`、`母亲的老公`（应得「爸爸」）并确认结果实时刷新。
 
+## 24. 随机选择改用「方式」下拉（2026-10-20）
+
+入口：工具网格「随机选择」（`aa start … --ps tool random` 可直达）。
+
+实现：纯逻辑 `entry/src/main/ets/model/RandomTools.ets` 新增登记表 `RANDOM_MODES`（`number` / `dice` / `list`）；页面 `entry/src/main/ets/component/RandomPage.ets` 与日期计算页同一套做法——顶部一张 `OptionSelect`「方式」（`label: 方式 / Method`，`a11yText: 随机方式 / Random tool`），`build()` 按 `randomMode`（id，不是下标）分支渲染，一次只显示当前方式的输入与结果；三块内容各自收进 `numberPanel()`／`dicePanel()`／`listPanel()` 三个 `@Builder`，切换方式不丢已有输入与结果。随机过程仍是注入随机源的纯函数，未改动。
+
+| 条目 | 结果 | 证据 / 现象 |
+|---|---|---|
+| 方式下拉三项与默认值 | 通过 | 默认「随机整数」；点开后列出「随机整数 / 骰子与硬币 / 名单抽取、排序与分组」（截图 `random-mode-menu-zh.jpeg`） |
+| 随机整数方式 | 通过 | 只显示最小值/最大值行（中间 `—`）与「生成随机数」按钮，与改造前三段常显时的输入行完全一致 |
+| 骰子与硬币方式 | 通过 | 切换后只显示「骰子颗数 2 颗」下拉与「掷骰子 / 抛硬币」按钮（截图 `random-mode-dice-zh.jpeg`）；点掷骰子得 `5 · 3  合计 8`、点抛硬币得 `反面`，结果仍在同一张结果卡里 |
+| 名单抽取、排序与分组方式 | 通过 | 切换后显示候选输入框（提示「每行一个候选项…」）、「随机抽取 / 随机排序」、「分组组数 2 组」、「分组」；输入 `a,b,c,d,e` 后随机抽取得 `抽取结果 c`，点分组得 `第 1 组：a、b、e` / `第 2 组：c、d` |
+| 英文界面 | 通过 | 设置页切 English 后：标题 `Random picker`、`Method`、`Random integer`；下拉三项为 `Random integer` / `Dice and coin` / `Pick, shuffle and group a list` |
+| 切换不丢值 | 通过 | 方式来回切换后，已输入的候选与已生成的结果（随机数/骰子/硬币/分组）都还在 |
+| 单位断言 | 通过 | `node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增 `RANDOM_MODES` 条数/唯一性/文案非空断言） |
+| 构建 | 通过 | `hvigorw assembleHap --mode module -p product=default --no-daemon` → `BUILD SUCCESSFUL` |
+
+- [ ] 真机复核（模拟器无法覆盖的部分）：下拉菜单在真机的宽度/位置（长选项「名单抽取、排序与分组」在窄屏是否折行或截断）、浅色/深色下的选中态对比度。
+- 说明：本节回执在 API 26 模拟器上完成；期间该模拟器有其它会话在用，个别截图（如列表方式那张）会拍到别的工具页，因此只保留 `random-mode-menu-zh.jpeg` 与 `random-mode-dice-zh.jpeg` 两张有效截图，其余条目以 `dumpLayout` 文本为准。
+
+## 25. 颜色工具改用「方式」下拉（2026-10-20）
+
+入口：工具网格「颜色工具」（`aa start … --ps tool color` 可直达）。
+
+实现：纯逻辑 `entry/src/main/ets/model/ColorTools.ets` 新增登记表 `COLOR_MODES`（`convert` 颜色转换 / `contrast` 对比度检查）；页面 `entry/src/main/ets/component/ColorPage.ets` 与日期计算页、随机选择页同一套做法——顶部一张 `OptionSelect`「方式」（`label: 方式 / Method`，`a11yText: 颜色工具方式 / Colour tool`），`build()` 按 `colorMode`（id，不是下标）分支渲染，两块内容各自收进 `convertPanel()`／`contrastPanel()` 两个 `@Builder`；页脚「转换与对比度都在本机计算，不上传任何数据。」两种方式下都显示。色轮 `HdsColorPicker`、解析与 WCAG 2.x 公式都未改动，两个输入框共用同一份状态，因此**切换方式不丢已有颜色**。
+
+| 条目 | 结果 | 证据 / 现象 |
+|---|---|---|
+| 方式下拉两项与默认值 | 通过 | 默认「颜色转换」；点开后列出「颜色转换 / 对比度检查」（截图 `colour-mode-menu-zh.jpeg`） |
+| 颜色转换方式 | 通过 | 只显示颜色输入框 + 色轮、色块预览与 HEX/RGB/HSL 三行（各带复制按钮）：`#0D3B66` → `#0D3B66` / `rgb(13, 59, 102)` / `hsl(209, 77%, 23%)`（截图 `colour-mode-convert-zh.jpeg`） |
+| 对比度检查方式 | 通过 | 只显示「前景色」「对比背景色」两组输入框 + 对比度卡：示例文字实叠、`对比度比值 11.45 : 1`、`普通文字 AAA`、`大号文字 AAA`、`建议前景色：#000000` |
+| 英文界面 | 通过 | 设置页切 English 后：标题 `Colour tools`、`Method`、`Colour conversion` / `Contrast check`、`Foreground` / `Background`、`Sample text`、`Ratio 11.45 : 1`、`Body text AAA` / `Large text AAA`、`Suggested foreground: #000000`（截图 `colour-mode-contrast-en.jpeg`） |
+| 切换不丢值 | 通过 | 对比度检查 → 颜色转换来回切换后，颜色输入仍是 `#0D3B66`，HEX/RGB/HSL 结果照常刷新 |
+| 非法输入提示 | 通过 | 与改造前一致：颜色非法时预览退回透明并显示 `colorErrorText()` 提示，对比度卡显示同一条提示而不是比值 |
+| 单位断言 | 通过 | `node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增 `COLOR_MODES` 条数/顺序/id 唯一/文案非空断言） |
+| 构建 | 通过 | `hvigorw assembleHap --mode module -p product=default --no-daemon` → `BUILD SUCCESSFUL` |
+
+- [ ] 真机复核（模拟器无法覆盖的部分）：下拉菜单在真机的宽度/位置、深色模式下选中态对比度，以及 `HdsColorPicker` 色轮取色后回填各自输入框（前景/背景两条链路）。
+- 说明：真机复核项之外的条目均在 API 26 模拟器上以 `dumpLayout` 文本 + 截图完成；模拟器上 `Select` 的弹出偶发需要连点两次才展开（第 24 节同一现象），不影响选中结果。
+
 ## 回执格式
 
 ```

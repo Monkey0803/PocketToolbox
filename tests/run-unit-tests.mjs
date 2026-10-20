@@ -673,6 +673,13 @@ assert.equal(randomTools.DICE_COUNTS[randomTools.DICE_COUNTS.length - 1], 5);
 assert.equal(randomTools.GROUP_COUNTS.length, 7);
 assert.equal(randomTools.coinFlip(() => 0), true);
 assert.equal(randomTools.coinFlip(() => 1), false);
+// 随机方式的登记表（页面「方式」下拉与 build() 分支都由它驱动）：条数、id 唯一、文案非空。
+assert.equal(randomTools.RANDOM_MODES.length, 3);
+assert.equal(new Set(randomTools.RANDOM_MODES.map((mode) => mode.id)).size, randomTools.RANDOM_MODES.length);
+assert.deepEqual(randomTools.RANDOM_MODES.map((mode) => mode.id), ['number', 'dice', 'list']);
+for (const mode of randomTools.RANDOM_MODES) {
+  assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
+}
 
 const passwordOptions = new passwords.PasswordOptions();
 assert.equal(passwords.validPasswordOptions(passwordOptions), true);
@@ -1701,6 +1708,13 @@ assert.equal(colors.toHex(colors.suggestedForeground(new colors.RgbColor(255, 25
 assert.equal(colors.toHex(colors.suggestedForeground(new colors.RgbColor(0, 0, 0))), '#FFFFFF');
 assert.equal(colors.toHex(colors.suggestedForeground(new colors.RgbColor(13, 59, 102))), '#FFFFFF');
 assert.ok(colors.colorErrorText(false).length > 0 && colors.colorErrorText(true).length > 0);
+// 颜色方式的登记表（页面「方式」下拉与 build() 分支都由它驱动）：条数、id 唯一、文案非空。
+assert.equal(colors.COLOR_MODES.length, 2);
+assert.deepEqual(colors.COLOR_MODES.map((mode) => mode.id), ['convert', 'contrast']);
+assert.equal(new Set(colors.COLOR_MODES.map((mode) => mode.id)).size, colors.COLOR_MODES.length);
+for (const mode of colors.COLOR_MODES) {
+  assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
+}
 
 // --- 健康计算：BMI 分类、正常体重范围、BMR（Mifflin-St Jeor）与 TDEE ---
 assert.equal(health.GENDERS.length, 2);

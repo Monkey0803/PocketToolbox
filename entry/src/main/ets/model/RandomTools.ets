@@ -11,6 +11,20 @@ export const DICE_COUNTS: number[] = [1, 2, 3, 4, 5];
 /** 分组组数选项（界面下拉框直接用它；实际组数还会受候选数限制）。 */
 export const GROUP_COUNTS: number[] = [2, 3, 4, 5, 6, 8, 10];
 
+export class RandomMode {
+  id: string = '';
+  zh: string = '';
+  en: string = '';
+}
+
+// 随机工具的登记表（与 `DATE_TOOL_MODES` 同一口径）：新增能力时在此追加一项，
+// 页面用其中的双语全称做「方式」下拉的选项文案，并按 id 渲染对应内容。
+export const RANDOM_MODES: RandomMode[] = [
+  { id: 'number', zh: '随机整数', en: 'Random integer' },
+  { id: 'dice', zh: '骰子与硬币', en: 'Dice and coin' },
+  { id: 'list', zh: '名单抽取、排序与分组', en: 'Pick, shuffle and group a list' }
+];
+
 export function randomInteger(minimum: number, maximum: number, draw: number): number | undefined {
   if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || minimum < -1000000 ||
     maximum > 1000000 || maximum < minimum || !Number.isFinite(draw) || draw < 0 || draw >= 1) {

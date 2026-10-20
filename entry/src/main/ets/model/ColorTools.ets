@@ -201,3 +201,16 @@ export function colorErrorText(english: boolean): string {
   return english ? 'Enter a colour as #RGB, #RRGGBB or rgb(r, g, b)' :
     '请输入颜色，如 #RGB、#RRGGBB 或 rgb(r, g, b)';
 }
+
+export class ColorMode {
+  id: string = '';
+  zh: string = '';
+  en: string = '';
+}
+
+// 颜色工具的登记表（与 `DATE_TOOL_MODES`／`RANDOM_MODES` 同一口径）：新增能力时在此追加一项，
+// 页面用其中的双语全称做「方式」下拉的选项文案，并按 id 渲染对应内容。
+export const COLOR_MODES: ColorMode[] = [
+  { id: 'convert', zh: '颜色转换', en: 'Colour conversion' },
+  { id: 'contrast', zh: '对比度检查', en: 'Contrast check' }
+];

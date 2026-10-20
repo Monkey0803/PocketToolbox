@@ -2,16 +2,19 @@ import { uiMaterial } from '@kit.ArkUI';
 import { HdsColorPicker } from '@kit.UIDesignKit';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { RgbColor, HslColor, parseColorInput, parsePickedColor, toHex, toRgbText, rgbToHsl, toHslText,
   contrastRatio, contrastVerdict, contrastVerdictText, suggestedForeground,
-  colorErrorText } from '../model/ColorTools';
+  colorErrorText, ColorMode, COLOR_MODES } from '../model/ColorTools';
 
 /**
- * 颜色工具页：HEX / RGB / HSL 互转与前景背景对比度检查。
+ * 颜色工具页：HEX / RGB / HSL 互转（颜色转换）与前景背景对比度检查（对比度检查）。
  *
- * 自包含工具页：两个输入框（颜色、对比背景）与全部结果都在本组件内；复制与一次性提示经 `@Event` 交回父组件。
+ * 自包含工具页：两个输入框（颜色/前景色、对比背景色）与全部结果都在本组件内；复制与一次性提示经 `@Event` 交回父组件。
  * 转换与对比度公式都在纯逻辑 `model/ColorTools.ets`，本页只做解析、显示与中英文文案。
+ * 「方式」下拉与日期计算页、随机选择页同一套做法：登记表 `COLOR_MODES` 驱动选项文案，
+ * `build()` 按 `colorMode`（id，不是下标）分支渲染，一次只显示当前方式，切换方式不丢已有取值。
  *
  * 取色用系统自带的颜色选择器：UI Design Kit（`@kit.UIDesignKit`）的 `HdsColorPicker` 是一个色轮取色按钮，
  * 点它会拉起系统取色面板（网格 / 光谱 / 滑块、不透明度、Hex 与收藏），选中即通过 `onColorSelected` 回传颜色。
@@ -26,6 +29,7 @@ export struct ColorPage {
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
+  @Local colorMode: string = 'convert';
   @Local colorInput: string = '#0D3B66';
   @Local backgroundInput: string = '#FFFFFF';
 
@@ -34,6 +38,39 @@ export struct ColorPage {
   private color(): RgbColor | undefined { return parseColorInput(this.colorInput); }
 
   private backgroundRgb(): RgbColor | undefined { return parseColorInput(this.backgroundInput); }
+
+  private colorModeIndex(): number {
+    const index: number = COLOR_MODES.findIndex((mode: ColorMode) => mode.id === this.colorMode);
+    return index < 0 ? 0 : index;
+  }
+
+  private colorModeLabel(): string {
+    const mode: ColorMode = COLOR_MODES[this.colorModeIndex()];
+    return this.english ? mode.en : mode.zh;
+  }
+
+  private modeOptions(): SelectOption[] {
+    return COLOR_MODES.map((mode: ColorMode): SelectOption => {
+      const option: SelectOption = { value: this.english ? mode.en : mode.zh };
+      return option;
+    });
+  }
+
+  // 方式选择与日期计算页「方式」、单位换算页「类别」同一套 UI：
+  // 新增颜色能力只需在 COLOR_MODES 加登记项 + 在 build() 加一个分支。
+  @Builder private modeSelect() {
+    OptionSelect({
+      label: this.tr('方式', 'Method'),
+      options: this.modeOptions(),
+      selectedIndex: this.colorModeIndex(),
+      selectedText: this.colorModeLabel(),
+      a11yText: this.tr('颜色工具方式', 'Colour tool'),
+      onSelected: (index: number): void => {
+        const mode: ColorMode | undefined = COLOR_MODES[index];
+        if (mode !== undefined) { this.colorMode = mode.id; }
+      }
+    })
+  }
 
   /** 色块预览：颜色非法时退回透明，避免显示上一次的旧颜色。 */
   private previewColor(): string {
@@ -111,7 +148,9 @@ export struct ColorPage {
   /** 色轮的无障碍名称：只收常量 id，文字在构建函数体内现取，切换语言才会跟着变。 */
   private pickerAccessibility(id: string): string {
     if (id === 'color') {
-      return this.tr('用系统颜色选择器选择颜色', 'Pick a colour with the system colour picker');
+      return this.colorMode === 'contrast' ?
+        this.tr('用系统颜色选择器选择前景色', 'Pick a foreground colour with the system colour picker') :
+        this.tr('用系统颜色选择器选择颜色', 'Pick a colour with the system colour picker');
     }
     return this.tr('用系统颜色选择器选择对比背景色', 'Pick a background colour with the system colour picker');
   }
@@ -127,68 +166,86 @@ export struct ColorPage {
     this.setFieldText(id, toHex(parsed));
   }
 
+  // 颜色转换：一个颜色输入 → 色块预览 + HEX/RGB/HSL 三行（各带复制）。
+  @Builder private convertPanel() {
+    Text(this.tr('支持 #RGB、#RRGGBB 与 rgb(r, g, b) 三种写法，也可点右侧色轮用系统颜色选择器取色。',
+      'Accepts #RGB, #RRGGBB and rgb(r, g, b); tap the colour wheel to pick with the system colour picker.'))
+      .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+    this.inputBlock('color', '颜色', 'Colour', '#0D3B66 或 rgb(13, 59, 102)')
+    MaterialSurface({
+      supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+      lightEffect: true
+    }) {
+      Column({ space: 12 }) {
+        Row() {
+          Stack() {
+          }.width('100%').height(96).backgroundColor(this.previewColor()).borderRadius(12)
+        }.width('100%')
+        if (this.color() === undefined) {
+          Text(colorErrorText(this.english)).fontSize(15).fontColor(ToolPalette.warning).width('100%')
+        } else {
+          this.valueRow('HEX', 'HEX', 'hex')
+          this.valueRow('RGB', 'RGB', 'rgb')
+          this.valueRow('HSL', 'HSL', 'hsl')
+        }
+      }.padding(16).width('100%')
+    }
+  }
+
+  // 对比度检查：前景色 + 对比背景色 → 实叠示例、比值、两档判定与建议前景色。
+  @Builder private contrastPanel() {
+    Text(this.tr('对比度按 WCAG 2.x 计算：普通文字 AA 需 4.5、AAA 需 7，大号文字 AA 需 3、AAA 需 4.5。',
+      'Contrast follows WCAG 2.x: body text needs 4.5 for AA and 7 for AAA; large text needs 3 and 4.5.'))
+      .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+    this.inputBlock('color', '前景色', 'Foreground', '#0D3B66')
+    this.inputBlock('background', '对比背景色', 'Background', '#FFFFFF')
+    MaterialSurface({
+      supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+      lightEffect: true
+    }) {
+      Column({ space: 12 }) {
+        Text(this.tr('对比度', 'Contrast')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+        if (!Number.isFinite(this.ratio())) {
+          Text(colorErrorText(this.english)).fontSize(15).fontColor(ToolPalette.warning).width('100%')
+        } else {
+          // 用两色实际叠一次，肉眼确认是否看得清
+          Stack() {
+            Text(this.tr('示例文字 Sample', 'Sample text'))
+              .fontSize(20).fontWeight(FontWeight.Bold)
+              .fontColor(this.color() === undefined ? Color.Black : toHex(this.color() as RgbColor))
+          }.width('100%').height(72).borderRadius(12)
+            .backgroundColor(this.backgroundRgb() === undefined ? Color.White :
+              toHex(this.backgroundRgb() as RgbColor))
+          this.valueRow('对比度比值', 'Ratio', 'ratio')
+          Row({ space: 12 }) {
+            Text(this.tr('普通文字', 'Body text')).fontSize(13).fontColor(ToolPalette.textMuted)
+              .layoutWeight(1)
+            Text(contrastVerdictText(contrastVerdict(this.ratio(), false), this.english))
+              .fontSize(17).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
+          }.width('100%')
+          Row({ space: 12 }) {
+            Text(this.tr('大号文字', 'Large text')).fontSize(13).fontColor(ToolPalette.textMuted)
+              .layoutWeight(1)
+            Text(contrastVerdictText(contrastVerdict(this.ratio(), true), this.english))
+              .fontSize(17).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
+          }.width('100%')
+          if (this.backgroundRgb() !== undefined) {
+            Text(this.tr('建议前景色：' + toHex(suggestedForeground(this.backgroundRgb() as RgbColor)),
+              'Suggested foreground: ' + toHex(suggestedForeground(this.backgroundRgb() as RgbColor))))
+              .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+          }
+        }
+      }.padding(16).width('100%')
+    }
+  }
+
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('支持 #RGB、#RRGGBB 与 rgb(r, g, b) 三种写法，也可点右侧色轮用系统颜色选择器取色；对比度按 WCAG 2.x 计算（普通文字 AA 需 4.5、AAA 需 7）。',
-        'Accepts #RGB, #RRGGBB and rgb(r, g, b); tap the colour wheel to pick with the system colour picker. Contrast follows WCAG 2.x (AA needs 4.5, AAA needs 7 for body text).'))
-        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      this.inputBlock('color', '颜色', 'Colour', '#0D3B66 或 rgb(13, 59, 102)')
-      MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
-        lightEffect: true
-      }) {
-        Column({ space: 12 }) {
-          Row() {
-            Stack() {
-            }.width('100%').height(96).backgroundColor(this.previewColor()).borderRadius(12)
-          }.width('100%')
-          if (this.color() === undefined) {
-            Text(colorErrorText(this.english)).fontSize(15).fontColor(ToolPalette.warning).width('100%')
-          } else {
-            this.valueRow('HEX', 'HEX', 'hex')
-            this.valueRow('RGB', 'RGB', 'rgb')
-            this.valueRow('HSL', 'HSL', 'hsl')
-          }
-        }.padding(16).width('100%')
-      }
-      this.inputBlock('background', '对比背景色', 'Background', '#FFFFFF')
-      MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
-        lightEffect: true
-      }) {
-        Column({ space: 12 }) {
-          Text(this.tr('对比度', 'Contrast')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
-          if (!Number.isFinite(this.ratio())) {
-            Text(colorErrorText(this.english)).fontSize(15).fontColor(ToolPalette.warning).width('100%')
-          } else {
-            // 用两色实际叠一次，肉眼确认是否看得清
-            Stack() {
-              Text(this.tr('示例文字 Sample', 'Sample text'))
-                .fontSize(20).fontWeight(FontWeight.Bold)
-                .fontColor(this.color() === undefined ? Color.Black : toHex(this.color() as RgbColor))
-            }.width('100%').height(72).borderRadius(12)
-              .backgroundColor(this.backgroundRgb() === undefined ? Color.White :
-                toHex(this.backgroundRgb() as RgbColor))
-            this.valueRow('对比度比值', 'Ratio', 'ratio')
-            Row({ space: 12 }) {
-              Text(this.tr('普通文字', 'Body text')).fontSize(13).fontColor(ToolPalette.textMuted)
-                .layoutWeight(1)
-              Text(contrastVerdictText(contrastVerdict(this.ratio(), false), this.english))
-                .fontSize(17).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
-            }.width('100%')
-            Row({ space: 12 }) {
-              Text(this.tr('大号文字', 'Large text')).fontSize(13).fontColor(ToolPalette.textMuted)
-                .layoutWeight(1)
-              Text(contrastVerdictText(contrastVerdict(this.ratio(), true), this.english))
-                .fontSize(17).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
-            }.width('100%')
-            if (this.backgroundRgb() !== undefined) {
-              Text(this.tr('建议前景色：' + toHex(suggestedForeground(this.backgroundRgb() as RgbColor)),
-                'Suggested foreground: ' + toHex(suggestedForeground(this.backgroundRgb() as RgbColor))))
-                .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-            }
-          }
-        }.padding(16).width('100%')
+      this.modeSelect()
+      if (this.colorMode === 'contrast') {
+        this.contrastPanel()
+      } else {
+        this.convertPanel()
       }
       Text(this.tr('转换与对比度都在本机计算，不上传任何数据。',
         'Conversion and contrast are calculated on this device.'))
