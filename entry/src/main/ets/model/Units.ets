@@ -153,6 +153,10 @@ export function convert(value: number, category: UnitCategory, from: UnitDef, to
  * `significant` 只接受 3–15 的整数，非法值回退到默认值；非有限值（Infinity/NaN）显示为「—」。
  * 极小值（|v| < 1e-6）用定点展开显示，避免换算结果出现 `6.213711922e-7` 这类指数写法
  * （1 毫米换算成英里就是这种量级）；量级更大或极小的值仍按指数显示。
+ *
+ * 指数写法下**尾数取自 `toPrecision(digits)`**，不能只用 `Number(...).toString()`：ArkTS 的 `Number#toString`
+ * 在大数量级上不保证最短表示（实测 `Number('1.26765e+30').toString()` 给出 `1.2676500000000001e+30`，
+ * 即 17 位而不是 6 位），直接用它会让「有效位数」选项失效。指数部分仍用 `toString()` 的口径。
  */
 export function formatValue(value: number, significant: number = DEFAULT_PRECISION): string {
   if (!Number.isFinite(value)) {
@@ -168,7 +172,23 @@ export function formatValue(value: number, significant: number = DEFAULT_PRECISI
       return trimTrailingZeros(value.toFixed(decimals));
     }
   }
-  return Number(value.toPrecision(digits)).toString();
+  const precise: string = value.toPrecision(digits);
+  const text: string = Number(precise).toString();
+  const exponentAt: number = exponentIndex(text);
+  if (exponentAt < 0) { return text; }
+  const preciseExponentAt: number = exponentIndex(precise);
+  const mantissa: string = preciseExponentAt >= 0 ?
+    trimTrailingZeros(precise.substring(0, preciseExponentAt)) : text.substring(0, exponentAt);
+  return mantissa + text.substring(exponentAt);
+}
+
+/** 指数计数法的 `e`/`E` 位置，找不到返回 -1。 */
+function exponentIndex(text: string): number {
+  const lower: number = text.indexOf('e');
+  const upper: number = text.indexOf('E');
+  if (lower < 0) { return upper; }
+  if (upper < 0) { return lower; }
+  return lower < upper ? lower : upper;
 }
 
 function trimTrailingZeros(text: string): string {

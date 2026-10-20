@@ -155,6 +155,13 @@ assert.equal(units.formatValue(1e-9, 6), '0.000000001');
 assert.equal(units.formatValue(0), '0');
 assert.equal(units.formatValue(-0), '0');
 assert.equal(units.formatValue(0.001), '0.001');
+// 指数写法：尾数必须按所选有效位数裁剪（ArkTS 的 Number#toString 在大数量级上会给 17 位，不能直接采信）
+assert.equal(units.formatValue(1.2676506e30, 6), '1.26765e+30');
+assert.equal(units.formatValue(1.2676506e30, 8), '1.2676506e+30');
+assert.equal(units.formatValue(1.2676506e30, 10), '1.2676506e+30');
+assert.equal(units.formatValue(1e24), '1e+24');
+assert.equal(units.formatValue(1e-101), '1e-101');
+assert.equal(units.formatValue(-2.5e-101, 6), '-2.5e-101');
 assert.equal(units.DEFAULT_PRECISION, 10);
 assert.deepEqual(units.PRECISION_OPTIONS, [6, 8, 10, 12]);
 // 状态恢复用的下标查找：找到返回下标，找不到返回 -1
@@ -1967,11 +1974,99 @@ assert.equal(err('tan(90)'), 'domain');
 assert.equal(err('2^10000'), 'overflow');
 assert.equal(err('1..2'), 'syntax');
 assert.equal(err('1,2'), 'syntax');
-// 结果格式化：整数不带小数点，浮点最多 10 位有效数字
+
+// 科学计数法字面量：只有 e/E 后面确实跟着指数数字时才并入数字，否则 e 仍是自然常数
+assert.equal(val('1e3'), 1000);
+assert.ok(Math.abs(val('1.5e-7') - 1.5e-7) < 1e-20);
+assert.equal(val('.5e2'), 50);
+assert.equal(val('2e3'), 2000);
+assert.ok(Math.abs(val('2e') - 2 * Math.E) < 1e-12);
+assert.equal(err('1e+'), 'syntax');
+
+// 结果回读闭环：大数打印成 `1e+24` 这类指数写法后必须还能被解析（修复前是 syntax）
+for (const value of [1e24, 1e-101, 1e21, 1 / 3, 7, -2.5, -1e-7]) {
+  const text = science.formatResult(value);
+  assert.equal(err(text), '', `formatResult(${value}) = ${text} should be parseable`);
+  assert.ok(Math.abs(val(text) - value) <= Math.abs(value) * 1e-9 + 1e-12, `round trip ${value} -> ${text}`);
+}
+
+// 隐式乘法：`(` 或已知常量/函数名直接跟在因子后面按乘法处理
+assert.ok(Math.abs(val('2pi') - 2 * Math.PI) < 1e-12);
+assert.equal(val('2(3+4)'), 14);
+assert.equal(val('(1+2)(3+4)'), 21);
+assert.ok(Math.abs(val('2sin(30)') - 1) < 1e-9);
+assert.ok(Math.abs(val('2 e') - 2 * Math.E) < 1e-12);
+assert.ok(Math.abs(val('2pi^2') - 2 * Math.PI * Math.PI) < 1e-12);
+assert.equal(val('2 mod 3'), 2);
+assert.equal(err('7mod3'), 'syntax');       // mod 仍是关键字运算符，不参与隐式乘法
+assert.equal(err('2 3'), 'syntax');         // 隐式乘法右侧不接受数字字面量
+assert.equal(err('(1+2)3'), 'syntax');
+
+// 后缀阶乘：比 `^` 更紧、可叠加；非负整数且 ≤ 170
+assert.equal(val('0!'), 1);
+assert.equal(val('5!'), 120);
+assert.equal(val('3!^2'), 36);
+assert.equal(val('2^3!'), 64);
+assert.equal(val('-3!'), -6);
+assert.equal(val('3!!'), 720);
+assert.equal(Number.isFinite(val('170!')), true);
+assert.equal(err('171!'), 'overflow');
+assert.equal(err('(-1)!'), 'domain');
+assert.equal(err('2.5!'), 'domain');
+
+// 新增一元函数
+assert.equal(val('cbrt(-8)'), -2);
+assert.ok(Math.abs(val('exp(1)') - Math.E) < 1e-12);
+assert.ok(Math.abs(val('log2(8)') - 3) < 1e-12);
+assert.ok(Math.abs(val('log(8,2)') - 3) < 1e-12);
+assert.equal(val('sinh(0)'), 0);
+assert.equal(val('cosh(0)'), 1);
+assert.equal(val('tanh(0)'), 0);
+assert.equal(val('asinh(0)'), 0);
+assert.equal(val('acosh(1)'), 0);
+assert.equal(val('atanh(0)'), 0);
+assert.equal(val('floor(1.7)'), 1);
+assert.equal(val('ceil(1.2)'), 2);
+assert.equal(val('round(1.5)'), 2);
+assert.equal(val('sign(-3)'), -1);
+assert.equal(err('acosh(0)'), 'domain');
+assert.equal(err('atanh(1)'), 'domain');
+assert.equal(err('log2(0)'), 'domain');
+assert.equal(err('log(8,1)'), 'domain');
+assert.equal(err('log(8,0)'), 'domain');
+
+// 二元函数与实参个数校验
+assert.equal(val('hypot(3,4)'), 5);
+assert.equal(val('gcd(12,18)'), 6);
+assert.equal(val('lcm(4,6)'), 12);
+assert.equal(val('gcd(0,0)'), 0);
+assert.equal(val('lcm(0,5)'), 0);
+assert.equal(val('min(2,3)'), 2);
+assert.equal(val('max(2,3)'), 3);
+assert.equal(val('ncr(5,3)'), 10);
+assert.equal(val('npr(5,3)'), 60);
+assert.equal(val('ncr(1000,0)'), 1);
+assert.equal(err('gcd(1.5,2)'), 'domain');
+assert.equal(err('gcd(-1,2)'), 'domain');
+assert.equal(err('ncr(3,5)'), 'domain');
+assert.equal(err('ncr(5,-1)'), 'domain');
+assert.equal(err('ncr(5.5,2)'), 'domain');
+assert.equal(err('ncr(1001,1)'), 'domain');
+assert.equal(err('npr(200,200)'), 'overflow');
+assert.equal(err('ncr(5)'), 'syntax');
+assert.equal(err('hypot(1)'), 'syntax');
+assert.equal(err('hypot(1,2,3)'), 'syntax');
+assert.equal(err('log(8,2,3)'), 'syntax');
+
+// 结果格式化：整数不带小数点，浮点最多 10 位有效数字；可选有效位数参数（非法值回退默认）
 assert.equal(science.formatResult(9), '9');
 assert.equal(science.formatResult(0.25), '0.25');
 assert.equal(science.formatResult(1 / 3).length <= 12, true);
 assert.equal(science.formatResult(Number.POSITIVE_INFINITY), '');
+assert.equal(science.formatResult(1 / 3, 4), '0.3333');
+assert.equal(science.formatResult(1 / 3, 20), science.formatResult(1 / 3, 10)); // 非法位数回退默认 10 位
+assert.equal(science.formatResult(123456.789, 6), '123457');
+assert.equal(science.formatResult(1.2676506e30, 6), '1.26765e+30');
 // 角度单位登记表与文案
 assert.equal(science.ANGLE_UNITS.length, 2);
 assert.equal(science.angleIndex('rad'), 1);
@@ -1979,21 +2074,36 @@ assert.equal(science.angleIndex('nope'), -1);
 assert.equal(science.angleLabel('deg', false), '角度 DEG');
 assert.equal(science.angleLabel('rad', true), 'Radians');
 assert.equal(science.DEFAULT_ANGLE, 'deg');
-assert.equal(science.FUNCTIONS.length, 10);
+// 函数登记表是唯一数据源：30 项、id 唯一、实参区间合法，`FUNCTIONS` 由它派生
+assert.equal(science.FUNCTION_DEFS.length, 30);
+assert.equal(science.FUNCTIONS.length, 30);
+for (const def of science.FUNCTION_DEFS) {
+  assert.ok(def.minArgs >= 1 && def.minArgs <= def.maxArgs && def.maxArgs <= 2, `bad arity for ${def.id}`);
+}
+assert.equal(new Set(science.FUNCTIONS).size, 30);
+assert.deepEqual(science.FUNCTIONS, science.FUNCTION_DEFS.map((def) => def.id));
+assert.ok(science.FUNCTIONS.includes('log') && science.FUNCTIONS.includes('ncr'));
 assert.ok(science.CONSTANTS.includes('pi') && science.CONSTANTS.includes('e'));
-// 快速插入键登记表：6 项、id 唯一、双语名称非空，且每一项都能单独求值（不会插进表达式后必报语法错）
-assert.equal(science.QUICK_KEYS.length, 6);
-assert.equal(new Set(science.QUICK_KEYS.map((key) => key.id)).size, 6);
-for (const key of science.QUICK_KEYS) {
+// 常用键登记表：运算符 7 项 + 函数 8 项、各自 id 唯一、双语名称非空，且能插进表达式求值
+assert.deepEqual(science.QUICK_KEYS.map((key) => key.id), ['(', ')', '^', '!', 'pi', 'e', 'mod']);
+assert.deepEqual(science.FUNCTION_KEYS.map((key) => key.id),
+  ['sqrt(', 'cbrt(', 'ln(', 'log(', 'sin(', 'cos(', 'tan(', 'ncr(']);
+assert.equal(new Set(science.QUICK_KEYS.map((key) => key.id)).size, 7);
+assert.equal(new Set(science.FUNCTION_KEYS.map((key) => key.id)).size, 8);
+for (const key of science.QUICK_KEYS.concat(science.FUNCTION_KEYS)) {
   assert.ok(key.zh.length > 0 && key.en.length > 0, `missing quick key label ${key.id}`);
 }
-assert.equal(science.evaluate(science.QUICK_KEYS[0].id, 'deg').error, '');
-assert.equal(science.evaluate(science.QUICK_KEYS[1].id, 'deg').error, '');
+assert.equal(science.evaluate('pi', 'deg').error, '');
+assert.equal(science.evaluate('e', 'deg').error, '');
+for (const key of science.FUNCTION_KEYS) {
+  const probe = key.id === 'ncr(' ? 'ncr(5,2)' : `${key.id}1)`;
+  assert.equal(science.evaluate(probe, 'deg').error, '', `function key ${key.id} -> ${probe}`);
+}
 for (const code of ['empty', 'syntax', 'unknown', 'domain', 'divzero', 'overflow']) {
   assert.ok(science.calcErrorText(code, false).length > 0, `missing calc error ${code}`);
   assert.ok(science.calcErrorText(code, true).length > 0, `missing calc error ${code} en`);
 }
-assert.ok(science.calcHintText(false).length > 0 && science.calcHintText(true).length > 0);
+assert.ok(science.calcHintText(false).includes('1e3') && science.calcHintText(true).includes('1e3'));
 
 // --- 启动意图：系统入口带上来的目标工具，一次性消费 ---
 startup.clearStartupTool();

@@ -3,10 +3,21 @@ import { formatValue } from './Units';
 /**
  * 科学计算器（纯逻辑，可参与单元测试）：表达式解析与求值。
  *
- * 支持：数字、`+ - * / ^ mod`、一元负号、括号、常量 `pi`/`e`、函数
- * `sin cos tan asin acos atan ln log sqrt abs`（大小写不敏感）。
- * 约定：`^` 右结合（`2^3^2 = 2^9`）、`mod` 与 `*`/`/` 同级左结合、三角函数按 DEG/RAD 开关解释，
- * `ln` 是自然对数、`log` 是常用对数（以 10 为底）。不支持隐式乘法（`2pi` 要写 `2*pi`）。
+ * 支持：数字（含科学计数法 `1e3`/`1.5e-7`/`.5e2`）、`+ - * / ^ mod`、后缀阶乘 `!`、一元正负号、括号、
+ * 常量 `pi`/`e`、一元函数 `sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh
+ * ln log log2 exp sqrt cbrt abs floor ceil round sign` 与二元函数
+ * `hypot gcd lcm min max ncr npr`（`log(x, base)` 可带第二个参数）。
+ *
+ * 约定：
+ * - `^` 右结合（`2^3^2 = 2^9`），`!` 比 `^` 更紧（`3!^2 = 36`、`2^3! = 64`）；
+ * - `mod` 与 `*` `/` 同级左结合；
+ * - 三角函数与反三角函数按 DEG/RAD 开关解释，其余函数与角度单位无关；
+ * - 隐式乘法：上一个因子结束后紧跟 `(` 或**已知常量/函数名**时按乘法处理（`2pi`、`2(3+4)`、`2sin(30)`、
+ *   `(1+2)(3+4)`、`2 e`）；`mod` 仍然只是关键字运算符（`7 mod 3` 合法），右侧不接受数字字面量，
+ *   因此 `2 3` 仍是语法错误；
+ * - 因为标识符会贪婪吞掉后面的数字，`7mod3` 里的 `mod3` 不是合法标识符，仍报语法错误；
+ * - 阶乘只接受 0..170 的整数（`0! = 1`），非整数/负数报 `domain`、`171!` 报 `overflow`；
+ * - `ncr`/`npr`/`gcd`/`lcm` 要求整数且 `0 ≤ r ≤ n`、`n ≤ 1000`，否则报 `domain`。
  *
  * 求值失败返回**错误码**而不是抛异常：`empty`/`syntax`/`unknown`/`domain`/`divzero`/`overflow`。
  */
@@ -42,13 +53,64 @@ export function angleLabel(id: string, english: boolean): string {
   return english ? entry.en : entry.zh;
 }
 
-/** 支持的函数与参数个数（都是单参数）。 */
-export const FUNCTIONS: string[] = ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'ln', 'log', 'sqrt', 'abs'];
+/**
+ * 函数登记表项：`id` 是表达式里书写的名字，`minArgs`/`maxArgs` 是实参个数区间。
+ * 新增函数 = 这里加一项 + `Parser.applyFunction()` 加一个分支 + 补单测（含定义域用例），不要在别处再写一份名字表。
+ */
+export class FunctionDef {
+  readonly id: string;
+  readonly minArgs: number;
+  readonly maxArgs: number;
+
+  constructor(id: string, minArgs: number, maxArgs: number) {
+    this.id = id;
+    this.minArgs = minArgs;
+    this.maxArgs = maxArgs;
+  }
+}
+
+export const FUNCTION_DEFS: FunctionDef[] = [
+  new FunctionDef('sin', 1, 1),
+  new FunctionDef('cos', 1, 1),
+  new FunctionDef('tan', 1, 1),
+  new FunctionDef('asin', 1, 1),
+  new FunctionDef('acos', 1, 1),
+  new FunctionDef('atan', 1, 1),
+  new FunctionDef('sinh', 1, 1),
+  new FunctionDef('cosh', 1, 1),
+  new FunctionDef('tanh', 1, 1),
+  new FunctionDef('asinh', 1, 1),
+  new FunctionDef('acosh', 1, 1),
+  new FunctionDef('atanh', 1, 1),
+  new FunctionDef('ln', 1, 1),
+  new FunctionDef('log', 1, 2),
+  new FunctionDef('log2', 1, 1),
+  new FunctionDef('exp', 1, 1),
+  new FunctionDef('sqrt', 1, 1),
+  new FunctionDef('cbrt', 1, 1),
+  new FunctionDef('abs', 1, 1),
+  new FunctionDef('floor', 1, 1),
+  new FunctionDef('ceil', 1, 1),
+  new FunctionDef('round', 1, 1),
+  new FunctionDef('sign', 1, 1),
+  new FunctionDef('hypot', 2, 2),
+  new FunctionDef('gcd', 2, 2),
+  new FunctionDef('lcm', 2, 2),
+  new FunctionDef('min', 2, 2),
+  new FunctionDef('max', 2, 2),
+  new FunctionDef('ncr', 2, 2),
+  new FunctionDef('npr', 2, 2)
+];
+
+/** 函数名列表（由 `FUNCTION_DEFS` 派生，唯一数据源在登记表）。 */
+export const FUNCTIONS: string[] = FUNCTION_DEFS.map((def: FunctionDef): string => def.id);
+
 export const CONSTANTS: string[] = ['pi', 'e'];
 
 /**
- * 快速插入键（登记表）：`id` 就是要追加到表达式里的文本，`zh`/`en` 是双语无障碍名称。
- * 页面按内容宽度自动换行排布（`Flex` + `FlexWrap.Wrap`），不按整行均分，窄屏因此不会截断标签。
+ * 常用键（登记表）：`id` 就是要追加到表达式里的文本，`zh`/`en` 是随语言切换的无障碍名称。
+ * 页面用 `Flex` + `FlexWrap.Wrap` 按内容宽度排布（放不下自动换行），不按整行均分，窄屏因此不会截断标签。
+ * 运算符/结构一行（`QUICK_KEYS`）、函数一行（`FUNCTION_KEYS`）。
  */
 export class QuickKey {
   readonly id: string;
@@ -63,12 +125,24 @@ export class QuickKey {
 }
 
 export const QUICK_KEYS: QuickKey[] = [
+  new QuickKey('(', '插入左括号', 'Insert left parenthesis'),
+  new QuickKey(')', '插入右括号', 'Insert right parenthesis'),
+  new QuickKey('^', '插入幂运算符', 'Insert power operator'),
+  new QuickKey('!', '插入阶乘', 'Insert factorial'),
   new QuickKey('pi', '插入 pi', 'Insert pi'),
   new QuickKey('e', '插入 e', 'Insert e'),
-  new QuickKey('sqrt(', '插入平方根', 'Insert square root'),
-  new QuickKey('ln(', '插入自然对数', 'Insert natural log'),
-  new QuickKey('^', '插入幂运算符', 'Insert power operator'),
   new QuickKey('mod', '插入取模', 'Insert modulo')
+];
+
+export const FUNCTION_KEYS: QuickKey[] = [
+  new QuickKey('sqrt(', '插入平方根', 'Insert square root'),
+  new QuickKey('cbrt(', '插入立方根', 'Insert cube root'),
+  new QuickKey('ln(', '插入自然对数', 'Insert natural log'),
+  new QuickKey('log(', '插入对数', 'Insert logarithm'),
+  new QuickKey('sin(', '插入正弦', 'Insert sine'),
+  new QuickKey('cos(', '插入余弦', 'Insert cosine'),
+  new QuickKey('tan(', '插入正切', 'Insert tangent'),
+  new QuickKey('ncr(', '插入组合数', 'Insert combinations')
 ];
 
 export class CalcResult {
@@ -90,10 +164,13 @@ function fail(code: string): CalcResult {
   return new CalcResult(Number.NaN, code);
 }
 
-/** 把结果格式化为最多 10 位有效数字（复用单位换算的 `formatValue`，避免两套格式化规则）。 */
-export function formatResult(value: number): string {
+/**
+ * 把结果格式化为最多 `significant` 位有效数字（复用单位换算的 `formatValue`，避免两套格式化规则）；
+ * 非法位数与既有行为一致地回退到 10 位。注意大数会打印成 `1e+24` 这类指数写法，解析器已支持指数字面量，因此可以回读。
+ */
+export function formatResult(value: number, significant: number = 10): string {
   if (!Number.isFinite(value)) { return ''; }
-  return formatValue(value, 10);
+  return formatValue(value, significant);
 }
 
 /**
@@ -112,9 +189,40 @@ export function evaluate(expression: string, angle: AngleUnit = DEFAULT_ANGLE): 
 }
 
 interface Token {
-  kind: string; // 'number' | 'name' | 'op'
+  kind: string; // 'number' | 'name' | 'op' | 'bad'
   text: string;
   value: number;
+}
+
+function isDigit(ch: string): boolean {
+  return ch >= '0' && ch <= '9';
+}
+
+function isLetter(ch: string): boolean {
+  return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z';
+}
+
+/**
+ * 数字字面量：`digits[.digits]`，并可带指数部分 `e|E [+|-] digits`。
+ * 只有「`e` 后面确实跟着指数数字」时才吃掉 `e`，否则 `e` 仍是自然常数（`2e` = `2*e`、`2e3` = 2000）。
+ */
+function numberEnd(text: string, start: number): number {
+  let index: number = start;
+  while (index < text.length && isDigit(text.charAt(index))) { index++; }
+  if (index < text.length && text.charAt(index) === '.') {
+    index++;
+    while (index < text.length && isDigit(text.charAt(index))) { index++; }
+  }
+  if (index < text.length && (text.charAt(index) === 'e' || text.charAt(index) === 'E')) {
+    let probe: number = index + 1;
+    if (probe < text.length && (text.charAt(probe) === '+' || text.charAt(probe) === '-')) { probe++; }
+    if (probe < text.length && isDigit(text.charAt(probe))) {
+      probe++;
+      while (probe < text.length && isDigit(text.charAt(probe))) { probe++; }
+      index = probe;
+    }
+  }
+  return index;
 }
 
 function tokenize(text: string): Token[] {
@@ -123,34 +231,29 @@ function tokenize(text: string): Token[] {
   while (index < text.length) {
     const ch: string = text.charAt(index);
     if (ch === ' ' || ch === '\t') { index++; continue; }
-    if (ch >= '0' && ch <= '9' || ch === '.') {
-      let start: number = index;
-      while (index < text.length &&
-        (text.charAt(index) >= '0' && text.charAt(index) <= '9' || text.charAt(index) === '.')) {
-        index++;
-      }
-      const literal: string = text.substring(start, index);
+    if (isDigit(ch) || ch === '.') {
+      const end: number = numberEnd(text, index);
+      const literal: string = text.substring(index, end);
       const parsed: number = Number(literal);
-      if (!Number.isFinite(parsed) || literal === '.') {
+      if (!Number.isFinite(parsed)) {
         tokens.push({ kind: 'bad', text: literal, value: Number.NaN });
       } else {
         tokens.push({ kind: 'number', text: literal, value: parsed });
       }
+      index = end;
       continue;
     }
-    if (ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z') {
+    if (isLetter(ch)) {
       let start: number = index;
       while (index < text.length) {
         const inner: string = text.charAt(index);
-        if (inner >= 'a' && inner <= 'z' || inner >= 'A' && inner <= 'Z' || inner >= '0' && inner <= '9') {
-          index++;
-        } else { break; }
+        if (isLetter(inner) || isDigit(inner)) { index++; } else { break; }
       }
       const name: string = text.substring(start, index).toLowerCase();
       tokens.push({ kind: 'name', text: name, value: Number.NaN });
       continue;
     }
-    if ('+-*/^(),'.indexOf(ch) >= 0) {
+    if ('+-*/^(),!'.indexOf(ch) >= 0) {
       tokens.push({ kind: 'op', text: ch, value: Number.NaN });
       index++;
       continue;
@@ -161,7 +264,7 @@ function tokenize(text: string): Token[] {
   return tokens;
 }
 
-/** 递归下降解析器：expression → term → factor → unary → primary。 */
+/** 递归下降解析器：expression → term → unary → power → postfix → primary。 */
 class Parser {
   private tokens: Token[];
   private position: number = 0;
@@ -195,6 +298,19 @@ class Parser {
   private isMod(): boolean {
     const token: Token | undefined = this.peek();
     return token !== undefined && token.kind === 'name' && token.text === 'mod';
+  }
+
+  /**
+   * 隐式乘法：下一个 token 是 `(` 或已知常量/函数名时，等价于漏写的 `*`。
+   * `mod` 不算（它仍是关键字运算符），数字字面量也不算（`2 3` 保持语法错误）。
+   */
+  private isImplicitProduct(): boolean {
+    const token: Token | undefined = this.peek();
+    if (token === undefined) { return false; }
+    if (token.kind === 'op') { return token.text === '('; }
+    if (token.kind !== 'name') { return false; }
+    if (token.text === 'mod') { return false; }
+    return CONSTANTS.indexOf(token.text) >= 0 || FUNCTIONS.indexOf(token.text) >= 0;
   }
 
   private toRadians(value: number): number {
@@ -232,12 +348,14 @@ class Parser {
         const right: number = this.parseUnary();
         if (right === 0) { this.error = 'divzero'; return Number.NaN; }
         left = left % right;
+      } else if (this.isImplicitProduct()) {
+        left = left * this.parseUnary();
       } else { break; }
     }
     return left;
   }
 
-  /** 一元负号（可叠加 `--3`），`^` 在它下面处理成右结合。 */
+  /** 一元正负号（可叠加 `--3`），`^` 在它下面处理成右结合。 */
   private parseUnary(): number {
     if (this.isOp('-')) {
       this.next();
@@ -252,7 +370,7 @@ class Parser {
   }
 
   private parsePower(): number {
-    const base: number = this.parsePrimary();
+    const base: number = this.parsePostfix();
     if (this.error.length > 0) { return Number.NaN; }
     if (this.isOp('^')) {
       this.next();
@@ -262,6 +380,25 @@ class Parser {
       return value;
     }
     return base;
+  }
+
+  /** 后缀阶乘：比 `^` 更紧，可叠加（`3!!` = `(3!)!`）。 */
+  private parsePostfix(): number {
+    let value: number = this.parsePrimary();
+    while (this.error.length === 0 && this.isOp('!')) {
+      this.next();
+      value = this.factorial(value);
+    }
+    return value;
+  }
+
+  private factorial(value: number): number {
+    if (!Number.isInteger(value) || value < 0) { this.error = 'domain'; return Number.NaN; }
+    if (value > 170) { this.error = 'overflow'; return Number.NaN; }
+    let result: number = 1;
+    for (let factor: number = 2; factor <= value; factor++) { result = result * factor; }
+    if (!Number.isFinite(result)) { this.error = 'overflow'; return Number.NaN; }
+    return result;
   }
 
   private parsePrimary(): number {
@@ -284,47 +421,132 @@ class Parser {
   private parseName(name: string): number {
     if (name === 'pi') { return Math.PI; }
     if (name === 'e') { return Math.E; }
-    if (FUNCTIONS.indexOf(name) < 0) { this.error = 'unknown'; return Number.NaN; }
+    const def: FunctionDef | undefined = FUNCTION_DEFS.find((item: FunctionDef): boolean => item.id === name);
+    if (def === undefined) { this.error = 'unknown'; return Number.NaN; }
     if (!this.isOp('(')) { this.error = 'syntax'; return Number.NaN; }
     this.next();
-    const argument: number = this.parseExpression();
+    const args: number[] = [];
+    if (!this.isOp(')')) {
+      args.push(this.parseExpression());
+      while (this.error.length === 0 && this.isOp(',')) {
+        this.next();
+        args.push(this.parseExpression());
+      }
+    }
     if (this.error.length > 0) { return Number.NaN; }
     if (!this.isOp(')')) { this.error = 'syntax'; return Number.NaN; }
     this.next();
-    return this.applyFunction(name, argument);
+    if (args.length < def.minArgs || args.length > def.maxArgs) { this.error = 'syntax'; return Number.NaN; }
+    return this.applyFunction(name, args);
   }
 
-  private applyFunction(name: string, argument: number): number {
-    if (name === 'abs') { return Math.abs(argument); }
-    if (name === 'sqrt') {
-      if (argument < 0) { this.error = 'domain'; return Number.NaN; }
-      return Math.sqrt(argument);
+  private integerArgument(value: number): boolean {
+    return Number.isInteger(value);
+  }
+
+  /** 组合数：乘法循环 + 逐步取整，避免先算阶乘再相除造成溢出与浮点漂移。 */
+  private combinations(n: number, r: number): number {
+    const k: number = r <= n - r ? r : n - r;
+    let result: number = 1;
+    for (let step: number = 1; step <= k; step++) {
+      result = Math.round(result * (n - k + step) / step);
+      if (!Number.isFinite(result)) { this.error = 'overflow'; return Number.NaN; }
     }
+    return result;
+  }
+
+  private applyFunction(name: string, args: number[]): number {
+    const first: number = args[0];
+    if (name === 'abs') { return Math.abs(first); }
+    if (name === 'sign') { return Math.sign(first); }
+    if (name === 'floor') { return Math.floor(first); }
+    if (name === 'ceil') { return Math.ceil(first); }
+    if (name === 'round') { return Math.round(first); }
+    if (name === 'sqrt') {
+      if (first < 0) { this.error = 'domain'; return Number.NaN; }
+      return Math.sqrt(first);
+    }
+    if (name === 'cbrt') { return Math.cbrt(first); }
+    if (name === 'exp') { return Math.exp(first); }
     if (name === 'ln') {
-      if (argument <= 0) { this.error = 'domain'; return Number.NaN; }
-      return Math.log(argument);
+      if (first <= 0) { this.error = 'domain'; return Number.NaN; }
+      return Math.log(first);
+    }
+    if (name === 'log2') {
+      if (first <= 0) { this.error = 'domain'; return Number.NaN; }
+      return Math.log(first) / Math.LN2;
     }
     if (name === 'log') {
-      if (argument <= 0) { this.error = 'domain'; return Number.NaN; }
-      return Math.log(argument) / Math.LN10;
+      if (first <= 0) { this.error = 'domain'; return Number.NaN; }
+      if (args.length === 1) { return Math.log(first) / Math.LN10; }
+      const base: number = args[1];
+      if (base <= 0 || base === 1) { this.error = 'domain'; return Number.NaN; }
+      return Math.log(first) / Math.log(base);
     }
-    if (name === 'sin') { return Math.sin(this.toRadians(argument)); }
-    if (name === 'cos') { return Math.cos(this.toRadians(argument)); }
+    if (name === 'sin') { return Math.sin(this.toRadians(first)); }
+    if (name === 'cos') { return Math.cos(this.toRadians(first)); }
     if (name === 'tan') {
-      const radians: number = this.toRadians(argument);
+      const radians: number = this.toRadians(first);
       // 90°+180°k 处正切无定义：Math.tan 会给出巨大值，这里直接判为域错误
       if (Math.abs(Math.cos(radians)) < 1e-12) { this.error = 'domain'; return Number.NaN; }
       return Math.tan(radians);
     }
     if (name === 'asin') {
-      if (argument < -1 || argument > 1) { this.error = 'domain'; return Number.NaN; }
-      return this.fromRadians(Math.asin(argument));
+      if (first < -1 || first > 1) { this.error = 'domain'; return Number.NaN; }
+      return this.fromRadians(Math.asin(first));
     }
     if (name === 'acos') {
-      if (argument < -1 || argument > 1) { this.error = 'domain'; return Number.NaN; }
-      return this.fromRadians(Math.acos(argument));
+      if (first < -1 || first > 1) { this.error = 'domain'; return Number.NaN; }
+      return this.fromRadians(Math.acos(first));
     }
-    return this.fromRadians(Math.atan(argument));
+    if (name === 'atan') { return this.fromRadians(Math.atan(first)); }
+    if (name === 'sinh') { return Math.sinh(first); }
+    if (name === 'cosh') { return Math.cosh(first); }
+    if (name === 'tanh') { return Math.tanh(first); }
+    if (name === 'asinh') { return Math.asinh(first); }
+    if (name === 'acosh') {
+      if (first < 1) { this.error = 'domain'; return Number.NaN; }
+      return Math.acosh(first);
+    }
+    if (name === 'atanh') {
+      if (first <= -1 || first >= 1) { this.error = 'domain'; return Number.NaN; }
+      return Math.atanh(first);
+    }
+    if (name === 'hypot') { return Math.hypot(first, args[1]); }
+    if (name === 'min') { return Math.min(first, args[1]); }
+    if (name === 'max') { return Math.max(first, args[1]); }
+    // 以下四个要求整数参数（gcd/lcm 非负，ncr/npr 满足 0 ≤ r ≤ n ≤ 1000）
+    const second: number = args[1];
+    if (!this.integerArgument(first) || !this.integerArgument(second)) {
+      this.error = 'domain';
+      return Number.NaN;
+    }
+    if (name === 'gcd' || name === 'lcm') {
+      if (first < 0 || second < 0) { this.error = 'domain'; return Number.NaN; }
+      let left: number = first;
+      let right: number = second;
+      while (right !== 0) {
+        const remainder: number = left % right;
+        left = right;
+        right = remainder;
+      }
+      if (name === 'lcm') {
+        if (first === 0 || second === 0) { return 0; }
+        return first / left * second;
+      }
+      return left;
+    }
+    if (first < 0 || second < 0 || second > first || first > 1000) {
+      this.error = 'domain';
+      return Number.NaN;
+    }
+    if (name === 'ncr') { return this.combinations(first, second); }
+    let result: number = 1;
+    for (let step: number = 0; step < second; step++) {
+      result = result * (first - step);
+      if (!Number.isFinite(result)) { this.error = 'overflow'; return Number.NaN; }
+    }
+    return result;
   }
 }
 
@@ -335,7 +557,9 @@ export function calcErrorText(code: string, english: boolean): string {
     return english ? 'Unknown function or constant' : '不支持的函数或常量';
   }
   if (code === 'domain') {
-    return english ? 'Outside the function domain' : '超出函数定义域';
+    return english
+      ? 'Outside the function domain (e.g. square root of a negative, factorial needs a whole number)'
+      : '超出函数定义域（如负数开方、阶乘要求非负整数）';
   }
   if (code === 'divzero') { return english ? 'Division by zero' : '除数不能为 0'; }
   if (code === 'overflow') { return english ? 'Result is too large' : '结果超出可表示范围'; }
@@ -345,6 +569,6 @@ export function calcErrorText(code: string, english: boolean): string {
 /** 输入提示（界面占位符与说明共用一份文案）。 */
 export function calcHintText(english: boolean): string {
   return english
-    ? 'e.g. (1+2)*3, 2^10, sin(30), ln(e), sqrt(2), 7 mod 3'
-    : '例如 (1+2)*3、2^10、sin(30)、ln(e)、sqrt(2)、7 mod 3';
+    ? 'e.g. (1+2)*3, 2pi, 1e3, 5!, sin(30), ln(e), sqrt(2), ncr(5,2), 7 mod 3'
+    : '例如 (1+2)*3、2pi、1e3、5!、sin(30)、ln(e)、sqrt(2)、ncr(5,2)、7 mod 3';
 }
