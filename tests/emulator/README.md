@@ -12,8 +12,8 @@
 1. 启动模拟器，确认 `hdc list targets` 有设备（默认取第一个，可用 `DSH_DEVICE` 指定，如 `DSH_DEVICE=127.0.0.1:5555`）。
 2. `hdc` 位置按以下顺序查找：`HDC` 环境变量 → `DEVECO_SDK_HOME/default/openharmony/toolchains/hdc.exe`
    → DevEco 默认安装路径 → `PATH`。
-3. 构建并安装：`hvigorw assembleHap --mode module -p product=default` 后执行 `node tests/emulator/emu.mjs launch`
-   （`launch` = 安装 `entry-default-signed.hap` → force-stop → `aa start`）。
+3. 构建并安装：`node tools/build-hap.mjs` 后执行 `node tests/emulator/emu.mjs launch`
+   （辅助脚本会自动配好 SDK/JBR/PATH；`launch` = 安装 `entry-default-signed.hap` → force-stop → `aa start`）。
 
 ## 命令
 

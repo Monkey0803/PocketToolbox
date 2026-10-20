@@ -1869,6 +1869,14 @@ assert.equal(science.angleLabel('rad', true), 'Radians');
 assert.equal(science.DEFAULT_ANGLE, 'deg');
 assert.equal(science.FUNCTIONS.length, 10);
 assert.ok(science.CONSTANTS.includes('pi') && science.CONSTANTS.includes('e'));
+// 快速插入键登记表：6 项、id 唯一、双语名称非空，且每一项都能单独求值（不会插进表达式后必报语法错）
+assert.equal(science.QUICK_KEYS.length, 6);
+assert.equal(new Set(science.QUICK_KEYS.map((key) => key.id)).size, 6);
+for (const key of science.QUICK_KEYS) {
+  assert.ok(key.zh.length > 0 && key.en.length > 0, `missing quick key label ${key.id}`);
+}
+assert.equal(science.evaluate(science.QUICK_KEYS[0].id, 'deg').error, '');
+assert.equal(science.evaluate(science.QUICK_KEYS[1].id, 'deg').error, '');
 for (const code of ['empty', 'syntax', 'unknown', 'domain', 'divzero', 'overflow']) {
   assert.ok(science.calcErrorText(code, false).length > 0, `missing calc error ${code}`);
   assert.ok(science.calcErrorText(code, true).length > 0, `missing calc error ${code} en`);

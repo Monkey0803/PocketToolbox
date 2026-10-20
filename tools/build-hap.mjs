@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+/**
+ * 构建辅助（Windows / macOS 通用）：调 `hvigorw assembleHap`，并顺手修掉两个环境坑。
+ *
+ * 直接用 `hvigorw` 构建时踩过的两个问题（2026-10-20 本机实测）：
+ * 1. **`spawn java ENOENT`**：打包（`PackageHap`/`SignHap`）会另起一个 JVM，它只认 PATH 里的
+ *    `java`。只设 `JAVA_HOME` 不够——而且 `hvigor` 守护进程会**继承启动时的环境**，一旦守护进程
+ *    是在没有 Java 的终端里起来的，后续构建就一直失败。本脚本把 `JAVA_HOME\bin` 前置进 PATH，
+ *    并默认 `--no-daemon`（避免用到环境不对的旧守护进程）。
+ * 2. **`os::commit_memory ... 页面文件太小`**：JVM 默认按物理内存申请提交量，本机同时开着模拟器时
+ *    会因页面文件不足直接失败。本脚本给 hvigor 自己的 JVM（`--Xmx`）和它派生的 JVM
+ *    （`JAVA_TOOL_OPTIONS=-Xmx…`）都加堆上限，默认 256 MB；用 `--xmx <MB>` 覆盖。
+ *
+ * 用法：
+ *   node tools/build-hap.mjs                   # assembleHap --mode module -p product=default
+ *   node tools/build-hap.mjs --tests           # 构建后顺带跑纯逻辑单测
+ *   node tools/build-hap.mjs --xmx 512         # 放宽堆上限（内存充裕时）
+ *   node tools/build-hap.mjs clean             # 其余参数原样透传给 hvigor
+ *
+ * 查找顺序：环境变量优先，其次 DevEco Studio 默认安装目录。
+ *   DEVECO_STUDIO_HOME / DEVECO_SDK_HOME / JAVA_HOME / HVIGORW
+ */
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(HERE, '..');
+const IS_WINDOWS = process.platform === 'win32';
+const PATH_SEP = IS_WINDOWS ? ';' : ':';
+
+function firstExisting(candidates) {
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) return candidate;
+  }
+  return '';
+}
+
+// DevEco Studio 根目录：Windows 是安装目录，macOS 是 .app 里的 Contents。
+const STUDIO = firstExisting([
+  process.env.DEVECO_STUDIO_HOME,
+  'C:\\Program Files\\Huawei\\DevEco Studio',
+  'D:\\Program Files\\Huawei\\DevEco Studio',
+  '/Applications/DevEco-Studio.app/Contents'
+]);
+
+const ARGS = process.argv.slice(2);
+function optionValue(name) {
+  const index = ARGS.indexOf(name);
+  return index >= 0 ? ARGS[index + 1] : undefined;
+}
+const XMX = Number(optionValue('--xmx') ?? process.env.POCKET_XMX ?? 256);
+const WITH_TESTS = ARGS.includes('--tests');
+// 透传给 hvigor 的参数：去掉本脚本自己的开关。
+const PASS_THROUGH = [];
+for (let index = 0; index < ARGS.length; index++) {
+  const arg = ARGS[index];
+  if (arg === '--tests') continue;
+  if (arg === '--xmx') { index++; continue; }
+  PASS_THROUGH.push(arg);
+}
+
+const SDK_HOME = firstExisting([process.env.DEVECO_SDK_HOME, STUDIO ? join(STUDIO, 'sdk') : '']);
+const JAVA_HOME = firstExisting([
+  process.env.JAVA_HOME,
+  STUDIO ? join(STUDIO, 'jbr', 'Contents', 'Home') : '', // macOS
+  STUDIO ? join(STUDIO, 'jbr') : ''                      // Windows
+]);
+const HVIGORW = firstExisting([
+  process.env.HVIGORW,
+  STUDIO ? join(STUDIO, 'tools', 'hvigor', 'bin', IS_WINDOWS ? 'hvigorw.bat' : 'hvigorw') : '',
+  IS_WINDOWS ? 'hvigorw.bat' : 'hvigorw'
+]);
+
+if (!HVIGORW) {
+  console.error('找不到 hvigorw：请设置 DEVECO_STUDIO_HOME（DevEco Studio 安装目录）或 HVIGORW。');
+  process.exit(1);
+}
+
+const env = { ...process.env };
+/** 大小写不敏感地读环境变量（Windows 上 `process.env` 里的键是 `Path` 而不是 `PATH`）。 */
+function envValue(name) {
+  if (env[name] !== undefined) return env[name];
+  const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name.toUpperCase());
+  return key ? env[key] : '';
+}
+/** 写环境变量并清掉同名的其它大小写变体，避免同时传入 `Path` 与 `PATH` 让子进程只认到一份。 */
+function setEnv(name, value) {
+  for (const key of Object.keys(env)) {
+    if (key !== name && key.toUpperCase() === name.toUpperCase()) delete env[key];
+  }
+  env[name] = value;
+}
+
+if (JAVA_HOME) {
+  setEnv('JAVA_HOME', JAVA_HOME);
+  setEnv('PATH', `${join(JAVA_HOME, 'bin')}${PATH_SEP}${envValue('PATH')}`);
+}
+if (SDK_HOME) setEnv('DEVECO_SDK_HOME', SDK_HOME);
+// 在原有基础上补堆上限，不覆盖用户自己设的其它 JVM 参数。
+const HEAP_CAP = `-Xmx${XMX}m`;
+const existingHeap = envValue('JAVA_TOOL_OPTIONS');
+setEnv('JAVA_TOOL_OPTIONS', existingHeap ? `${existingHeap} ${HEAP_CAP}` : HEAP_CAP);
+
+const tasks = PASS_THROUGH.length > 0 ? PASS_THROUGH : ['assembleHap', '--mode', 'module', '-p', 'product=default'];
+if (!tasks.includes('--daemon') && !tasks.includes('--no-daemon')) tasks.push('--no-daemon');
+if (!tasks.includes('--Xmx')) tasks.push('--Xmx', String(XMX));
+
+console.log(`hvigorw: ${HVIGORW}`);
+console.log(`SDK: ${SDK_HOME || '(未设置 DEVECO_SDK_HOME，由 hvigor 自行解析)'}`);
+console.log(`JAVA_HOME: ${JAVA_HOME || '(未找到 JBR，将以 PATH 里的 java 为准)'}`);
+console.log(`JVM 堆上限: ${XMX} MB（--xmx <MB> 可覆盖）`);
+console.log(`任务: ${tasks.join(' ')}\n`);
+
+// stdio: 'inherit' 让构建日志原样上屏。Windows 下 hvigorw 是 .bat，必须经过 shell；
+// 而安装路径含空格（C:\Program Files\...），shell 模式下 Node 不会给命令行加引号，故自己加。
+const command = `"${HVIGORW}"`;
+const build = spawnSync(command, tasks, { cwd: ROOT, env, stdio: 'inherit', shell: true });
+if ((build.status ?? 1) !== 0) {
+  console.error(`\n构建失败（退出码 ${build.status ?? 1}）。`);
+  if (!JAVA_HOME) {
+    console.error('提示：没找到 JBR，打包阶段可能报 `spawn java ENOENT`——设置 JAVA_HOME 指向 DevEco 的 jbr。');
+  }
+  process.exit(build.status ?? 1);
+}
+
+if (WITH_TESTS) {
+  const tests = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'tests/run-unit-tests.mjs'],
+    { cwd: ROOT, env, stdio: 'inherit' });
+  process.exit(tests.status ?? 1);
+}
+console.log('\n产物：entry/build/default/outputs/default/entry-default-signed.hap');

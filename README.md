@@ -16,9 +16,18 @@ HarmonyOS NEXT ArkTS 离线工具应用，面向手机、平板和折叠屏（�
 
 ## 开发构建
 
-使用 DevEco Studio API 26 打开此目录。终端构建需要 DevEco SDK 与 JBR：
+使用 DevEco Studio API 26 打开此目录。
 
 首次复制 `build-profile.example.json5` 为 `build-profile.json5`；后者是本机签名配置文件，已加入 `.gitignore`。
+
+推荐用仓库里的构建辅助（Windows / macOS 通用，自动定位 DevEco 的 SDK、JBR 与 hvigorw，并把 `JAVA_HOME\bin` 前置进 PATH、给 JVM 加堆上限）：
+
+```sh
+node tools/build-hap.mjs          # = assembleHap --mode module -p product=default
+node tools/build-hap.mjs --tests  # 构建后顺带跑纯逻辑单测
+```
+
+也可以自己配好环境后直接调 hvigorw：
 
 ```sh
 export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
@@ -26,6 +35,8 @@ export JAVA_HOME=/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
 /Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw assembleHap --mode module -p product=default
 ```
+
+两个本机实测过的环境坑（`node tools/build-hap.mjs` 已代劳）：只设 `JAVA_HOME`、不把它的 `bin` 加进 PATH 时，打包阶段会报 `spawn java ENOENT`（hvigor 守护进程还会继承旧环境，故辅助脚本默认 `--no-daemon`）；同时开模拟器时页面文件紧张，JVM 默认提交量会让打包报 `页面文件太小`，辅助脚本默认把堆上限收到 256 MB（`--xmx <MB>` 可放开）。
 
 纯逻辑验证：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs`（本机 Node.js 26）。本机 DevEco Studio 已生成调试签名，调试 HAP 可用于真机安装；发布包仍需正式包名与发布签名。
 

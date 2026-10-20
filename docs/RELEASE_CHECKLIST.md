@@ -158,6 +158,7 @@
   ② 页面 `component/SciencePage.ets`：一行表达式输入、DEG/RAD 走 `OptionSelect`、常用键（`pi`/`e`/`sqrt(`/`ln(`/`^`/`mod`）快捷插入、结果卡与复制/清空。结果行按「只传常量、体内现取」渲染（`resultText()`）。
   - **验证**：单测全绿（新增 60+ 条：优先级与左/右结合、一元负号、`mod`、常量大小写、DEG/RAD 各三角函数与反函数、`ln`/`log`/`sqrt`/`abs`、六类错误码（含 `1/0`、`5 mod 0`、`sqrt(-1)`、`ln(0)`、`asin(2)`、`tan(90)`、`2^10000`）、格式化与登记表文案）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验工具网格出现「科学计算器」（第 18 张）、页面打开、`1+2*3` 求值得到 **7**（[science-calculator-zh.jpeg](screenshots/emulator/science-calculator-zh.jpeg)）。
   - **已知约定与限制**：不支持隐式乘法（`2pi` 要写 `2*pi`）；`mod` 必须与数字分开写（标识符会贪婪吞数字，`7mod3` 报语法错误）；`tan(90)` 判为定义域错误而不是巨大数值。
+  - **窄屏适配修复（2026-10-20，模拟器 Mate X7 折叠态 345 vp 实测）**：常用键原先是 `Row` + `layoutWeight(1)` 均分整行，每格只有约 44 vp，`sqrt(`/`ln(`/`mod` 被系统截断成「…」（用户截图即为该现象）。现把快捷键登记为纯逻辑 `ScientificCalc.QUICK_KEYS`（`id` = 要插入的文本，`zh`/`en` 为无障碍名称），页面改用 `Flex` + `FlexWrap.Wrap` 按内容宽度排布：折叠态 345 vp 换行为 5 + 1、展开态 707 vp 一行 6 个，标签完整（[science-quickkeys-folded-after-fix.jpeg](screenshots/emulator/science-quickkeys-folded-after-fix.jpeg)）；折叠态点 `pi` 插入后结果区变为 `3.141592654`。单测新增登记表完整性断言（6 项、id 唯一、双语名称非空、常量项可单独求值）。
 
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。

@@ -1,10 +1,10 @@
-import { uiMaterial } from '@kit.ArkUI';
+import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { AngleUnit, AngleEntry, ANGLE_UNITS, CalcResult, DEFAULT_ANGLE, angleIndex, angleLabel,
-  evaluate, formatResult, calcErrorText, calcHintText } from '../model/ScientificCalc';
+import { AngleUnit, AngleEntry, ANGLE_UNITS, CalcResult, DEFAULT_ANGLE, QuickKey, QUICK_KEYS,
+  angleIndex, angleLabel, evaluate, formatResult, calcErrorText, calcHintText } from '../model/ScientificCalc';
 
 /**
  * 科学计算器页：一行表达式输入 + 结果，支持括号、幂、取模与常见函数。
@@ -55,13 +55,16 @@ export struct SciencePage {
   }
 
   @Builder private quickKeys() {
-    Row({ space: 8 }) {
-      ForEach(['pi', 'e', 'sqrt(', 'ln(', '^', 'mod'], (key: string) => {
-        Button(key).height(40).layoutWeight(1)
+    // 一行放不下时自动换行：按内容宽度排布，不再用 layoutWeight 均分整行——
+    // 345 vp 的折叠态每格只有约 44 vp，`sqrt(`/`ln(`/`mod` 会被系统截断成「…」（2026-10-20 模拟器实测）。
+    Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
+      ForEach(QUICK_KEYS, (key: QuickKey) => {
+        Button(key.id).height(40)
           .fontSize(15).fontColor(ToolPalette.primaryDeep)
           .backgroundColor(ToolPalette.borderSoft)
-          .onClick(() => { this.expression = this.expression + key; })
-      }, (key: string) => key)
+          .accessibilityText(this.tr(key.zh, key.en))
+          .onClick(() => { this.expression = this.expression + key.id; })
+      }, (key: QuickKey) => key.id)
     }.width('100%')
   }
 

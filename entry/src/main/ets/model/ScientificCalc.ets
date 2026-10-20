@@ -46,6 +46,31 @@ export function angleLabel(id: string, english: boolean): string {
 export const FUNCTIONS: string[] = ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'ln', 'log', 'sqrt', 'abs'];
 export const CONSTANTS: string[] = ['pi', 'e'];
 
+/**
+ * 快速插入键（登记表）：`id` 就是要追加到表达式里的文本，`zh`/`en` 是双语无障碍名称。
+ * 页面按内容宽度自动换行排布（`Flex` + `FlexWrap.Wrap`），不按整行均分，窄屏因此不会截断标签。
+ */
+export class QuickKey {
+  readonly id: string;
+  readonly zh: string;
+  readonly en: string;
+
+  constructor(id: string, zh: string, en: string) {
+    this.id = id;
+    this.zh = zh;
+    this.en = en;
+  }
+}
+
+export const QUICK_KEYS: QuickKey[] = [
+  new QuickKey('pi', '插入 pi', 'Insert pi'),
+  new QuickKey('e', '插入 e', 'Insert e'),
+  new QuickKey('sqrt(', '插入平方根', 'Insert square root'),
+  new QuickKey('ln(', '插入自然对数', 'Insert natural log'),
+  new QuickKey('^', '插入幂运算符', 'Insert power operator'),
+  new QuickKey('mod', '插入取模', 'Insert modulo')
+];
+
 export class CalcResult {
   readonly value: number;
   readonly error: string;
