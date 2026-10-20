@@ -25,6 +25,19 @@ export function remainingAt(deadlineMs: number, nowMs: number): number {
 /** 秒表计次的常用预设（分钟），界面直接用它铺按钮。 */
 export const DURATION_PRESETS_MINUTES: number[] = [1, 5, 10, 15, 25, 30];
 
+export class TimerMode {
+  id: string = '';
+  zh: string = '';
+  en: string = '';
+}
+
+// 计时工具的登记表（与 `DATE_TOOL_MODES`／`RANDOM_MODES`／`COLOR_MODES` 同一口径）：
+// 新增能力时在此追加一项，页面用其中的双语全称做「方式」下拉的选项文案，并按 id 渲染对应内容。
+export const TIMER_MODES: TimerMode[] = [
+  { id: 'countdown', zh: '倒计时', en: 'Countdown' },
+  { id: 'stopwatch', zh: '秒表', en: 'Stopwatch' }
+];
+
 /**
  * 秒表计次：把每次按「计次」时记录的累计毫秒换成单次成绩。
  *

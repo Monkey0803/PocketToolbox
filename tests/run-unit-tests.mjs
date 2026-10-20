@@ -193,6 +193,13 @@ assert.equal(timers.remainingAt(30000, 25000), 5000);
 assert.equal(timers.remainingAt(30000, 35000), 0);
 // --- 计时深化：常用时长预设与秒表计次 ---
 assert.deepEqual(timers.DURATION_PRESETS_MINUTES, [1, 5, 10, 15, 25, 30]);
+// 计时方式的登记表（页面「方式」下拉与 build() 分支都由它驱动）：条数、顺序、id 唯一、文案非空。
+assert.equal(timers.TIMER_MODES.length, 2);
+assert.deepEqual(timers.TIMER_MODES.map((mode) => mode.id), ['countdown', 'stopwatch']);
+assert.equal(new Set(timers.TIMER_MODES.map((mode) => mode.id)).size, timers.TIMER_MODES.length);
+for (const mode of timers.TIMER_MODES) {
+  assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
+}
 assert.deepEqual(timers.lapDurations([1000, 3000, 6000]), [1000, 2000, 3000]);
 assert.deepEqual(timers.lapDurations([]), []);
 assert.deepEqual(timers.lapDurations([0]), [0]);

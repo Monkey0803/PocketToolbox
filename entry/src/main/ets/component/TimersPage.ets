@@ -2,20 +2,25 @@ import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, CountdownItem, StopwatchData } from '../model/LocalData';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES,
-  lapDurations, fastestLapIndex, slowestLapIndex } from '../model/TimerMath';
+  lapDurations, fastestLapIndex, slowestLapIndex, TimerMode, TIMER_MODES } from '../model/TimerMath';
 import { scheduleReminder, cancelReminder } from '../services/SystemTools';
 import { LiveViewHandle, startTimerLiveView, updateTimerLiveView, stopTimerLiveView } from '../services/LiveViewTools';
 
 /**
- * 计时页（多组倒计时 + 秒表）。
+ * 计时页（倒计时 / 秒表）。
  *
  * 自包含工具页：倒计时/秒表状态、本地持久化句柄与刷新定时器都在组件内。持久化用父组件传入的
  * `LocalData`（`data` 由 undefined 变为可用时经 `@Monitor` 重新载入）；实况窗/后台提醒沿用系统能力，
  * 一次性提示经 `@Event onStatus` 交回父组件。
+ *
+ * 「方式」下拉与日期计算页、随机选择页、颜色工具同一套做法：登记表 `TIMER_MODES` 驱动选项文案，
+ * `build()` 按 `timerMode`（id，不是下标）分支渲染，一次只显示当前方式。**切走的那个计时不暂停**：
+ * 两套状态（`timers` / `watch`）与刷新定时器都挂在页面上，面板只是不再渲染，切回来读数照旧。
  */
 @ComponentV2
 export struct TimersPage {
@@ -26,6 +31,7 @@ export struct TimersPage {
   @Param data: LocalData | undefined = undefined;
   @Event onStatus: (message: string) => void = () => {};
 
+  @Local timerMode: string = 'countdown';
   @Local timerName: string = '';
   @Local hours: string = '0';
   @Local minutes: string = '5';
@@ -59,6 +65,39 @@ export struct TimersPage {
   }
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  private timerModeIndex(): number {
+    const index: number = TIMER_MODES.findIndex((mode: TimerMode) => mode.id === this.timerMode);
+    return index < 0 ? 0 : index;
+  }
+
+  private timerModeLabel(): string {
+    const mode: TimerMode = TIMER_MODES[this.timerModeIndex()];
+    return this.english ? mode.en : mode.zh;
+  }
+
+  private modeOptions(): SelectOption[] {
+    return TIMER_MODES.map((mode: TimerMode): SelectOption => {
+      const option: SelectOption = { value: this.english ? mode.en : mode.zh };
+      return option;
+    });
+  }
+
+  // 方式选择与日期计算页「方式」、单位换算页「类别」同一套 UI：
+  // 新增计时能力只需在 TIMER_MODES 加登记项 + 在 build() 加一个面板与分支。
+  @Builder private modeSelect() {
+    OptionSelect({
+      label: this.tr('方式', 'Method'),
+      options: this.modeOptions(),
+      selectedIndex: this.timerModeIndex(),
+      selectedText: this.timerModeLabel(),
+      a11yText: this.tr('计时方式', 'Timer tool'),
+      onSelected: (index: number): void => {
+        const mode: TimerMode | undefined = TIMER_MODES[index];
+        if (mode !== undefined) { this.timerMode = mode.id; }
+      }
+    })
+  }
 
   // 只给时间选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
   private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
@@ -308,6 +347,19 @@ export struct TimersPage {
 
   build() {
     Column({ space: 14 }) {
+      this.modeSelect()
+      if (this.timerMode === 'stopwatch') {
+        this.stopwatchPanel()
+      } else {
+        this.countdownPanel()
+      }
+    }.width('100%')
+  }
+
+  // 倒计时面板（方式=倒计时）：新建倒计时 + 计时器列表。
+  // 切到秒表时本面板不再渲染，但倒计时留在页面上继续跑（tick 与 `timers` 都由页面持有）。
+  @Builder private countdownPanel() {
+    Column({ space: 14 }) {
       Text(this.tr('新建倒计时', 'New countdown')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
@@ -421,6 +473,12 @@ export struct TimersPage {
       // 运行中数字的刷新来自 itemGenerator 子树内 `timerTime(timer)` 对 this.now 的读取，
       // key 里再塞秒级时间戳只是多余的全量重建（2026-10-16 模拟器实测：去掉后数字仍每秒递减）。
       }, (timer: CountdownItem) => timer.id + ':' + timer.state + ':' + timer.remainingMs.toString())
+    }.width('100%')
+  }
+
+  // 秒表面板（方式=秒表）：读数 + 操作行 + 计次记录；切走时秒表同样继续跑。
+  @Builder private stopwatchPanel() {
+    Column({ space: 14 }) {
       Text(this.tr('秒表', 'Stopwatch')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.watchTime()).fontSize(36).fontWeight(FontWeight.Bold).width('100%')
       Row({ space: 8 }) {

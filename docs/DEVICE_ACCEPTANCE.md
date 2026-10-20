@@ -976,6 +976,22 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 - [ ] 真机复核（模拟器无法覆盖的部分）：下拉菜单在真机的宽度/位置、深色模式下选中态对比度，以及 `HdsColorPicker` 色轮取色后回填各自输入框（前景/背景两条链路）。
 - 说明：真机复核项之外的条目均在 API 26 模拟器上以 `dumpLayout` 文本 + 截图完成；模拟器上 `Select` 的弹出偶发需要连点两次才展开（第 24 节同一现象），不影响选中结果。
 
+## 26. 计时页改用「方式」下拉（2026-10-20）
+
+入口：工具网格「计时」（`aa start … --ps tool timers` 可直达）。
+
+实现：纯逻辑 `entry/src/main/ets/model/TimerMath.ets` 新增登记表 `TIMER_MODES`（`countdown` 倒计时 / `stopwatch` 秒表）；页面 `entry/src/main/ets/component/TimersPage.ets` 与日期计算页、随机选择、颜色工具同一套做法——顶部一张 `OptionSelect`「方式」（`label: 方式 / Method`，`a11yText: 计时方式 / Timer tool`），`build()` 按 `timerMode`（id，不是下标）分支渲染，两块内容各自收进 `countdownPanel()`／`stopwatchPanel()`。**口径 A（用户确认）：切走的那个计时不暂停/不停止** —— `timers`／`watch` 状态与 250 ms 刷新定时器都挂在页面上，切换方式只是不再渲染另一块，切回来读数照旧。
+
+| 条目 | 结果 | 证据 / 现象 |
+|---|---|---|
+| 方式下拉两项与默认值 | 通过 | `dumpLayout`：标题「计时」、`方式` 行、选中「倒计时」；`倒计时` 面板显示「新建倒计时 / 时长 / 常用时长 / 重复计时 / 倒计时列表」，秒表块不再出现在同一页 |
+| 常用时长与添加计时器 | 通过 | 点「1分」后时长卡变为 `00:01:00`；点加号后出现计时卡片（`倒计时` + `00:01:00`），冷启动重进页面该计时仍在（落盘正常） |
+| 单位断言 | 见说明 | `TIMER_MODES` 的条数/顺序/id 唯一/文案非空断言已加入 `tests/run-unit-tests.mjs`；本轮只单独跑通该登记表（`TIMER_MODES assertions passed`），**整套单测当时被另一会话在 `RandomTools.ets` 的在途重构挡住**（`rollDice()` 断言失败，与本次改动无关） |
+| 构建 | 通过 | `hvigorw assembleHap --mode module -p product=default --no-daemon` → `BUILD SUCCESSFUL`（含本次改动） |
+
+- [ ] **待复验（下一轮模拟器空闲时或真机上做）**：① 切到「秒表」方式后秒表面板渲染（读数、开始/暂停、计次、重置、计次记录卡）；② **口径 A 的关键行为**——倒计时跑起来后切到秒表、等几秒再切回，剩余时间应已递减（说明切走期间仍在跑）；秒表同理；③ 英文界面（`Method` / `Countdown` / `Stopwatch`）；④ 纯图标按钮的 `accessibilityText`（`dumpLayout` 不导出）。
+- 说明：本轮模拟器被另一个会话同时占用，命令之间页面会被切走（多次出现「`aa start … --ps tool timers` 后落回桌面或别的工具页」），因此只完成了冷启动路径上的前两条；上面未打勾的条目**不是通过，也不是失败**，只是没测到。
+
 ## 回执格式
 
 ```
