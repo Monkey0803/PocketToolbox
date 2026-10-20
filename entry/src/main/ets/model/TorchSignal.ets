@@ -144,6 +144,76 @@ export function morseText(chars: MorseChar[]): string {
   return parts.join(' ');
 }
 
+/**
+ * 文本工具里的摩尔斯输入上限：灯语只闪 20 个字符，但「文本 ⇄ 摩尔斯」是文本加工，
+ * 上限放宽到 2000 个字符，避免超长输入把界面拖住。
+ */
+export const MORSE_TEXT_MAX: number = 2000;
+
+/** 文本 → 点划串（字符之间空格、词间隔 `/`）；只有 A–Z/0–9 能编码，其余字符丢弃。 */
+export function morseEncodeText(text: string): string {
+  if (text.length === 0) { return ''; }
+  return morseText(morseChars(text, MORSE_TEXT_MAX));
+}
+
+/** 摩尔斯解码结果：`unknown` 是无法识别的记号数量（丢弃而**不猜**）。 */
+export class MorseDecodeResult {
+  readonly text: string;
+  readonly unknown: number;
+
+  constructor(text: string, unknown: number) {
+    this.text = text;
+    this.unknown = unknown;
+  }
+}
+
+/** 点划记号 → 字符；与 `morseCode()` 共用同一张 `MORSE_TABLE`（不复制第二份码表）。 */
+function morseCharOf(code: string): string {
+  const entry: MorseEntry | undefined =
+    MORSE_TABLE.find((item: MorseEntry): boolean => item.code === code);
+  return entry === undefined ? '' : entry.char;
+}
+
+/**
+ * 点划串 → 文本：空白分隔记号，`/` 表示词间隔（连续空白只算一次，首尾空白忽略）。
+ *
+ * 无法识别的记号只计数并跳过——与手电筒的摩尔斯输入同一语义（不静默、不猜），
+ * 由调用方决定怎么提示。
+ */
+export function morseDecodeText(code: string): MorseDecodeResult {
+  const letters: string[] = [];
+  let unknown: number = 0;
+  let token: string = '';
+  let pendingWord: boolean = false;
+  for (let index: number = 0; index <= code.length; index++) {
+    // 末尾补一个空白当作哨兵，把最后一个记号也冲出来（不需要在循环外再写一遍收尾）。
+    const ch: string = index < code.length ? code.charAt(index) : ' ';
+    if (index === code.length || isMorseSpace(code, index)) {
+      if (token.length > 0) {
+        if (token === '/') {
+          // 词间隔只在「前面已经有字符」时才有意义，开头/连续的 `/` 直接忽略。
+          pendingWord = letters.length > 0;
+        } else {
+          const char: string = morseCharOf(token);
+          if (char.length === 0) {
+            unknown++;
+          } else {
+            if (pendingWord) {
+              letters.push(' ');
+              pendingWord = false;
+            }
+            letters.push(char);
+          }
+        }
+        token = '';
+      }
+      continue;
+    }
+    token += ch;
+  }
+  return new MorseDecodeResult(letters.join(''), unknown);
+}
+
 /** 摩尔斯字符序列 → 灯光段列表（ms）。 */
 export function segmentsForMorse(chars: MorseChar[], unitMs: number): TorchSegment[] {
   const unit: number = unitMs > 0 ? unitMs : MORSE_UNIT_MS;

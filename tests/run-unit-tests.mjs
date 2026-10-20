@@ -61,7 +61,13 @@ const health = await loadEts('../entry/src/main/ets/model/HealthMath.ets');
 const science = await loadEts('../entry/src/main/ets/model/ScientificCalc.ets');
 const startup = await loadEts('../entry/src/main/ets/model/StartupIntent.ets');
 const compass = await loadEts('../entry/src/main/ets/model/CompassMath.ets');
+const sensorAccuracy = await loadEts('../entry/src/main/ets/model/SensorAccuracy.ets');
 const kinship = await loadEts('../entry/src/main/ets/model/KinshipMath.ets');
+const diffTools = await loadEts('../entry/src/main/ets/model/DiffTools.ets');
+const baseTools = await loadEts('../entry/src/main/ets/model/BaseTools.ets');
+const networkTools = await loadEts('../entry/src/main/ets/model/NetworkTools.ets');
+const anniversaryTools = await loadEts('../entry/src/main/ets/model/AnniversaryTools.ets');
+const fxTools = await loadEts('../entry/src/main/ets/model/FxTools.ets');
 const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.ets');
 const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
 const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
@@ -103,7 +109,12 @@ near(units.convert(1, data, unit(data, 'KiB'), unit(data, 'B')), 1024);
 near(units.convert(1, data, unit(data, 'KB'), unit(data, 'B')), 1000);
 near(units.convert(8, data, unit(data, 'bit'), unit(data, 'B')), 1);
 assert.equal(units.formatValue(Infinity), '—');
-assert.equal(units.CATEGORIES.length, 14);
+assert.equal(units.CATEGORIES.length, 15);
+// 货币类别走 `special = 'currency'`（不在页面按 id 硬编码），单位表为空、换算交给 FxTools
+const currencyCategory = units.CATEGORIES.find((entry) => entry.id === 'currency');
+assert.equal(currencyCategory.special, 'currency');
+assert.equal(currencyCategory.units.length, 0);
+assert.equal(units.categoryIndex('currency'), units.CATEGORIES.findIndex((entry) => entry.id === 'currency'));
 // 新增类别：压力/能量/功率/角度/频率/油耗 + 市制单位
 const lengthChi = unit(length, 'chi');
 near(units.convert(3, length, lengthChi, unit(length, 'm')), 1);
@@ -365,12 +376,15 @@ assert.equal(dates.countdownAt('2026-10-01', '2026-10-31', '2026-09-30'), undefi
 assert.equal(dates.countdownAt('2026-10-15', '2026-10-15', '2026-10-15'), undefined);
 assert.equal(dates.countdownAt('2025-02-29', '2026-10-31', '2026-10-15'), undefined);
 
-assert.equal(dates.DATE_TOOL_MODES.length, 7);
+assert.equal(dates.DATE_TOOL_MODES.length, 8);
 const modeIds = new Set(dates.DATE_TOOL_MODES.map((mode) => mode.id));
 assert.equal(modeIds.size, dates.DATE_TOOL_MODES.length);
 for (const mode of dates.DATE_TOOL_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
 }
+// 新方式追加在末尾，既有下标不受影响
+assert.equal(dates.DATE_TOOL_MODES[0].id, 'interval');
+assert.equal(dates.DATE_TOOL_MODES[dates.DATE_TOOL_MODES.length - 1].id, 'timepoint');
 
 // --- 星座：固定日期区间口径（与年份无关）、摩羯跨年、区间文案、登记表完整性 ---
 assert.equal(dates.CONSTELLATIONS.length, 12);
@@ -829,6 +843,89 @@ near(levels.calculateLevel(9.81, 0, 0).tiltDegrees, 90);
 assert.equal(levels.calculateLevel(9.81, 0, 0).bubbleX, 64);
 assert.equal(levels.calculateLevel(0, 0, 0), undefined);
 assert.equal(levels.calculateLevel(NaN, 0, 9.81), undefined);
+// --- 水平仪：显示单位 / 置零基准 / 峰值保持（2026-10-20 加）---
+assert.equal(levels.LEVEL_TOLERANCE_DEGREES, 2);
+assert.equal(levels.LEVEL_UNITS.length, 4);
+assert.equal(new Set(levels.LEVEL_UNITS.map((entry) => entry.id)).size, 4);
+for (const entry of levels.LEVEL_UNITS) {
+  assert.ok(entry.zh.length > 0 && entry.en.length > 0, `incomplete level unit ${entry.id}`);
+}
+assert.equal(levels.DEFAULT_LEVEL_UNIT, 'degree');
+assert.equal(levels.levelUnitIndex('percent'), 1);
+assert.equal(levels.levelUnitIndex('nope'), -1);
+assert.equal(levels.levelUnitLabel('percent', false), '坡度 %');
+assert.equal(levels.levelUnitLabel('percent', true), 'Slope %');
+assert.equal(levels.levelUnitLabel('nope', false), '度');   // 未知 id 回退默认单位的名字
+assert.equal(levels.tiltDisplayText(12.34, 'degree', false), '12.3°');
+assert.equal(levels.tiltDisplayText(-45, 'percent', false), '100.0%');   // 倾角按绝对值格式化
+assert.equal(levels.tiltDisplayText(45, 'permille', false), '1000.0 mm/m');
+assert.equal(levels.tiltDisplayText(45, 'ratio', false), '1:1.0');
+assert.equal(levels.tiltDisplayText(0, 'ratio', false), '水平');        // 不出现 1:∞
+assert.equal(levels.tiltDisplayText(0, 'ratio', true), 'Level');
+assert.equal(levels.tiltDisplayText(0, 'percent', false), '0.0%');
+assert.equal(levels.tiltDisplayText(Number.NaN, 'degree', false), '');
+// 接近垂直时坡度类单位发散：必须给「接近垂直」而不是 1.6e16 这种假数字
+assert.equal(levels.SLOPE_LIMIT_DEGREES, 85);
+assert.equal(levels.tiltDisplayText(90, 'percent', false), '接近垂直');
+assert.equal(levels.tiltDisplayText(-90, 'permille', true), 'Near vertical');
+assert.equal(levels.tiltDisplayText(90, 'ratio', false), '接近垂直');
+assert.equal(levels.tiltDisplayText(85, 'percent', false), '接近垂直');
+assert.equal(levels.tiltDisplayText(84.9, 'percent', false).endsWith('%'), true);
+assert.equal(levels.tiltDisplayText(90, 'degree', false), '90.0°');   // 度不受该上限影响
+// 置零基准：以绝对角度存储，给出相对读数（新实例）
+assert.equal(levels.offsetFromReading(undefined), undefined);
+const badReading = new levels.LevelReading();
+badReading.xDegrees = Number.NaN;
+assert.equal(levels.offsetFromReading(badReading), undefined);
+const fiveDegrees = levels.calculateLevel(0.86, 0, 9.81);
+const zeroOffset = levels.offsetFromReading(fiveDegrees);
+near(zeroOffset.xDegrees, fiveDegrees.xDegrees);
+const zeroed = levels.applyOffset(fiveDegrees, zeroOffset);
+near(zeroed.tiltDegrees, 0);
+assert.equal(zeroed.level, true);
+near(zeroed.bubbleX, 0);
+near(zeroed.bubbleY, 0);
+// 没有基准时原样返回绝对读数，且必须是新实例（ArkUI V2 不通知原地修改）
+const absolute = levels.applyOffset(fiveDegrees, undefined);
+assert.notEqual(absolute, fiveDegrees);
+near(absolute.tiltDegrees, fiveDegrees.tiltDegrees);
+assert.equal(absolute.level, fiveDegrees.level);
+// 相对倾角是两轴偏差的欧氏合成；置零只影响基准轴
+const combinedRaw = new levels.LevelReading();
+combinedRaw.xDegrees = 3;
+combinedRaw.yDegrees = 4;
+const noOffset = new levels.LevelOffset();
+near(levels.applyOffset(combinedRaw, noOffset).tiltDegrees, 5);
+assert.equal(levels.applyOffset(combinedRaw, noOffset).level, false);
+const xAxisOffset = new levels.LevelOffset();
+xAxisOffset.xDegrees = 3;
+const xZeroed = levels.applyOffset(combinedRaw, xAxisOffset);
+near(xZeroed.xDegrees, 0);
+near(xZeroed.yDegrees, 4);
+near(xZeroed.tiltDegrees, 4);
+// 水平判据按相对倾角，容差仍是 2°
+const twoDegrees = new levels.LevelReading();
+twoDegrees.xDegrees = 2;
+assert.equal(levels.applyOffset(twoDegrees, noOffset).level, true);
+const overTwo = new levels.LevelReading();
+overTwo.xDegrees = 2.1;
+assert.equal(levels.applyOffset(overTwo, noOffset).level, false);
+// 峰值保持：只增不减，非法输入不改变已有峰值
+assert.equal(levels.peakTilt(0, undefined), 0);
+assert.equal(levels.peakTilt(Number.NaN, undefined), 0);
+const peakReading = new levels.LevelReading();
+peakReading.tiltDegrees = 12.5;
+assert.equal(levels.peakTilt(3, peakReading), 12.5);
+assert.equal(levels.peakTilt(30, peakReading), 30);
+assert.equal(levels.peakTilt(30, undefined), 30);
+// 复制整句：纯值 + 轴角，相对基准时另有措辞
+const copyReading = new levels.LevelReading();
+copyReading.tiltDegrees = 12.3;
+copyReading.xDegrees = 12;
+copyReading.yDegrees = 3;
+assert.equal(levels.levelCopyText(copyReading, 'degree', false, false), '倾角 12.3° (X 12.0° · Y 3.0°)');
+assert.equal(levels.levelCopyText(copyReading, 'percent', true, true),
+  'Tilt relative to zero 21.8% (X 12.0° · Y 3.0°)');
 
 assert.equal(barcodes.barcodeInput('code128', 'AB-123'), 'AB-123');
 assert.equal(barcodes.barcodeInput('code128', '中文'), undefined);
@@ -1109,13 +1206,14 @@ for (const kind of ['labor', 'royalty']) {
 }
 
 // 计税类型登记表：界面选项行由它派生，新增类型只加登记项
-assert.equal(tax.TAX_KINDS.length, 5);
-assert.equal(new Set(tax.TAX_KINDS.map((entry) => entry.id)).size, 5);
+assert.equal(tax.TAX_KINDS.length, 6);
+assert.equal(new Set(tax.TAX_KINDS.map((entry) => entry.id)).size, 6);
 for (const entry of tax.TAX_KINDS) {
   assert.ok(entry.id.length > 0 && entry.zh.length > 0 && entry.en.length > 0, `incomplete tax kind ${entry.id}`);
 }
 assert.equal(tax.taxKindIndex('wage'), 0);
 assert.equal(tax.taxKindIndex('unknown'), -1);
+assert.equal(tax.taxKindIndex('bonus'), 5);
 
 // --- 农历名称与格式化（纯逻辑；公历↔农历换算由系统历法负责，见 services/LunarCalendar.ets）---
 assert.equal(lunarTools.ganZhiOfYear(2026), '丙午');
@@ -1210,17 +1308,29 @@ assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-01', fa
 assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', true, [], []), undefined);
 
 // --- 工具元数据：单一数据源（收藏白名单与工具搜索都由它派生）---
-assert.equal(toolMeta.TOOL_META.length, 20);
-assert.equal(toolMeta.TOOL_IDS.length, 20);
-assert.equal(new Set(toolMeta.TOOL_IDS).size, 20);
+assert.equal(toolMeta.TOOL_META.length, 24);
+assert.equal(toolMeta.TOOL_IDS.length, 24);
+assert.equal(new Set(toolMeta.TOOL_IDS).size, 24);
 assert.equal(toolMeta.TOOL_IDS[0], 'qr');
-assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'kinship');
+assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'net');
 assert.ok(toolMeta.TOOL_IDS.includes('timestamp'), 'timestamp must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('loan'), 'loan must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('color'), 'color must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('health'), 'health must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('compass'), 'compass must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('kinship'), 'kinship must be a known tool id');
+assert.ok(toolMeta.TOOL_IDS.includes('base'), 'base must be a known tool id');
+assert.ok(toolMeta.TOOL_IDS.includes('diff'), 'diff must be a known tool id');
+assert.ok(toolMeta.TOOL_IDS.includes('anniversary'), 'anniversary must be a known tool id');
+assert.ok(toolMeta.TOOL_IDS.includes('net'), 'net must be a known tool id');
+assert.equal(toolMeta.toolMetaById('net').titleZh, '网络工具');
+assert.equal(toolMeta.toolMetaById('net').titleEn, 'Network tools');
+assert.equal(toolMeta.toolMetaById('base').titleZh, '进制与位运算');
+assert.equal(toolMeta.toolMetaById('base').titleEn, 'Base & bitwise');
+assert.equal(toolMeta.toolMetaById('diff').titleZh, '文本对比');
+assert.equal(toolMeta.toolMetaById('diff').titleEn, 'Text diff');
+assert.equal(toolMeta.toolMetaById('anniversary').titleZh, '纪念日');
+assert.equal(toolMeta.toolMetaById('anniversary').titleEn, 'Anniversaries');
 assert.equal(toolMeta.toolMetaById('kinship').titleZh, '亲戚称呼');
 assert.equal(toolMeta.toolMetaById('kinship').titleEn, 'Kinship calculator');
 assert.equal(toolMeta.toolMetaById('compass').titleZh, '指南针');
@@ -1243,7 +1353,7 @@ assert.deepEqual(toolMeta.allowedFavorites(['qr', 'qr']), ['qr']);
 assert.deepEqual(toolMeta.allowedFavorites([]), []);
 assert.deepEqual(toolMeta.allowedFavorites(['history']), []);
 assert.deepEqual(toolMeta.allowedFavorites(undefined), []);
-assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 20);
+assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 24);
 assert.deepEqual(toolMeta.allowedFavorites(toolMeta.TOOL_IDS), toolMeta.TOOL_IDS);
 
 // 工具搜索：空查询返回全部；中英双语与 id 都能命中；无命中返回空
@@ -1272,7 +1382,20 @@ assert.deepEqual(toolMeta.matchTools('BMI'), ['health']);
 assert.deepEqual(toolMeta.matchTools('bmr'), ['health']);
 assert.deepEqual(toolMeta.matchTools('基础代谢'), ['health']);
 assert.deepEqual(toolMeta.matchTools('房贷'), ['loan']);
-assert.deepEqual(toolMeta.matchTools('hex'), ['color']);
+// `hex` 既是颜色工具的别名，也是进制工具的别名（按 TOOL_IDS 顺序返回）
+assert.deepEqual(toolMeta.matchTools('hex'), ['color', 'base']);
+assert.deepEqual(toolMeta.matchTools('进制'), ['base']);
+assert.deepEqual(toolMeta.matchTools('位运算'), ['base']);
+assert.deepEqual(toolMeta.matchTools('diff'), ['diff']);
+assert.deepEqual(toolMeta.matchTools('文本对比'), ['diff']);
+assert.deepEqual(toolMeta.matchTools('差异'), ['diff']);
+assert.deepEqual(toolMeta.matchTools('纪念日'), ['anniversary']);
+assert.deepEqual(toolMeta.matchTools('anniversary'), ['anniversary']);
+assert.deepEqual(toolMeta.matchTools('倒数日'), ['anniversary']);
+assert.deepEqual(toolMeta.matchTools('dns'), ['net']);
+assert.deepEqual(toolMeta.matchTools('域名解析'), ['net']);
+assert.deepEqual(toolMeta.matchTools('响应头'), ['net']);
+assert.deepEqual(toolMeta.matchTools('网络工具'), ['net']);
 assert.deepEqual(toolMeta.matchTools('对比度'), ['color']);
 assert.deepEqual(toolMeta.matchTools('抽签'), ['random']);
 assert.deepEqual(toolMeta.matchTools('指南针'), ['compass']);
@@ -2231,6 +2354,69 @@ assert.equal(compass.isCompassFlat(0, Number.POSITIVE_INFINITY), false);
 assert.ok(compass.compassTiltHint(false).length > 0 && compass.compassTiltHint(true).length > 0);
 assert.ok(compass.compassCalibrationHint(false).length > 0 &&
   compass.compassCalibrationHint(true).length > 0);
+// --- 指南针：显示单位（度 / 北约密位）、锁定方位、复制整句（2026-10-20 加）---
+assert.equal(compass.HEADING_UNITS.length, 2);
+assert.equal(new Set(compass.HEADING_UNITS.map((entry) => entry.id)).size, 2);
+for (const entry of compass.HEADING_UNITS) {
+  assert.ok(entry.zh.length > 0 && entry.en.length > 0, `incomplete heading unit ${entry.id}`);
+}
+assert.equal(compass.DEFAULT_HEADING_UNIT, 'degree');
+assert.equal(compass.MILS_PER_TURN, 6400);
+assert.equal(compass.headingUnitIndex('mil'), 1);
+assert.equal(compass.headingUnitIndex('nope'), -1);
+assert.equal(compass.headingUnitLabel('mil', false), '密位');
+assert.equal(compass.headingUnitLabel('mil', true), 'Mils');
+assert.equal(compass.headingUnitLabel('nope', true), 'Degrees');   // 未知 id 回退默认单位
+assert.equal(compass.headingMils(0), 0);
+assert.equal(compass.headingMils(90), 1600);
+assert.equal(compass.headingMils(359.99), 0);   // 先取整再取模，绝不出现 6400 mil
+assert.equal(compass.headingMils(-90), 4800);
+assert.equal(Number.isNaN(compass.headingMils(Number.NaN)), true);
+assert.equal(compass.headingTextInUnit(90, 'mil'), '1600 mil');
+assert.equal(compass.headingTextInUnit(90, 'degree'), '90.0°');
+assert.equal(compass.headingTextInUnit(90, 'nope'), '90.0°');   // 未知单位回退到度
+assert.equal(compass.headingTextInUnit(Number.NaN, 'mil'), '');
+// 锁定方位：最短弧偏差、左右转语义（设备该怎么转）与对准容差
+assert.equal(compass.BEARING_ALIGN_TOLERANCE_DEGREES, 3);
+const alignedBearing = compass.bearingDeviation(90, 92);
+assert.equal(alignedBearing.aligned, true);
+assert.equal(alignedBearing.side, 'aligned');
+near(alignedBearing.delta, 2);
+assert.equal(compass.bearingDeviation(90, 93.1).aligned, false);
+const turnRight = compass.bearingDeviation(10, 350);   // 当前在目标逆时针一侧 → 顺时针转
+assert.equal(turnRight.side, 'right');
+near(turnRight.delta, 20);
+const turnLeft = compass.bearingDeviation(350, 10);
+assert.equal(turnLeft.side, 'left');
+near(turnLeft.delta, 20);
+assert.equal(compass.bearingSideText('left', false), '左转');
+assert.equal(compass.bearingSideText('right', true), 'Turn right');
+assert.equal(compass.bearingSideText('aligned', false), '');   // 对准由 bearingStatusText 专门措辞
+assert.equal(compass.bearingSideText('', false), '');
+assert.equal(compass.bearingStatusText(compass.bearingDeviation(90, 92), false), '已对准锁定方位');
+assert.equal(compass.bearingStatusText(compass.bearingDeviation(350, 10), false), '左转 20.0°');
+assert.equal(compass.bearingStatusText(compass.bearingDeviation(Number.NaN, 10), false), '');
+// 复制整句（纯值 + 方位名）
+assert.equal(compass.compassCopyText(135, 'degree', false), '135.0° · 东南');
+assert.equal(compass.compassCopyText(135, 'degree', true), '135.0° · SE');
+assert.equal(compass.compassCopyText(90, 'mil', false), '1600 mil · 东');
+assert.equal(compass.compassCopyText(Number.NaN, 'mil', false), '');
+// --- 传感器精度（指南针与水平仪共用，序号与 sensor.SensorAccuracy 一致）---
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_UNRELIABLE, 0);
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_LOW, 1);
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_MEDIUM, 2);
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_HIGH, 3);
+assert.equal(sensorAccuracy.sensorAccuracyReliable(0), false);
+assert.equal(sensorAccuracy.sensorAccuracyReliable(1), false);
+assert.equal(sensorAccuracy.sensorAccuracyReliable(2), true);
+assert.equal(sensorAccuracy.sensorAccuracyReliable(3), true);
+assert.equal(sensorAccuracy.sensorAccuracyReliable(Number.NaN), true);   // 取不到字段按可信处理
+assert.equal(sensorAccuracy.sensorAccuracyReliable(99), true);
+assert.equal(sensorAccuracy.sensorAccuracyHint(false, 3, true), '');      // 可靠时不占版面
+assert.ok(sensorAccuracy.sensorAccuracyHint(false, 0, true).includes('磁力计'));
+assert.ok(sensorAccuracy.sensorAccuracyHint(true, 1, true).includes('magnetometer'));
+assert.ok(sensorAccuracy.sensorAccuracyHint(false, 0, false).includes('加速度计'));
+assert.ok(sensorAccuracy.sensorAccuracyHint(true, 1, false).includes('accelerometer'));
 
 // --- 界面语言偏好：跟随系统 / 简体中文 / English（旧版本只存 zh/en，必须兼容）---
 assert.equal(language.LANGUAGE_OPTIONS.length, 3);
@@ -2740,6 +2926,569 @@ assert.deepEqual(torchSignal.morseChars('中文', 20), []);
 assert.equal(torchSignal.morseChars('abcdefghijklmnopqrst', 20).length, 20);
 assert.equal(torchSignal.morseChars('abcdefghijklmnopqrstuvw', 20).length, 20);
 assert.deepEqual(torchSignal.morseChars('A A', 1).map((entry) => entry.char), ['A']);
+
+// --- 文本工具里的摩尔斯编解码（与灯语共用同一张码表）---
+assert.equal(torchSignal.MORSE_TEXT_MAX, 2000);
+assert.equal(torchSignal.morseEncodeText(''), '');
+assert.equal(torchSignal.morseEncodeText('SOS'), '... --- ...');
+assert.equal(torchSignal.morseEncodeText('sos'), '... --- ...');
+assert.equal(torchSignal.morseEncodeText('a b'), '.- / -...');
+assert.equal(torchSignal.morseEncodeText('a中b'), '.- -...');
+assert.equal(torchSignal.morseEncodeText('中'), '');
+assert.equal(torchSignal.morseEncodeText('2'), '..---');
+const decodedSos = torchSignal.morseDecodeText('... --- ...');
+assert.equal(decodedSos.text, 'SOS');
+assert.equal(decodedSos.unknown, 0);
+const decodedWord = torchSignal.morseDecodeText('.- / -...');
+assert.equal(decodedWord.text, 'A B');
+assert.equal(decodedWord.unknown, 0);
+// 连续空白、首尾空白都不产生多余空格；开头的 `/` 无意义
+assert.equal(torchSignal.morseDecodeText('  ...   ---  ').text, 'SO');
+assert.equal(torchSignal.morseDecodeText('/ ... --- ... /').text, 'SOS');
+// 无法识别的记号只计数、不猜
+const decodedUnknown = torchSignal.morseDecodeText('....-. ...');
+assert.equal(decodedUnknown.text, 'S');
+assert.equal(decodedUnknown.unknown, 1);
+assert.equal(torchSignal.morseDecodeText('').text, '');
+assert.equal(torchSignal.morseDecodeText('   ').text, '');
+assert.equal(torchSignal.morseDecodeText('中文').unknown, 1);
+// 往返一致（文本 → 点划 → 文本）
+const morseRoundTrip = torchSignal.morseEncodeText('HELLO 2026');
+assert.equal(torchSignal.morseDecodeText(morseRoundTrip).text, 'HELLO 2026');
+assert.equal(torchSignal.morseDecodeText(morseRoundTrip).unknown, 0);
+// 超长输入按上限截断而不是无限增长
+assert.equal(torchSignal.morseEncodeText('A'.repeat(2500)).split(' ').length, torchSignal.MORSE_TEXT_MAX);
+
+// --- 文本对比（纯逻辑）---
+assert.equal(diffTools.DIFF_MAX_LINES, 600);
+const diffSame = diffTools.diffLines('a\nb', 'a\nb');
+assert.equal(diffSame.ok, true);
+assert.equal(diffSame.error, '');
+assert.equal(diffSame.added, 0);
+assert.equal(diffSame.removed, 0);
+assert.equal(diffSame.unchanged, 2);
+assert.deepEqual(diffSame.lines.map((line) => line.kind), ['same', 'same']);
+// 替换：删除行紧挨着新增行之前
+const diffReplace = diffTools.diffLines('a\nb', 'a\nc');
+assert.deepEqual(diffReplace.lines.map((line) => line.kind), ['same', 'removed', 'added']);
+assert.equal(diffReplace.lines[1].text, 'b');
+assert.equal(diffReplace.lines[1].leftNo, 2);
+assert.equal(diffReplace.lines[1].rightNo, 0);
+assert.equal(diffReplace.lines[2].text, 'c');
+assert.equal(diffReplace.lines[2].leftNo, 0);
+assert.equal(diffReplace.lines[2].rightNo, 2);
+assert.equal(diffReplace.added, 1);
+assert.equal(diffReplace.removed, 1);
+// 纯新增 / 纯删除
+const diffAdd = diffTools.diffLines('a', 'a\nb\nc');
+assert.deepEqual(diffAdd.lines.map((line) => line.kind), ['same', 'added', 'added']);
+assert.equal(diffAdd.added, 2);
+assert.equal(diffAdd.removed, 0);
+const diffRemove = diffTools.diffLines('a\nb\nc', 'a');
+assert.deepEqual(diffRemove.lines.map((line) => line.kind), ['same', 'removed', 'removed']);
+assert.equal(diffRemove.added, 0);
+assert.equal(diffRemove.removed, 2);
+// 中间插入
+const diffInsert = diffTools.diffLines('a\nc', 'a\nb\nc');
+assert.deepEqual(diffInsert.lines.map((line) => line.kind), ['same', 'added', 'same']);
+assert.equal(diffInsert.lines[1].text, 'b');
+assert.equal(diffInsert.lines[1].rightNo, 2);
+// CRLF / CR 归一 + 末尾换行不产生假差异
+assert.equal(diffTools.diffLines('a\r\nb', 'a\nb').added, 0);
+assert.equal(diffTools.diffLines('a\r\nb', 'a\nb').removed, 0);
+assert.equal(diffTools.diffLines('a\rb', 'a\nb').added, 0);
+assert.equal(diffTools.diffLines('a\n', 'a').added, 0);
+assert.equal(diffTools.diffLines('a\n', 'a').removed, 0);
+assert.equal(diffTools.diffLines('a\n', 'a').unchanged, 1);
+// 行数恒等式
+const diffMixed = diffTools.diffLines('1\n2\n3\n4', '1\n3\n4\n5');
+assert.equal(diffMixed.lines.length, diffMixed.added + diffMixed.removed + diffMixed.unchanged);
+// 空输入
+assert.equal(diffTools.diffLines('', '').error, 'empty');
+assert.equal(diffTools.diffLines('   ', '\n\n').error, 'empty');
+assert.equal(diffTools.diffLines('', '').ok, false);
+// 上限：600 行允许，601 行拒绝
+const lines600 = Array.from({ length: 600 }, (unused, index) => 'line' + index).join('\n');
+const lines601 = Array.from({ length: 601 }, (unused, index) => 'line' + index).join('\n');
+assert.equal(diffTools.diffLines(lines600, lines600).ok, true);
+assert.equal(diffTools.diffLines(lines601, 'a').error, 'toolarge');
+assert.equal(diffTools.diffLines('a', lines601).error, 'toolarge');
+// 复制文本：纯值、三种前缀、无尾随空行
+assert.equal(diffTools.diffCopyText(diffReplace), ' a\n-b\n+c');
+assert.equal(diffTools.diffCopyText(diffSame), ' a\n b');
+assert.equal(diffTools.diffCopyText(diffTools.diffLines('', '')), '');
+assert.ok(diffTools.diffErrorText('toolarge', false).includes('600'));
+assert.ok(diffTools.diffErrorText('toolarge', true).includes('600'));
+assert.ok(diffTools.diffErrorText('empty', false).length > 0);
+assert.ok(diffTools.diffErrorText('empty', true).length > 0);
+assert.equal(diffTools.diffErrorText('', false), '');
+
+// --- 密码类型（密码 / PIN）、PIN 生成与强度预估 ---
+function byteSequence(values) {
+  let index = 0;
+  return () => values[index++ % values.length];
+}
+assert.equal(passwords.PASSWORD_MODES.length, 2);
+assert.deepEqual(passwords.PASSWORD_MODES.map((mode) => mode.id), ['password', 'pin']);
+assert.equal(passwords.passwordModeIndex('password'), 0);
+assert.equal(passwords.passwordModeIndex('pin'), 1);
+assert.equal(passwords.passwordModeIndex('nope'), -1);
+assert.equal(passwords.passwordModeById('pin').zh, 'PIN 码');
+assert.equal(passwords.passwordModeById('nope'), undefined);
+assert.deepEqual(passwords.PIN_LENGTHS, [4, 6, 8]);
+assert.equal(passwords.DEFAULT_PIN_LENGTH, 6);
+assert.equal(passwords.pinLengthIndex(6), 1);
+assert.equal(passwords.pinLengthIndex(5), -1);
+// 退化 PIN 判定：全同 / 连续升降都算太弱；含非数字或过短无法判定
+assert.equal(passwords.isTrivialPin('2222'), true);
+assert.equal(passwords.isTrivialPin('2345'), true);
+assert.equal(passwords.isTrivialPin('8765'), true);
+assert.equal(passwords.isTrivialPin('1357'), false);
+assert.equal(passwords.isTrivialPin('2468'), false);
+assert.equal(passwords.isTrivialPin('1122'), false);
+assert.equal(passwords.isTrivialPin(''), false);
+assert.equal(passwords.isTrivialPin('2'), false);
+assert.equal(passwords.isTrivialPin('22a2'), false);
+// 退化序列反复出现时重试到上限后原样返回，绝不死循环
+assert.equal(passwords.generatePin(4, () => 0), '2222');
+// 正常随机源：只用 DIGITS 里的字符，命中退化就整串重试
+assert.equal(passwords.generatePin(6, byteSequence([0, 0, 0, 0, 0, 1])), '222223');
+assert.equal(passwords.generatePin(6, byteSequence([1, 2, 3, 4, 5, 6])).length, 6);
+assert.ok(/^[2-9]{6}$/.test(passwords.generatePin(6, byteSequence([1, 2, 3, 4, 5, 7]))));
+assert.throws(() => passwords.generatePin(3, () => 0));
+assert.throws(() => passwords.generatePin(13, () => 0));
+// 强度预估：阈值 40/60/80，非法输入当 0 处理
+assert.equal(passwords.strengthLevel(0), 'weak');
+assert.equal(passwords.strengthLevel(39.9), 'weak');
+assert.equal(passwords.strengthLevel(40), 'fair');
+assert.equal(passwords.strengthLevel(59), 'fair');
+assert.equal(passwords.strengthLevel(60), 'strong');
+assert.equal(passwords.strengthLevel(79), 'strong');
+assert.equal(passwords.strengthLevel(80), 'excellent');
+assert.equal(passwords.strengthLevel(Number.NaN), 'weak');
+assert.equal(passwords.strengthLevel(-5), 'weak');
+assert.equal(passwords.strengthText('strong', 78, false), '强 · 约 78 位熵');
+assert.equal(passwords.strengthText('strong', 78, true), 'Strong · about 78 bits');
+assert.equal(passwords.strengthText('weak', 0, false), '无法估算');
+assert.equal(passwords.strengthText('weak', 0, true), 'Cannot estimate');
+const pinBits = passwords.pinEntropyBits(4);
+assert.ok(Math.abs(pinBits - 12) < 1e-9);
+const defaultOptions = new passwords.PasswordOptions();
+const defaultBits = passwords.entropyBits(defaultOptions);
+assert.ok(defaultBits > 90 && defaultBits < 120, `unexpected entropy ${defaultBits}`);
+const pinOnlyOptions = new passwords.PasswordOptions();
+pinOnlyOptions.length = 7;
+assert.equal(passwords.entropyBits(pinOnlyOptions), 0);
+const noSetOptions = new passwords.PasswordOptions();
+noSetOptions.upper = false;
+noSetOptions.lower = false;
+noSetOptions.digits = false;
+noSetOptions.symbols = false;
+assert.equal(passwords.entropyBits(noSetOptions), 0);
+
+// --- 个税：年终奖单独计税（奖金 ÷ 12 定档 + 临界点提示）---
+assert.deepEqual(tax.BONUS_LIMITS, [300000, 1200000, 2500000, 3500000, 5500000, 8000000]);
+assert.equal(tax.BONUS_RATES.length, tax.BONUS_LIMITS.length + 1);
+assert.equal(tax.BONUS_QUICK.length, tax.BONUS_LIMITS.length + 1);
+assert.deepEqual(tax.BONUS_TRAPS, [3600000, 14400000, 30000000, 42000000, 66000000, 96000000]);
+const bonus36000 = tax.bonusTax(3600000);
+assert.equal(bonus36000.ratePercent, 3);
+assert.equal(bonus36000.taxableCents, 3600000);
+assert.equal(bonus36000.taxCents, 108000);
+assert.equal(bonus36000.netCents, 3492000);
+// 多发 1 元跨档：税率从 3% 跳到 10%
+const bonus36001 = tax.bonusTax(3600001);
+assert.equal(bonus36001.ratePercent, 10);
+assert.equal(bonus36001.taxCents, 339000);
+assert.equal(bonus36001.netCents, 3261001);
+assert.equal(tax.bonusTax(1200000).ratePercent, 3);
+assert.equal(tax.bonusTax(1200000).taxCents, 36000);
+assert.equal(tax.bonusTax(0), undefined);
+assert.equal(tax.bonusTax(-1), undefined);
+assert.equal(tax.bonusTax(1.5), undefined);
+assert.equal(tax.bonusTax(Number.NaN), undefined);
+// 临界点提示：只在临界点前方 1 元以内出现（gap 以分为单位，1 分 = 0.01 元）
+assert.ok(tax.bonusTrapHint(3600000 - 1, false).includes('0.01'));
+assert.ok(tax.bonusTrapHint(3600000 - 1, true).includes('0.01'));
+assert.ok(tax.bonusTrapHint(3600000 - 100, false).includes('1.00'));
+assert.equal(tax.bonusTrapHint(3600000 - 101, false), '');
+assert.equal(tax.bonusTrapHint(3600000, false), '');
+assert.equal(tax.bonusTrapHint(3600001, false), '');
+assert.equal(tax.bonusTrapHint(0, false), '');
+assert.ok(tax.bonusNoteText(false).includes('2027-12-31'));
+assert.ok(tax.bonusNoteText(true).includes('2027-12-31'));
+
+// --- 日期：时间点差值（墙上时间口径，与设备时区无关）---
+assert.equal(dates.timeTextOf(0, 0, 0), '00:00:00');
+assert.equal(dates.timeTextOf(9, 5, 7), '09:05:07');
+assert.equal(dates.timeTextOf(23, 59, 59), '23:59:59');
+assert.equal(dates.timeTextOf(24, 0, 0), '');
+assert.equal(dates.timeTextOf(1, 60, 0), '');
+assert.equal(dates.timeTextOf(1.5, 0, 0), '');
+const wallClock = dates.parseWallClock('2026-10-20');
+assert.equal(wallClock.year, 2026);
+assert.equal(wallClock.month, 10);
+assert.equal(wallClock.day, 20);
+assert.equal(wallClock.hours, 0);
+assert.equal(wallClock.minutes, 0);
+assert.equal(wallClock.seconds, 0);
+assert.equal(dates.parseWallClock('2026/10/20 08:30').hours, 8);
+assert.equal(dates.parseWallClock('2026/10/20 08:30').minutes, 30);
+assert.equal(dates.parseWallClock('2026-10-20 08:30').seconds, 0);
+assert.equal(dates.parseWallClock('2026-10-20T08:30:45').seconds, 45);
+// 年份 0–99 按字面解析（不能被加上 1900）
+assert.equal(dates.parseWallClock('0001-01-01').year, 1);
+assert.equal(dates.parseWallClock('0099-12-31').year, 99);
+// 字段越界、日期不存在、格式不完整一律 undefined
+assert.equal(dates.parseWallClock('2026-13-01'), undefined);
+assert.equal(dates.parseWallClock('2025-02-29'), undefined);
+assert.equal(dates.parseWallClock('2026-2-3'), undefined);
+assert.equal(dates.parseWallClock('2026-10-20 8:30'), undefined);
+assert.equal(dates.parseWallClock(''), undefined);
+assert.equal(dates.parseWallClock('abc'), undefined);
+const spanForward = dates.timeSpanBetween('2026-10-20 08:30:00', '2026-10-23 10:35:10');
+assert.equal(spanForward.days, 3);
+assert.equal(spanForward.hours, 2);
+assert.equal(spanForward.minutes, 5);
+assert.equal(spanForward.seconds, 10);
+assert.equal(spanForward.totalSeconds, 266710);
+assert.equal(spanForward.negative, false);
+assert.equal(dates.timeSpanText(spanForward, false), '3 天 2 小时 5 分钟 10 秒');
+assert.equal(dates.timeSpanText(spanForward, true), '3d 2h 5m 10s');
+// 反过来算：同样的分量，只是标记为负数
+const spanBackward = dates.timeSpanBetween('2026-10-23 10:35:10', '2026-10-20 08:30:00');
+assert.equal(spanBackward.negative, true);
+assert.equal(spanBackward.totalSeconds, spanForward.totalSeconds);
+assert.equal(dates.timeSpanText(spanBackward, false).charAt(0), '-');
+// 只给日期按 00:00:00 处理，且同一天只差时间也能算
+const spanMinutes = dates.timeSpanBetween('2026-10-20', '2026-10-20 00:30');
+assert.equal(spanMinutes.days, 0);
+assert.equal(spanMinutes.hours, 0);
+assert.equal(spanMinutes.minutes, 30);
+assert.equal(spanMinutes.seconds, 0);
+assert.equal(dates.timeSpanText(spanMinutes, false), '30 分钟');
+assert.equal(dates.timeSpanText(spanMinutes, true), '30m');
+const spanZero = dates.timeSpanBetween('2026-10-20', '2026-10-20');
+assert.equal(spanZero.totalSeconds, 0);
+assert.equal(dates.timeSpanText(spanZero, false), '0 秒');
+assert.equal(dates.timeSpanText(spanZero, true), '0s');
+assert.equal(dates.timeSpanBetween('2026-13-01', '2026-10-20'), undefined);
+assert.equal(dates.timeSpanBetween('2026-10-20', 'nope'), undefined);
+// 跨世纪 / 跨年与闰年不影响逐字段差值
+assert.equal(dates.timeSpanBetween('2024-02-29 00:00:00', '2024-03-01 00:00:00').days, 1);
+assert.equal(dates.timeSpanBetween('0099-12-31 23:59:59', '0100-01-01 00:00:00').seconds, 1);
+
+// --- 进制转换与位运算（纯逻辑）---
+assert.deepEqual(baseTools.BASE_RADIXES.map((option) => option.id), ['bin', 'oct', 'dec', 'hex']);
+assert.deepEqual(baseTools.BASE_RADIXES.map((option) => option.radix), [2, 8, 10, 16]);
+assert.equal(baseTools.radixIndex('hex'), 3);
+assert.equal(baseTools.radixIndex('nope'), -1);
+assert.equal(baseTools.radixOption('hex').radix, 16);
+assert.equal(baseTools.radixOption('nope'), undefined);
+assert.equal(baseTools.parseRadix('ff', 16).value, 255);
+assert.equal(baseTools.parseRadix('ff', 16).ok, true);
+assert.equal(baseTools.parseRadix('FF', 16).value, 255);
+assert.equal(baseTools.parseRadix('0xFF', 16).value, 255);
+assert.equal(baseTools.parseRadix('0b1010', 2).value, 10);
+assert.equal(baseTools.parseRadix('0o17', 8).value, 15);
+assert.equal(baseTools.parseRadix('1 000', 10).value, 1000);
+assert.equal(baseTools.parseRadix('1_000', 10).value, 1000);
+assert.equal(baseTools.parseRadix('', 10).error, 'empty');
+assert.equal(baseTools.parseRadix('   ', 10).error, 'empty');
+assert.equal(baseTools.parseRadix('12a', 10).error, 'invalid');
+assert.equal(baseTools.parseRadix('0x', 16).error, 'invalid');
+// 前缀只在「与当前进制匹配」时才是前缀：`0b10` 在十六进制里就是合法的 0x0B10
+assert.equal(baseTools.parseRadix('0b10', 16).value, 2832);
+assert.equal(baseTools.parseRadix('0o10', 16).error, 'invalid');
+assert.equal(baseTools.parseRadix('0xFF', 10).error, 'invalid');
+// 2^53-1 是安全整数上界，再大就是 overflow（绝不静默丢精度）
+assert.equal(baseTools.parseRadix('9007199254740991', 10).ok, true);
+assert.equal(baseTools.parseRadix('9007199254740992', 10).error, 'overflow');
+assert.equal(baseTools.radixText(255, 16), 'FF');
+assert.equal(baseTools.radixText(10, 2), '1010');
+assert.equal(baseTools.radixText(10, 10), '10');
+assert.equal(baseTools.radixText(-1, 16), '');
+assert.equal(baseTools.radixText(1.5, 10), '');
+assert.equal(baseTools.radixText(10, 1), '');
+assert.equal(baseTools.groupDigits('111100001111', 4), '1111 0000 1111');
+assert.equal(baseTools.groupDigits('1010', 4), '1010');
+assert.equal(baseTools.groupDigits('abc', 0), 'abc');
+assert.deepEqual(baseTools.BITWISE_OPS.map((op) => op.id), ['and', 'or', 'xor', 'not', 'shl', 'shr']);
+assert.equal(baseTools.bitwiseOpIndex('shl'), 4);
+assert.equal(baseTools.bitwiseOpIndex('nope'), -1);
+assert.equal(baseTools.bitwiseOpById('not').unary, true);
+assert.equal(baseTools.bitwiseOpById('and').unary, false);
+assert.equal(baseTools.bitwiseOpById('nope'), undefined);
+assert.equal(baseTools.UINT32_MAX, 4294967295);
+assert.equal(baseTools.bitwiseOp('and', 240, 15).value, 0);
+assert.equal(baseTools.bitwiseOp('or', 240, 15).value, 255);
+assert.equal(baseTools.bitwiseOp('xor', 255, 15).value, 240);
+assert.equal(baseTools.bitwiseOp('not', 0, 0).value, 4294967295);
+assert.equal(baseTools.bitwiseOp('shl', 1, 4).value, 16);
+// 逻辑右移：最高位不参与符号扩展
+assert.equal(baseTools.bitwiseOp('shr', 2147483648, 31).value, 1);
+assert.equal(baseTools.bitwiseOp('shr', 8, 1).value, 4);
+assert.equal(baseTools.bitwiseOp('shl', 1, 31).value, 2147483648);
+assert.equal(baseTools.bitwiseOp('shl', 1, 32).error, 'shift');
+assert.equal(baseTools.bitwiseOp('shr', 1, -1).error, 'shift');
+assert.equal(baseTools.bitwiseOp('shl', 1, 1.5).error, 'shift');
+assert.equal(baseTools.bitwiseOp('and', -1, 0).error, 'invalid');
+assert.equal(baseTools.bitwiseOp('and', 4294967296, 0).error, 'invalid');
+assert.equal(baseTools.bitwiseOp('nope', 1, 1).error, 'invalid');
+assert.equal(baseTools.baseErrorText('', false), '');
+assert.ok(baseTools.baseErrorText('empty', false).length > 0);
+assert.ok(baseTools.baseErrorText('invalid', true).length > 0);
+assert.ok(baseTools.baseErrorText('overflow', false).length > 0);
+assert.ok(baseTools.baseErrorText('shift', true).length > 0);
+
+// --- 联网工具纯逻辑：登记表、输入校验、网址分解、响应头与错误码 ---
+assert.deepEqual(networkTools.NETWORK_MODES.map((mode) => mode.id), ['dns', 'port', 'http', 'url']);
+assert.equal(networkTools.NETWORK_MODES[3].online, false);
+assert.equal(networkTools.NETWORK_MODES[0].online, true);
+assert.equal(networkTools.networkModeIndex('url'), 3);
+assert.equal(networkTools.networkModeIndex('nope'), -1);
+assert.equal(networkTools.networkModeById('dns').zh, '域名解析');
+assert.equal(networkTools.networkModeById('nope'), undefined);
+assert.equal(networkTools.DEFAULT_TIMEOUT_MS, 5000);
+assert.equal(networkTools.MAX_BODY_BYTES, 262144);
+assert.equal(networkTools.HEADER_MAX, 50);
+assert.equal(networkTools.DEFAULT_HTTPS_PORT, 443);
+assert.equal(networkTools.normalizeHost('  Example.COM.  ').ok, true);
+assert.equal(networkTools.normalizeHost('  Example.COM.  ').host, 'example.com');
+assert.equal(networkTools.normalizeHost('1.2.3.4').host, '1.2.3.4');
+assert.equal(networkTools.normalizeHost('').error, 'empty');
+assert.equal(networkTools.normalizeHost('   ').error, 'empty');
+assert.equal(networkTools.normalizeHost('a b.com').error, 'invalid');
+assert.equal(networkTools.normalizeHost('a/b.com').error, 'invalid');
+assert.equal(networkTools.normalizeHost('a:b').error, 'invalid');
+assert.equal(networkTools.normalizeHost('user@host').error, 'invalid');
+assert.equal(networkTools.normalizeHost('http://a.com').error, 'invalid');
+assert.equal(networkTools.normalizeHost('a'.repeat(64) + '.com').error, 'invalid');
+assert.equal(networkTools.normalizeHost('a'.repeat(250) + '.com').error, 'invalid');
+assert.equal(networkTools.parsePort('443').port, 443);
+assert.equal(networkTools.parsePort(' 80 ').port, 80);
+assert.equal(networkTools.parsePort('0').error, 'invalid');
+assert.equal(networkTools.parsePort('65536').error, 'invalid');
+assert.equal(networkTools.parsePort('80a').error, 'invalid');
+assert.equal(networkTools.parsePort('').error, 'empty');
+const urlParts = networkTools.parseUrlParts('https://Example.com:8443/a/b?x=1&y=%E4%B8%AD%E6%96%87&flag#frag');
+assert.equal(urlParts.scheme, 'https');
+assert.equal(urlParts.host, 'example.com');
+assert.equal(urlParts.port, '8443');
+assert.equal(urlParts.path, '/a/b');
+assert.equal(urlParts.fragment, 'frag');
+assert.equal(urlParts.params.length, 3);
+assert.equal(urlParts.params[0].key, 'x');
+assert.equal(urlParts.params[0].value, '1');
+assert.equal(urlParts.params[1].value, '中文');
+// 没有 `=` 的参数值记空串，而不是丢弃该参数
+assert.equal(urlParts.params[2].key, 'flag');
+assert.equal(urlParts.params[2].value, '');
+// `+` 先按空格处理
+assert.equal(networkTools.parseUrlParts('https://a.com/?q=a+b').params[0].value, 'a b');
+// 裸主机名：scheme 为空串，路径至少为 `/`
+const bareUrl = networkTools.parseUrlParts('example.com/x');
+assert.equal(bareUrl.scheme, '');
+assert.equal(bareUrl.host, 'example.com');
+assert.equal(bareUrl.path, '/x');
+assert.equal(networkTools.parseUrlParts('https://a.com').path, '/');
+assert.equal(networkTools.parseUrlParts('ftp://a.com'), undefined);
+assert.equal(networkTools.parseUrlParts('https://a.com:'), undefined);
+assert.equal(networkTools.parseUrlParts('https://a b.com'), undefined);
+assert.equal(networkTools.parseUrlParts(''), undefined);
+const urlLines = networkTools.urlPartLines(urlParts, false);
+assert.equal(urlLines[0], '协议: https');
+assert.equal(urlLines[1], '主机: example.com');
+assert.equal(urlLines[2], '端口: 8443');
+assert.equal(urlLines[3], '路径: /a/b');
+assert.equal(urlLines[4], '查询 1: x = 1');
+assert.equal(urlLines[urlLines.length - 1], '片段: frag');
+assert.equal(networkTools.urlPartLines(bareUrl, true)[0], 'Host: example.com');
+assert.deepEqual(networkTools.sortHeaderLines(['server: nginx', 'Content-Type: text/html']),
+  ['Content-Type: text/html', 'server: nginx']);
+// 同键保持原有相对顺序（稳定排序）
+assert.deepEqual(networkTools.sortHeaderLines(['a: 1', 'A: 2']), ['a: 1', 'A: 2']);
+assert.deepEqual(networkTools.truncateLines(['1', '2', '3', '4', '5'], 3), ['1', '2', '3', '… (+2 more)']);
+assert.deepEqual(networkTools.truncateLines(['1', '2'], 3), ['1', '2']);
+assert.deepEqual(networkTools.truncateLines(['1'], 0), []);
+assert.deepEqual(networkTools.addressLines(['1.2.3.4', '1.2.3.4', '', '::1', ' ']),
+  ['IPv4  1.2.3.4', 'IPv6  ::1']);
+assert.equal(networkTools.netErrorText('offline', false), '当前网络不可用');
+assert.equal(networkTools.netErrorText('refused', true), 'Connection refused');
+assert.equal(networkTools.netErrorText('unreachable', false), '连接被拒绝');
+assert.equal(networkTools.netErrorText('permission', false).length > 0, true);
+assert.equal(networkTools.netErrorText('', false), '');
+assert.equal(networkTools.netErrorText('nope', true), '');
+
+// --- 汇率（联网取一次 + 本机缓存，坏数据一律当解析失败）---
+assert.equal(fxTools.FX_CURRENCIES.length, 24);
+assert.equal(fxTools.FX_CURRENCIES[0].code, 'CNY');
+assert.equal(new Set(fxTools.FX_CURRENCIES.map((currency) => currency.code)).size, fxTools.FX_CURRENCIES.length);
+for (const currency of fxTools.FX_CURRENCIES) {
+  assert.ok(/^[A-Z]{3}$/.test(currency.code), `bad currency code ${currency.code}`);
+  assert.ok(currency.zh.length > 0 && currency.en.length > 0, `incomplete currency ${currency.code}`);
+}
+for (const code of ['CNY', 'USD', 'EUR', 'JPY', 'HKD', 'GBP', 'KRW', 'SGD', 'AUD', 'CAD', 'CHF', 'TWD']) {
+  assert.ok(fxTools.fxIndex(code) >= 0, `${code} must be registered`);
+}
+assert.equal(fxTools.FX_DEFAULT_BASE, 'CNY');
+assert.equal(fxTools.fxIndex('cny'), 0);
+assert.equal(fxTools.fxIndex('nope'), -1);
+assert.equal(fxTools.fxCurrency('usd').code, 'USD');
+assert.equal(fxTools.fxCurrency('nope'), undefined);
+const fxParsed = fxTools.parseFxPayload(
+  '{"result":"success","base_code":"USD","time_last_update_unix":1700000000,' +
+  '"rates":{"CNY":7.1,"USD":1,"JPY":150.25,"XXX":1}}', 1700000000000);
+assert.equal(fxParsed.ok, true);
+assert.equal(fxParsed.error, '');
+assert.equal(fxParsed.table.base, 'USD');
+assert.equal(fxParsed.table.fetchedAt, 1700000000000);
+assert.equal(fxParsed.table.rates.get('CNY'), 7.1);
+assert.equal(fxParsed.table.rates.get('USD'), 1);
+// 未登记币种只丢弃，不算解析失败
+assert.equal(fxParsed.table.rates.has('XXX'), false);
+// 基准币缺失时按 1 补上，保证换算自身可还原
+const fxNoBaseInRates = fxTools.parseFxPayload('{"base_code":"USD","rates":{"CNY":7}}', 1);
+assert.equal(fxNoBaseInRates.ok, true);
+assert.equal(fxNoBaseInRates.table.rates.get('USD'), 1);
+// `result` 明确失败 → api；其余坏数据 → parse
+assert.equal(fxTools.parseFxPayload('{"result":"error","rates":{"CNY":7}}', 1).error, 'api');
+assert.equal(fxTools.parseFxPayload('{"result":false,"rates":{"CNY":7}}', 1).error, 'api');
+assert.equal(fxTools.parseFxPayload('{"rates":{}}', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('{"rates":{"CNY":0}}', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('{"rates":{"CNY":-1}}', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('{"rates":{"CNY":"7"}}', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('not json', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('null', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('[]', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('{"base_code":"USD","rates":{"CNY":7}}', 1).table.base, 'USD');
+assert.equal(fxTools.parseFxPayload('{"rates":{"CNY":7}}', 1).table.base, '');
+const fxTable = fxTools.parseFxPayload('{"base_code":"USD","rates":{"USD":1,"CNY":7.1,"JPY":150}}', 42).table;
+assert.ok(Math.abs(fxTools.convertFx(100, 'USD', 'CNY', fxTable) - 710) < 1e-9);
+assert.ok(Math.abs(fxTools.convertFx(100, 'CNY', 'USD', fxTable) - 100 / 7.1) < 1e-9);
+// from === to 严格还原原值
+assert.equal(fxTools.convertFx(100, 'USD', 'USD', fxTable), 100);
+assert.equal(fxTools.convertFx(10, 'USD', 'EUR', fxTable), undefined);
+assert.equal(fxTools.convertFx(10, 'USD', 'XXX', fxTable), undefined);
+assert.equal(fxTools.convertFx(-1, 'USD', 'CNY', fxTable), undefined);
+assert.equal(fxTools.convertFx(Number.NaN, 'USD', 'CNY', fxTable), undefined);
+// 缓存往返一致
+const fxCache = fxTools.serializeFxTable(fxTable);
+const fxRestored = fxTools.parseFxCache(fxCache);
+assert.equal(fxRestored.base, 'USD');
+assert.equal(fxRestored.fetchedAt, 42);
+assert.equal(fxRestored.rates.get('CNY'), 7.1);
+assert.equal(fxRestored.rates.get('JPY'), 150);
+assert.equal(fxTools.parseFxCache('nope'), undefined);
+assert.equal(fxTools.parseFxCache('{"rates":{}}'), undefined);
+assert.equal(fxTools.fxDataAgeText(0, 1000, false), '尚未获取汇率');
+assert.equal(fxTools.fxDataAgeText(0, 1000, true), 'Rates not fetched yet');
+assert.equal(fxTools.fxDataAgeText(1000, 1000 + 30000, false), '刚刚更新');
+assert.equal(fxTools.fxDataAgeText(1000, 1000, false), '刚刚更新');
+// 时钟回拨（now < fetchedAt）按「刚刚更新」处理
+assert.equal(fxTools.fxDataAgeText(1000, 500, false), '刚刚更新');
+assert.equal(fxTools.fxDataAgeText(1000, 1000 + 60000, false), '1 分钟前更新');
+assert.equal(fxTools.fxDataAgeText(1000, 1000 + 2 * 3600000, false), '2 小时前更新');
+assert.equal(fxTools.fxDataAgeText(1000, 1000 + 50 * 3600000, false), '2 天前更新');
+assert.equal(fxTools.fxDataAgeText(1000, 1000 + 2 * 3600000, true), 'Updated 2 hours ago');
+assert.ok(fxTools.fxErrorText('nocache', true).includes('No cached rates'));
+assert.equal(fxTools.fxErrorText('', false), '');
+
+// --- 纪念日清单（纯逻辑：today 一律作为参数传入）---
+assert.equal(anniversaryTools.ANNIVERSARY_MAX, 20);
+const anniversaryNew = anniversaryTools.newAnniversary('生日', '2026-05-01', true, 1000, 1);
+assert.equal(anniversaryNew.id, 'a1000-1');
+assert.equal(anniversaryNew.title, '生日');
+assert.equal(anniversaryNew.yearly, true);
+assert.equal(anniversaryNew.createdAt, 1000);
+// 坏 JSON / 非数组一律空列表
+assert.deepEqual(anniversaryTools.parseAnniversaries('nope'), []);
+assert.deepEqual(anniversaryTools.parseAnniversaries('{}'), []);
+assert.deepEqual(anniversaryTools.parseAnniversaries(''), []);
+assert.deepEqual(anniversaryTools.parseAnniversaries('[]'), []);
+// 单条不合法只丢那一条：空标题 / 坏日期 / 非有限 createdAt / 重复 id
+const anniversaryRaw = JSON.stringify([
+  { id: 'a1', title: '生日', date: '2026-05-01', yearly: true, createdAt: 10 },
+  { id: '', title: '   ', date: '2026-05-02', yearly: false, createdAt: 11 },
+  { id: 'a3', title: '截止', date: '2025-02-30', yearly: false, createdAt: 12 },
+  { id: 'a1', title: '重复', date: '2026-05-03', yearly: false, createdAt: 13 },
+  { id: 'a9', title: '坏时间', date: '2026-01-01', yearly: false, createdAt: 'soon' },
+  { title: '无 id', date: '2026-06-01', yearly: 1, createdAt: 14 }
+]);
+const anniversaryParsed = anniversaryTools.parseAnniversaries(anniversaryRaw);
+assert.equal(anniversaryParsed.length, 2);
+assert.equal(anniversaryParsed[0].id, 'a1');
+assert.equal(anniversaryParsed[0].title, '生日');
+// 缺 id 的条目按「创建时间 + 原始下标」补 id；`yearly` 只用严格 true 归一
+assert.equal(anniversaryParsed[1].id, 'a14-5');
+assert.equal(anniversaryParsed[1].title, '无 id');
+assert.equal(anniversaryParsed[1].yearly, false);
+// 超过上限截断，持久化同样截断
+const anniversaryMany = [];
+for (let index = 0; index < 25; index++) {
+  anniversaryMany.push(anniversaryTools.newAnniversary('第' + index + '条', '2026-05-01', true, 100 + index, index));
+}
+assert.equal(anniversaryTools.parseAnniversaries(JSON.stringify(anniversaryMany)).length, 20);
+assert.equal(anniversaryTools.parseAnniversaries(anniversaryTools.serializeAnniversaries(anniversaryMany)).length, 20);
+// 每年重复：今年未到取今年，已过顺延到明年；平年 2/29 按 2/28
+assert.equal(anniversaryTools.nextOccurrence('2026-05-01', '2026-01-01', true), '2026-05-01');
+assert.equal(anniversaryTools.nextOccurrence('2026-05-01', '2026-05-01', true), '2026-05-01');
+assert.equal(anniversaryTools.nextOccurrence('2026-05-01', '2026-06-01', true), '2027-05-01');
+assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2024-01-01', true), '2024-02-29');
+assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2025-01-01', true), '2025-02-28');
+// 一次性条目原样返回（已过也返回原日期，由 daysUntil 给出负数）
+assert.equal(anniversaryTools.nextOccurrence('2026-05-01', '2027-01-01', false), '2026-05-01');
+assert.equal(anniversaryTools.nextOccurrence('bad', '2026-01-01', true), '');
+assert.equal(anniversaryTools.nextOccurrence('2026-05-01', 'bad', true), '');
+assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-04-30', true), 1);
+assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-05-01', true), 0);
+assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-05-02', true), 364);
+assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-06-01', false), -31);
+assert.equal(anniversaryTools.daysUntil('bad', '2026-05-01', false), undefined);
+// 展示文案
+assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-05-01', false), '就是今天');
+assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-05-01', true), 'Today');
+assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-04-30', false), '还有 1 天');
+assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-04-30', true), '1 day to go');
+assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-04-28', true), '3 days to go');
+const anniversaryPast = anniversaryTools.newAnniversary('截止', '2026-05-01', false, 100, 0);
+assert.equal(anniversaryTools.anniversaryText(anniversaryPast, '2026-06-01', false), '已过 31 天');
+assert.equal(anniversaryTools.anniversaryText(anniversaryPast, '2026-06-01', true), '31 days ago');
+const anniversaryBad = anniversaryTools.newAnniversary('坏的', '2025-02-30', false, 200, 0);
+assert.equal(anniversaryTools.anniversaryText(anniversaryBad, '2026-06-01', false), '日期无效');
+// 排序：今天最先 → 未来近的在前 → 已过的一次性/非法日期排最后（最后组内按 createdAt）
+const anniversaryUnsorted = [
+  anniversaryTools.newAnniversary('未来 5 天', '2026-05-15', true, 50, 0),
+  anniversaryTools.newAnniversary('已过', '2026-05-09', false, 100, 1),
+  anniversaryTools.newAnniversary('今天', '2026-05-10', true, 60, 2),
+  anniversaryBad,
+  anniversaryTools.newAnniversary('未来 1 天', '2026-05-11', true, 70, 4)
+];
+const anniversarySorted = anniversaryTools.sortAnniversaries(anniversaryUnsorted, '2026-05-10');
+assert.deepEqual(anniversarySorted.map((item) => item.title),
+  ['今天', '未来 1 天', '未来 5 天', '已过', '坏的']);
+// upsert：同 id 替换且保持原位置，新 id 追加
+const anniversaryBase = [
+  anniversaryTools.newAnniversary('A', '2026-05-01', true, 1, 0),
+  anniversaryTools.newAnniversary('B', '2026-05-02', true, 2, 0)
+];
+const anniversaryUpdated = anniversaryTools.upsertAnniversary(anniversaryBase,
+  anniversaryTools.newAnniversary('B2', '2026-05-03', true, 2, 0));
+assert.deepEqual(anniversaryUpdated.map((item) => item.title), ['A', 'B2']);
+const anniversaryAppended = anniversaryTools.upsertAnniversary(anniversaryBase,
+  anniversaryTools.newAnniversary('C', '2026-05-04', true, 3, 0));
+assert.deepEqual(anniversaryAppended.map((item) => item.title), ['A', 'B', 'C']);
+assert.equal(anniversaryTools.upsertAnniversary(anniversaryMany,
+  anniversaryTools.newAnniversary('超限', '2026-05-05', true, 999, 0)).length, 20);
+assert.deepEqual(anniversaryTools.removeAnniversary(anniversaryBase, anniversaryBase[0].id)
+  .map((item) => item.title), ['B']);
+assert.equal(anniversaryTools.removeAnniversary(anniversaryBase, 'nope').length, 2);
+assert.equal(anniversaryTools.removeAnniversary([], 'a1').length, 0);
+assert.equal(anniversaryTools.anniversaryErrorText('limit', false), '最多 20 条');
+assert.equal(anniversaryTools.anniversaryErrorText('limit', true), 'Up to 20 entries');
+assert.ok(anniversaryTools.anniversaryErrorText('date', false).length > 0);
+assert.ok(anniversaryTools.anniversaryErrorText('title', true).length > 0);
+assert.equal(anniversaryTools.anniversaryErrorText('', false), '');
 
 // 段构造：点 1u、划 3u、字符内 1u、字符间 3u、词间 7u
 assert.deepEqual(torchPairs(torchSignal.segmentsForMorse(torchSignal.morseChars('A', 4), torchUnit)),

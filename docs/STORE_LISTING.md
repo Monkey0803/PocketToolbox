@@ -2,21 +2,29 @@
 
 ## 简体中文
 
-**一句话介绍**：二维码与条形码、个税和快捷计算、换算、计时与文档扫描，常用工具随手可得。
+**一句话介绍**：24 个常用工具——二维码与条形码、个税、折扣与换算、进制与文本对比、纪念日与计时、网络工具，离线可用、联网只在显式触发时发生。
 
-**应用介绍**：随身工具箱将多类日常功能放在一个简洁应用中。你可以生成、保存、分享二维码（文本、网址、WiFi、名片、电话、短信、邮件、位置八种内容模板）及 Code 128、EAN-13、EAN-8 条形码，使用系统扫码界面扫描相机画面或相册图片；计算折扣（含立减与折扣反推）、百分比（含增减与变化）与账单均摊，也可按加价率定价或算毛利率；估算工资个税、稿酬、离职补偿、劳务报酬及特许权使用费的预扣税额；换算十四类常用单位（长度、重量、温度、面积、体积、速度、时间、数据容量、压力、能量、功率、角度、频率、油耗，含斤两尺寸里亩等市制单位），可切换显示精度并一眼看到同类别其他单位；创建多组倒计时或使用秒表；在设备支持时开启手电筒（可调亮度，除了常亮还能发国际求救信号 SOS 等求援灯语、任意字母数字的摩尔斯灯语和 1–5 Hz 频闪，可设定时关闭与屏幕常亮），也可把屏幕当作柔光板做屏幕补光，并使用水平仪；计算日期（含农历、年/月/日差值、年龄、工作日与 ISO 周数）、转换时间戳、整理文本（去空行、去重、排序、大小写、词与段落统计）、随机抽取；使用安全随机数生成密码；通过系统文档扫描控件拍摄或选择图片，生成 JPG 或 PDF 后主动导出。工具网格支持按中英文名搜索，收藏只需点一下星标。**全部功能离线可用，应用不申请网络权限、不发起任何网络请求，也不收集或上传使用数据**；节假日日历随应用内置，随新版本更新。二维码历史和计时器只保存在本机，可随时删除；单位换算只在本机记住上次使用的类别、单位与精度。个税估算不是税务申报或年度汇算结果。
+**应用介绍**：随身工具箱将多类日常功能放在一个简洁应用中。你可以生成、保存、分享二维码（文本、网址、WiFi、名片、电话、短信、邮件、位置八种内容模板）及 Code 128、EAN-13、EAN-8 条形码，使用系统扫码界面扫描相机画面或相册图片；计算折扣（含立减与折扣反推）、百分比（含增减与变化）与账单均摊，也可按加价率定价或算毛利率；估算工资个税（**含年终奖单独计税**，本机估算）、稿酬、离职补偿、劳务报酬及特许权使用费的预扣税额；换算常用单位（长度、重量、温度、面积、体积、速度、时间、数据容量、压力、能量、功率、角度、频率、油耗，含斤两尺寸里亩等市制单位，**以及货币类别**），可切换显示精度并一眼看到同类别其他单位；创建多组倒计时或使用秒表；在设备支持时开启手电筒（可调亮度，除了常亮还能发国际求救信号 SOS 等求援灯语、任意字母数字的**摩尔斯编解码**灯语和 1–5 Hz 频闪，可设定时关闭与屏幕常亮），也可把屏幕当作柔光板做屏幕补光，并使用水平仪；计算日期（含农历、年/月/日差值、**时间点差值**、年龄、工作日与 ISO 周数）、转换时间戳、对比两段文本的差异、整理文本（去空行、去重、排序、大小写、词与段落统计）、随机抽取；记录**纪念日**（名称 + 日期 + 是否每年重复，最多 20 条）；做**进制与位运算**换算；生成密码（可选「密码 / PIN 码」并给出强度预估）；使用**网络工具**做域名解析、端口连通探测、查看 HTTP 状态与响应头，以及完全离线的网址分解；通过系统文档扫描控件拍摄或选择图片，生成 JPG 或 PDF 后主动导出。工具网格支持按中英文名搜索，收藏只需点一下星标。**离线工具完整可用；联网能力（网络工具、汇率更新、节假日数据更新）只在你显式触发时发起请求，也不收集或上传使用数据**；节假日日历随应用内置，也可在设置页主动检查更新。二维码历史和计时器只保存在本机，可随时删除；纪念日清单与汇率缓存同样保存在本机，可逐条删除或在更新时覆盖；单位换算只在本机记住上次使用的类别、单位与精度。个税估算不是税务申报或年度汇算结果，年终奖单独计税为按现行政策的本机估算。
 
-**关键词建议**：二维码，条形码，个税计算，工资计算，折扣计算，均摊计算，单位换算，工具箱，文档扫描
+**关键词建议**：二维码，条形码，个税计算，工资计算，年终奖计税，折扣计算，均摊计算，单位换算，货币换算，进制与位运算，文本对比，纪念日，网络工具，时间点差值，摩尔斯编解码，工具箱，文档扫描
 
 ## English
 
 **Short description**: QR and barcodes, income tax estimates, document scanning and everyday tools that work offline.
 
-**Description**: Pocket Toolbox brings eighteen everyday utilities together in one app. Create, save, share and scan QR codes — text, URL, WiFi, contact card, phone, SMS, email or location, with a choice of error-correction level and colour — plus twelve barcode symbologies; read codes from a picture in your gallery; estimate resident individual income tax withholding for wages, manuscripts, severance, service income and royalties; calculate discounts (with instant discounts and reverse lookups), percentages and exact bill splits, or work out a markup and margin; estimate loan repayments with equal instalments or equal principal; convert fourteen categories of units (length, mass, temperature, area, volume, speed, time, data size, pressure, energy, power, angle, frequency and fuel economy, including Chinese market units) with a selectable precision and a panel showing every other unit in the category; run countdowns (quick presets, repeat mode) and a stopwatch with lap times; calculate dates (including lunar dates, interval, age, working days and ISO week numbers), convert timestamps, clean up text (blank lines, duplicates, sorting, letter case, word and paragraph counts) plus Base64/URL encoding and MD5/SHA-1/SHA-256 digests, and pick random numbers, roll dice, flip a coin, shuffle or group a list. Generate passwords with secure random bytes. Scan paper or gallery images with the system document scanner and export JPG or PDF files. Use the flashlight on supported devices (adjustable brightness, plus rescue signals such as international SOS, Morse light for any letters or digits, and a 1–5 Hz strobe, with auto-off and keep-screen-on) or turn the screen into a soft light panel, and use the spirit level. Search the tool grid by Chinese or English name and favourite a tool with one tap. **Everything works offline: the app requests no network permission, makes no network requests and collects or uploads no usage data**; the holiday calendar is bundled and refreshed with new app versions. QR history, timers, stopwatch laps and the unified history (QR creations and scans plus copied text, conversion, timestamp and calculation results) stay on your device and can be deleted at any time; unit conversion only remembers your last category, units and precision on this device. Tax estimates are not filing or annual settlement results.
+**Description**: Pocket Toolbox brings twenty-four everyday utilities together in one app. Create, save, share and scan QR codes — text, URL, WiFi, contact card, phone, SMS, email or location, with a choice of error-correction level and colour — plus twelve barcode symbologies; read codes from a picture in your gallery; estimate resident individual income tax withholding for wages, manuscripts, severance, service income and royalties, including separate taxation of the year-end bonus (estimated on device); calculate discounts (with instant discounts and reverse lookups), percentages and exact bill splits, or work out a markup and margin; estimate loan repayments with equal instalments or equal principal; convert fourteen categories of units (length, mass, temperature, area, volume, speed, time, data size, pressure, energy, power, angle, frequency and fuel economy, including Chinese market units) plus a Currency category with a selectable precision and a panel showing every other unit in the category; run countdowns (quick presets, repeat mode) and a stopwatch with lap times; calculate dates (including lunar dates, interval, age, working days and ISO week numbers) and the difference between two times of day, convert timestamps, compare two pieces of text and see their differences, convert between bases and do bitwise operations, clean up text (blank lines, duplicates, sorting, letter case, word and paragraph counts) plus Base64/URL encoding and MD5/SHA-1/SHA-256 digests, and pick random numbers, roll dice, flip a coin, shuffle or group a list. Generate passwords with secure random bytes, as either a password or a PIN, with a strength estimate. Scan paper or gallery images with the system document scanner and export JPG or PDF files. Use the flashlight on supported devices (adjustable brightness, plus rescue signals such as international SOS, Morse light for any letters or digits, and a 1–5 Hz strobe, with auto-off and keep-screen-on) or turn the screen into a soft light panel, and use the spirit level, and run Network tools for DNS lookups, TCP port checks, HTTP status and response headers, plus a fully offline URL-parts breakdown. Record anniversaries (name + date + whether it repeats yearly, up to 20). Search the tool grid by Chinese or English name and favourite a tool with one tap. **Offline tools remain fully usable; the networked capabilities (Network tools, rate updates and holiday data updates) only send a request when you trigger them explicitly, and the app collects and uploads no usage data**; the holiday calendar is bundled with the app and can also be checked for updates from Settings. QR history, timers, stopwatch laps and the unified history (QR creations and scans plus copied text, conversion, timestamp and calculation results) stay on your device and can be deleted at any time; unit conversion only remembers your last category, units and precision on this device. Tax estimates are not filing or annual settlement results.
 
-**Suggested keywords**: QR code, barcode, income tax, wage calculator, discount calculator, unit converter, document scanner, offline tools
+**Suggested keywords**: QR code, barcode, income tax, year-end bonus tax, wage calculator, discount calculator, unit converter, currency converter, base converter, bitwise, text diff, anniversary countdown, network tools, Morse code, document scanner, offline tools
 
 ## 版本更新说明 / Release notes
+
+**中文（本轮 · 待验收）**
+
+- 新增：工具卡片增至 **24 个**——新增「进制与位运算」（2/8/10/16 进制互转与位运算）、「文本对比」（两段文本逐行差异）、「纪念日」（名称 + 日期 + 是否每年重复，最多 20 条，保存在本机并可逐条删除）、「网络工具」（域名解析、端口连通、HTTP 状态与响应头、完全离线的网址分解）。
+- 新增：密码页支持「类型（密码 / PIN 码）」并给出强度预估（仍不落盘、离开页面即清空）；个税新增「年终奖单独计税」（按现行政策的本机估算）；日期工具新增第 8 个方式「时间点差值」；单位换算新增「货币」类别。
+- 新增：**联网能力（本轮合规重点，全部由你显式触发、离线优先）**——「网络工具」在你输入目标并点按钮后才发起请求（探测目标不写入历史、不落盘）；单位换算的「货币」类别只在你点「更新汇率」时请求一次（只发送基准货币代码，结果缓存在本机 `fx_rates` 并带数据时间，失败回退上次缓存、无缓存时明确提示而不显示 0）；设置页只在你点「检查更新」时拉取公开节假日 ICS（不发送任何用户数据，校验或网络失败一律保留随包数据）。
+- 权限：新增 `ohos.permission.INTERNET` 与 `ohos.permission.GET_NETWORK_INFO`（后者只用于网络工具的 DNS 域名解析），权限共 5 项；离线工具完整可用，服务卡片、应用启动与退后台都不发起网络请求，也不做静默重试。
+- 隐私：不收集、不上传使用数据，不集成广告 / 统计 / 云同步的承诺不变。
 
 **中文（v1.0.0 首个上架版本）**
 
@@ -51,7 +59,15 @@
 - 修复：收藏「时间戳」后重启应用不再丢失；收藏页按收藏顺序显示（最近收藏在前）。
 - 修复：秒表点开始/计次后界面不刷新（仅在其它动画同时运行时才刷新）。
 - 改进：日期与时间改用系统选择器；输入框、结果卡与列表统一接入系统沉浸材质；工具卡片与详情页标题随中英切换即时更新。
-- 隐私：应用不再申请网络权限，节假日日历随包内置，全部功能离线可用、不收集任何数据。
+- 隐私：离线工具无需网络即可使用；只有你主动点「更新汇率」或「检查更新」时应用才会联网，且不收集任何数据。
+
+**English (this round · pending acceptance)**
+
+- New: the tool grid now holds **24 tools** — Base & bitwise (2/8/10/16 conversion and bitwise operations), Text diff (line-by-line differences between two texts), Anniversaries (name + date + whether it repeats yearly, up to 20, stored on your device and deletable entry by entry) and Network tools (DNS lookup, port check, HTTP status and headers, plus a fully offline URL-parts breakdown).
+- New: the password page offers a Type (Password / PIN) with a strength estimate (still never written to storage and cleared on leaving); income tax adds separate taxation of the year-end bonus (an on-device estimate under the current policy); the date tool adds an eighth method, the difference between two times of day; the converter adds a Currency category.
+- New: **networked capabilities (the compliance focus of this round, all user-triggered and offline-first)** — Network tools only send a request after you enter a target and tap a button (the probe target is never written to history or storage); the converter's Currency category requests a public rate endpoint only when you tap Update rates (sending only the base currency code; the result is cached on this device under `fx_rates` with its data time, falling back to the last cache on failure and saying clearly that no rates are available instead of showing 0); Settings fetches the public holiday ICS only when you tap Check for updates (sending no user data, and always keeping the bundled data if validation or the network fails).
+- Permissions: two added — `ohos.permission.INTERNET` and `ohos.permission.GET_NETWORK_INFO` (the latter only for DNS resolution in Network tools), five in total; the offline tools remain fully usable and the widget, app start-up and background make no network requests and do no silent retries.
+- Privacy: the promises to collect and upload no usage data and to include no ads, analytics or cloud sync are unchanged.
 
 **English (v1.0.0, first release)**
 
@@ -82,10 +98,19 @@
 - Fixed: favouriting the Timestamp tool no longer disappears after a restart, and the favourites page now lists tools in the order you added them (newest first).
 - Fixed: the stopwatch did not refresh after pressing start or lap unless another animation happened to be running.
 - Improved: system date and time pickers; immersive material on inputs, result cards and list rows; tool card titles and detail titles now follow the language switch immediately.
-- Privacy: the app requests no network permission, the holiday calendar ships with the app, and every feature works offline without collecting data.
+- Privacy: the offline tools work without a network; the app only connects when you explicitly tap Update rates or Check for updates, and it collects no data.
 
 ## 截图清单 / Screenshot checklist
 
-实际签名安装后，分别截取中文和英文：①首页彩色工具卡片（含顶部搜索框）；②工具搜索的命中结果与空结果提示；③二维码内容模板（至少一张 WiFi 或名片表单与生成结果）和条形码生成结果及保存/分享按钮；④折扣（含立减与等效折扣）、折扣反推、百分比、加价与毛利、均摊的结果卡与复制按钮；⑤个税计算结果与说明；⑥单位换算（含市制或压力等新类别、精度下拉与同类对照表）、多计时器与秒表；⑦日期（含农历与工作日）、文本工具（三段操作与统计）和随机工具的结果；⑧密码生成、文档扫描、水平仪、指南针和亲戚称呼；⑨手电筒（含求援灯语与屏幕补光）可用状态；⑩设置。手机、平板、折叠屏展开态均需核对布局后再选图。截图不得使用模拟图冒充设备截图。应用不申请任何网络权限，商店的权限说明只需覆盖 `PUBLISH_AGENT_REMINDER`（倒计时到期提醒）、`DETECT_GESTURE`（握姿适配）与 `ACCELEROMETER`（水平仪），表述与 `PRIVACY.md`、`RELEASE_CHECKLIST.md` 保持一致。
+实际签名安装后，分别截取中文和英文：①首页彩色工具卡片（含顶部搜索框）；②工具搜索的命中结果与空结果提示；③二维码内容模板（至少一张 WiFi 或名片表单与生成结果）和条形码生成结果及保存/分享按钮；④折扣（含立减与等效折扣）、折扣反推、百分比、加价与毛利、均摊的结果卡与复制按钮；⑤个税计算结果与说明；⑥单位换算（含市制或压力等新类别、精度下拉与同类对照表）、多计时器与秒表；⑦日期（含农历与工作日）、文本工具（三段操作与统计）和随机工具的结果；⑧密码生成（含「密码 / PIN 码」与强度预估）、文档扫描、水平仪、指南针和亲戚称呼；⑨手电筒（含求援灯语、屏幕补光与摩尔斯编解码）可用状态；⑩设置。另：新增的**进制与位运算、文本对比、纪念日、网络工具（含离线方式与失败提示）、货币换算、设置页节假日更新各需一张**。手机、平板、折叠屏展开态均需核对布局后再选图。截图不得使用模拟图冒充设备截图。应用共申请 5 项权限，商店的权限说明需覆盖 `PUBLISH_AGENT_REMINDER`（倒计时到期提醒）、`DETECT_GESTURE`（握姿适配）、`ACCELEROMETER`（水平仪）、`INTERNET`（网络工具、汇率更新、节假日数据更新等**用户显式触发**的联网请求）与 `GET_NETWORK_INFO`（只用于网络工具的 DNS 域名解析），表述与 `PRIVACY.md`、`RELEASE_CHECKLIST.md` 保持一致。
 
 图标源文件：`AppScope/resources/base/media/toolbox_icon.png`。当前图标尚需在目标设备确认小尺寸辨识度和商店素材尺寸。
+
+**本轮新增截图（待拍摄，文件名待定）**：
+
+- [ ] 进制与位运算（含进制转换与位运算结果）。
+- [ ] 文本对比（两段文本的逐行差异）。
+- [ ] 纪念日（清单 + 每年重复 + 删除）。
+- [ ] 网络工具（**含离线方式「网址分解」与失败提示各一张**）。
+- [ ] 货币换算（含更新汇率后的换算结果与数据时间；如失败提示单独一张）。
+- [ ] 设置页「检查更新」（含节假日数据日期与失败时保留随包数据的说明）。

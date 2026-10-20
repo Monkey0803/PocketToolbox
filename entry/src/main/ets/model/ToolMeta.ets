@@ -60,7 +60,15 @@ export const TOOL_META: ToolMeta[] = [
   // 关键词刻意不含「计算」二字：「亲戚计算器」会把 `matchTools('计算')` 的结果改掉，
   // 而标题「亲戚称呼」本身已经能被「亲戚」「称呼」搜到。
   new ToolMeta('kinship', '亲戚称呼', 'Kinship calculator',
-    ['亲戚', '称谓', '称呼', '关系', '辈分', '亲属', '家族', 'kinship', 'relative', 'family'])
+    ['亲戚', '称谓', '称呼', '关系', '辈分', '亲属', '家族', 'kinship', 'relative', 'family']),
+  new ToolMeta('base', '进制与位运算', 'Base & bitwise',
+    ['hex', '进制', '二进制', '八进制', '十六进制', 'bin', 'oct', '位运算', 'bitwise', '程序员']),
+  new ToolMeta('diff', '文本对比', 'Text diff',
+    ['diff', '差异', '对比', '比对', 'compare', '文本比较']),
+  new ToolMeta('anniversary', '纪念日', 'Anniversaries',
+    ['纪念日', '倒数日', 'anniversary', '还有几天', '数日子']),
+  new ToolMeta('net', '网络工具', 'Network tools',
+    ['dns', '域名解析', 'ping', '延迟', '端口', '响应头', 'http', '短链', 'port'])
 ];
 
 /** 全部工具 id，顺序即工具网格顺序。 */

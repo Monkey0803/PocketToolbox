@@ -2,6 +2,7 @@
 // Rules reviewed 2026-10-12 against the National Tax Administration:
 // https://fgk.chinatax.gov.cn/zcfgk/c100015/c5200946/content.html
 // https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202364/content.html
+// 年终奖单独计税口径与政策有效期复核日期：2026-10-20
 /** 计税类型登记表：界面选项行与计算分支都用它，新增类型只需加登记项。 */
 export class TaxKindEntry {
   readonly id: string;
@@ -20,7 +21,8 @@ export const TAX_KINDS: TaxKindEntry[] = [
   new TaxKindEntry('manuscript', '稿酬', 'Manuscript'),
   new TaxKindEntry('severance', '离职补偿', 'Severance'),
   new TaxKindEntry('labor', '劳务报酬', 'Service income'),
-  new TaxKindEntry('royalty', '特许权使用费', 'Royalties')
+  new TaxKindEntry('royalty', '特许权使用费', 'Royalties'),
+  new TaxKindEntry('bonus', '年终奖', 'Annual bonus')
 ];
 
 export function taxKindIndex(id: string): number {
@@ -204,4 +206,46 @@ export function reverseWage(input: WageInput, targetNetCents: number): TaxResult
   const answer: TaxResult | undefined = wageTax(input);
   input.grossCents = originalGross;
   return answer !== undefined && answer.netCents >= targetNetCents ? answer : undefined;
+}
+
+// 全年一次性奖金单独计税（不并入当年综合所得）。奖金 ÷ 12 定档的月度税率表，单位：分。
+export const BONUS_LIMITS: number[] = [300000, 1200000, 2500000, 3500000, 5500000, 8000000];
+export const BONUS_RATES: number[] = [3, 10, 20, 25, 30, 35, 45];
+export const BONUS_QUICK: number[] = [0, 21000, 141000, 266000, 441000, 716000, 1516000];
+
+/** 全年一次性奖金单独计税：先用奖金 ÷ 12 找到月度税率档，再按奖金全额算税。 */
+export function bonusTax(grossCents: number): TaxResult | undefined {
+  if (!validMoney(grossCents) || grossCents <= 0) { return undefined; }
+  const result: TaxResult = new TaxResult();
+  result.grossCents = grossCents;
+  result.taxableCents = grossCents;
+  const index: number = bracket(grossCents / 12, BONUS_LIMITS);
+  result.ratePercent = BONUS_RATES[index];
+  result.taxCents = Math.max(0, Math.round(grossCents * result.ratePercent / 100) - BONUS_QUICK[index]);
+  result.netCents = grossCents - result.taxCents;
+  return result;
+}
+
+/** 全年一次性奖金的临界点（税前奖金，单位：分）：多发 1 元就可能跨档、税后反而变少。 */
+export const BONUS_TRAPS: number[] = [3600000, 14400000, 30000000, 42000000, 66000000, 96000000];
+
+/** 奖金落在临界点前方 1 元以内时给出提示，其余情况返回空串。 */
+export function bonusTrapHint(grossCents: number, english: boolean): string {
+  for (let index: number = 0; index < BONUS_TRAPS.length; index++) {
+    const gap: number = BONUS_TRAPS[index] - grossCents;
+    if (gap >= 1 && gap <= 100) {
+      const gapText: string = moneyText(gap);
+      return english
+        ? gapText + ' yuan more would cross a bracket and may reduce your take-home.'
+        : '再多发 ' + gapText + ' 元会跨过临界点，税后可能反而变少。';
+    }
+  }
+  return '';
+}
+
+/** 单独计税的口径与政策有效期说明。 */
+export function bonusNoteText(english: boolean): string {
+  return english
+    ? 'Separate taxation: bonus ÷ 12 sets the rate; the policy runs through 2027-12-31; this estimate is not a filed result.'
+    : '单独计税：奖金 ÷ 12 定税率；政策执行至 2027-12-31；估算结果不是申报结果。';
 }

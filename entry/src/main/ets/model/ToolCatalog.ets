@@ -59,6 +59,10 @@ function toolSpecs(): Map<string, ToolSpec> {
   specs.set('level', new ToolSpec($r('sys.symbol.ruler'), ToolPalette.tintGreen));
   specs.set('compass', new ToolSpec($r('sys.symbol.compass'), ToolPalette.tintSky));
   specs.set('kinship', new ToolSpec($r('sys.symbol.family'), ToolPalette.tintAmber));
+  specs.set('base', new ToolSpec($r('sys.symbol.code_square'), ToolPalette.tintIndigo));
+  specs.set('diff', new ToolSpec($r('sys.symbol.difference'), ToolPalette.tintTeal));
+  specs.set('anniversary', new ToolSpec($r('sys.symbol.calendar_badge_clock'), ToolPalette.tintRose));
+  specs.set('net', new ToolSpec($r('sys.symbol.dot_radiowaves_left_and_right'), ToolPalette.tintSky));
   return specs;
 }
 

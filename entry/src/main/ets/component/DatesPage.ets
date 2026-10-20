@@ -7,7 +7,8 @@ import { ToolPalette } from '../model/ToolPalette';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
   workingDaysBetweenWithHolidays, shiftDate, countdownAt, constellationAt, constellationRangeText,
-  CalendarSpan, AgeResult, CalendarInfo, CountdownInfo,
+  timeTextOf, timeSpanBetween, timeSpanText,
+  CalendarSpan, AgeResult, CalendarInfo, CountdownInfo, TimeSpan,
   Constellation, DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
 import { LunarDate, lunarDateText } from '../model/LunarTools';
 import { HolidayTable } from '../model/HolidayIcs';
@@ -18,7 +19,7 @@ const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '�
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /**
- * 日期计算页（间隔 / 推算 / 年龄 / 工作日 / 星期与周数 / 农历 / 星座）。
+ * 日期计算页（间隔 / 推算 / 年龄 / 工作日 / 星期与周数 / 农历 / 星座 / 时间点差值）。
  *
  * 自包含工具页：日期值、偏移量与各种模式的结果都在本组件内；复制、选择器错误提示通过 `@Event`
  * 交回父组件。计算方式菜单由 `model/DateTools.ets` 的 `DATE_TOOL_MODES` 登记表驱动。
@@ -34,6 +35,10 @@ export struct DatesPage {
 
   @Local firstDate: string = todayDate();
   @Local secondDate: string = todayDate();
+  // 只在 `timepoint` 方式里使用：时间点差值把时间单独存这两个字段，
+  // **绝不写进 `firstDate`/`secondDate`**——它们被日期间隔/年龄/工作日等既有方式共用，`parseDate()` 只认日期。
+  @Local firstTime: string = '';
+  @Local secondTime: string = '';
   @Local dayOffset: string = '7';
   @Local dateMode: string = 'interval';
   @Local dateShiftUnit: string = 'day';
@@ -258,6 +263,59 @@ export struct DatesPage {
     return kind === 'first' ? this.firstDate : this.secondDate;
   }
 
+  // 时间点差值专用：时间部分同样用系统时间选择器，确认后经 `timeTextOf()` **逐字段拼串**写入，
+  // 不把时间写进 `firstDate`/`secondDate`（那两个字段被其它方式共用）。选择器只回传时/分/秒三个数字，
+  // 若把它们 `setHours()` 进 `Date` 再读出来，夏令时前跳的空档会被系统顺移。
+  private openTimePicker(kind: string): void {
+    try {
+      this.getUIContext().showTimePickerDialog({
+        selected: new Date(),
+        format: TimePickerFormat.HOUR_MINUTE_SECOND,
+        useMilitaryTime: true,
+        enableCascade: false,
+        systemMaterial: this.immersiveMaterial(true),
+        onAccept: (value: TimePickerResult) => {
+          const text: string = timeTextOf(value.hour, value.minute, value.second);
+          if (kind === 'first') { this.firstTime = text; } else { this.secondTime = text; }
+        }
+      });
+    } catch (_) {
+      this.onStatus(this.tr('无法打开时间选择器', 'Could not open the time picker'));
+    }
+  }
+
+  private timeFieldLabel(kind: string): string {
+    return kind === 'first' ? this.tr('起始时间', 'Start time') : this.tr('目标时间', 'End time');
+  }
+
+  // 未选时间时给占位文案，不假装已有值；时间未选时结果按 00:00:00 计算（见 timePoint()）。
+  private timeFieldText(kind: string): string {
+    const value: string = kind === 'first' ? this.firstTime : this.secondTime;
+    return value === '' ? this.tr('选取时间', 'Pick a time') : value;
+  }
+
+  // 把「日期 + 可选时间」拼成一个时间点文本；时间未选时按 00:00:00 计算。
+  private timePoint(dateValue: string, timeValue: string): string {
+    const day: string = dateValue.trim();
+    if (day.length === 0) { return ''; }
+    return day + ' ' + (timeValue.length === 0 ? '00:00:00' : timeValue);
+  }
+
+  // 两端未选齐或任一日期非法时返回 undefined（结果区给中英占位文案）。
+  private timeSpanResult(): TimeSpan | undefined {
+    const first: string = this.timePoint(this.firstDate, this.firstTime);
+    const second: string = this.timePoint(this.secondDate, this.secondTime);
+    if (first.length === 0 || second.length === 0) { return undefined; }
+    return timeSpanBetween(first, second);
+  }
+
+  // 方法名与 `model/DateTools` 的 `timeSpanText()` 区分开，避免同名遮蔽。
+  private timeSpanResultText(): string {
+    const span: TimeSpan | undefined = this.timeSpanResult();
+    if (span === undefined) { return this.tr('请输入或选择两个时间点', 'Pick two points in time'); }
+    return timeSpanText(span, this.english);
+  }
+
   private dateModeLabel(): string {
     const mode: DateToolMode | undefined = DATE_TOOL_MODES.find((item: DateToolMode) => item.id === this.dateMode);
     if (mode === undefined) { return this.english ? DATE_TOOL_MODES[0].en : DATE_TOOL_MODES[0].zh; }
@@ -291,6 +349,30 @@ export struct DatesPage {
         .width('100%').padding(16)
         .accessibilityText(this.tr(zh, en) + (this.english ? ', ' : '，') + this.dateFieldText(kind))
         .onClick(() => this.openDatePicker(kind))
+      }
+    }.width('100%')
+  }
+
+  // 时间点差值的可点时间卡：与 dateField 同款视觉，图标换成时钟；同样只收常量 kind，
+  // 标签与值都在构建函数体内读取 this 的状态（未选时间时显示「选取时间」占位）。
+  @Builder private timeField(kind: string) {
+    Column({ space: 6 }) {
+      Text(this.timeFieldLabel(kind)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        Row({ space: 12 }) {
+          SymbolGlyph($r('sys.symbol.timer')).fontSize(22).fontColor([ToolPalette.textSubtle])
+          Text(this.timeFieldText(kind)).fontSize(20).fontWeight(FontWeight.Bold)
+            .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+        }
+        .width('100%').padding(16)
+        .accessibilityText(this.timeFieldLabel(kind) + (this.english ? ', ' : '，') + this.timeFieldText(kind))
+        .onClick(() => this.openTimePicker(kind))
       }
     }.width('100%')
   }
@@ -462,6 +544,22 @@ export struct DatesPage {
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }.padding(16).width('100%')
         }
+      } else if (this.dateMode === 'timepoint') {
+        // 时间点差值：两张日期卡 + 两张时间卡（时间单独存放，不写进 firstDate/secondDate），
+        // 结果按墙上时间逐字段求差，因此与本地时区、夏令时无关。
+        this.dateField('起始日期', 'Start', 'first')
+        this.dateField('目标日期', 'End', 'second')
+        this.timeField('first')
+        this.timeField('second')
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+          lightEffect: true
+        }) {
+          Text(this.timeSpanResultText()).fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')
+        }
+        Text(this.tr('按墙上时间计算，不含时区与夏令时；时间未选时按 00:00:00 计算。',
+          'Wall-clock time only, no time zone or DST; unset times count as 00:00:00.'))
+          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         this.dateField('起始日期', 'Start date', 'first')
         this.dateField('目标日期', 'End date', 'second')

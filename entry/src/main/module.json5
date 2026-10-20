@@ -10,7 +10,11 @@
     "requestPermissions": [
       { "name": "ohos.permission.PUBLISH_AGENT_REMINDER" },
       { "name": "ohos.permission.DETECT_GESTURE" },
-      { "name": "ohos.permission.ACCELEROMETER" }
+      { "name": "ohos.permission.ACCELEROMETER" },
+      // 联网能力只在用户显式触发时使用：网络工具（DNS/端口/HTTP 响应头）、单位换算的汇率更新、
+      // 设置页的节假日数据更新。GET_NETWORK_INFO 只用于域名解析（connection.getAddressesByName）。
+      { "name": "ohos.permission.INTERNET" },
+      { "name": "ohos.permission.GET_NETWORK_INFO" }
     ],
     "metadata": [
       { "name": "ohos.arkui.UIMaterial.state", "value": "enable" },

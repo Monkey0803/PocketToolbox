@@ -18,7 +18,8 @@ export class UnitCategory {
   en: string;
   units: UnitDef[];
   /**
-   * 非线性类别的换算方式：'' 表示线性（走 `factor`），'temperature' 与 'fuel' 走专门公式。
+   * 非线性类别的换算方式：'' 表示线性（走 `factor`），'temperature' 与 'fuel' 走专门公式，
+   * 'currency' 表示单位表为空、由页面的汇率面板（FX_CURRENCIES + 本机缓存快照）接管。
    * 用专门的标记字段代替「按类别 id 硬编码判断」，新增非线性类别时不必再改 `convert()` 的分支条件。
    */
   special: string;
@@ -116,7 +117,11 @@ export const CATEGORIES: UnitCategory[] = [
   new UnitCategory('fuel', '油耗', 'Fuel economy', [
     new UnitDef('l100', '升每百公里', 'L/100 km', 1), new UnitDef('kml', '公里每升', 'km/L', 1),
     new UnitDef('mpgus', '英里每加仑（美制）', 'mpg (US)', 1)
-  ], 'fuel')
+  ], 'fuel'),
+  // 货币的「单位」是币种，登记在 model/FxTools.ets 的 FX_CURRENCIES（24 种），汇率来自本机缓存快照
+  // 而不是固定系数，因此这里**刻意留空 units**：页面见到 `special === 'currency'` 就不去读 `units`，
+  // 换成 FX_CURRENCIES 币种下拉 + `convertFx()` 换算（不要按 id 硬编码判断，与 temperature/fuel 同一套机制）。
+  new UnitCategory('currency', '货币', 'Currency', [], 'currency')
 ];
 
 function celsiusOf(value: number, from: UnitDef): number {

@@ -4,7 +4,8 @@ import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { TaxResult, TaxKindEntry, TAX_KINDS, taxKindIndex, WageInput, parseMoney, moneyText,
-  contributionFromBase, wageTax, oneOffTax, severanceTax, reverseOneOff, reverseWage } from '../model/IncomeTax';
+  contributionFromBase, wageTax, oneOffTax, severanceTax, reverseOneOff, reverseWage,
+  BONUS_LIMITS, BONUS_QUICK, bonusTax, bonusTrapHint, bonusNoteText } from '../model/IncomeTax';
 
 /**
  * 居民个人个税估算页（工资累计预扣 / 稿酬 / 劳务 / 特许权 / 离职补偿）。
@@ -120,6 +121,38 @@ export struct TaxPage {
     return calculated === undefined ? -1 : calculated;
   }
 
+  /** 结果行只收常量 kind，金额在构建函数体内现取（不要把算好的金额当 @Builder 参数传）。 */
+  private taxResultValue(kind: string): number {
+    const result: TaxResult | undefined = this.taxResult;
+    if (result === undefined) { return 0; }
+    if (kind === 'gross') { return result.grossCents; }
+    if (kind === 'contribution') { return result.contributionCents; }
+    if (kind === 'special') { return result.specialCents; }
+    if (kind === 'pension') { return result.pensionCents; }
+    if (kind === 'exempt' || kind === 'expense' || kind === 'other') { return result.otherCents; }
+    if (kind === 'taxable') { return result.taxableCents; }
+    if (kind === 'quick') { return this.bonusQuickCents(); }
+    if (kind === 'tax') { return result.taxCents; }
+    if (kind === 'net') { return result.netCents; }
+    return 0;
+  }
+
+  /** 年终奖单独计税的速算扣除数：按「奖金 ÷ 12」重新定档，与 bonusTax 用同一张月度表。 */
+  private bonusQuickCents(): number {
+    const result: TaxResult | undefined = this.taxResult;
+    if (result === undefined || result.grossCents <= 0) { return 0; }
+    let index: number = 0;
+    const monthly: number = result.grossCents / 12;
+    while (index < BONUS_LIMITS.length && monthly > BONUS_LIMITS[index]) { index++; }
+    return BONUS_QUICK[index];
+  }
+
+  /** 临界点提示：按当前输入的税前奖金现取，输入不可解析时为空串。 */
+  private bonusTrapText(): string {
+    const gross: number | undefined = parseMoney(this.taxAmount);
+    return gross === undefined ? '' : bonusTrapHint(gross, this.english);
+  }
+
   private wageTaxInput(): WageInput {
     const input: WageInput = new WageInput();
     input.period = Number(this.taxPeriod.trim());
@@ -158,14 +191,18 @@ export struct TaxPage {
       else { input.grossCents = amount; result = wageTax(input); }
     } else if (this.taxKind === 'severance') {
       result = severanceTax(amount, this.taxValue(this.taxAverageWage));
+    } else if (this.taxKind === 'bonus') {
+      result = bonusTax(amount);
     } else if (this.taxReverse) {
       result = reverseOneOff(this.taxKind, amount);
     } else {
       result = oneOffTax(this.taxKind, amount);
     }
     if (result === undefined) {
-      this.onStatus(this.tr('请检查期数、各项金额和比例；房贷与租金不可同时扣除，养老金全年不超过 12000 元',
-        'Check period, amounts and rates. Mortgage and rent cannot both be deducted; annual pension limit is 12,000 yuan'));
+      this.onStatus(this.taxKind === 'bonus'
+        ? this.tr('请输入大于 0 的年终奖金额', 'Enter a bonus amount greater than 0')
+        : this.tr('请检查期数、各项金额和比例；房贷与租金不可同时扣除，养老金全年不超过 12000 元',
+          'Check period, amounts and rates. Mortgage and rent cannot both be deducted; annual pension limit is 12,000 yuan'));
       return;
     }
     this.onStatus('');
@@ -195,10 +232,11 @@ export struct TaxPage {
     Text(this.tr(zh, en)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
   }
 
-  @Builder private taxResultLine(zh: string, en: string, cents: number) {
+  @Builder private taxResultLine(zh: string, en: string, kind: string) {
     Row({ space: 8 }) {
       Text(this.tr(zh, en)).fontSize(15).fontColor(ToolPalette.textSecondary).layoutWeight(1)
-      Text('¥' + moneyText(cents)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
+      Text('¥' + moneyText(this.taxResultValue(kind))).fontSize(16).fontWeight(FontWeight.Medium)
+        .fontColor(ToolPalette.textPrimary)
     }.width('100%')
   }
 
@@ -224,8 +262,10 @@ export struct TaxPage {
           onSelected: (index: number): void => this.selectReverse(index)
         })
       }
-      this.taxField(this.taxReverse ? '目标税后金额（元）' : '税前收入（元）',
-        this.taxReverse ? 'Target net amount (CNY)' : 'Gross income (CNY)',
+      this.taxField(this.taxKind === 'bonus' ? '税前年终奖（元）' :
+        (this.taxReverse ? '目标税后金额（元）' : '税前收入（元）'),
+        this.taxKind === 'bonus' ? 'Gross annual bonus (CNY)' :
+          (this.taxReverse ? 'Target net amount (CNY)' : 'Gross income (CNY)'),
         this.taxAmount, (value: string) => this.taxAmount = value)
       if (this.taxKind === 'wage') {
         this.taxHeading('本期工资与扣除', 'Current wage and deductions')
@@ -342,7 +382,7 @@ export struct TaxPage {
         Text(this.tr('当地上年职工平均工资三倍以内的补偿免税；请输入经当地公布的月平均工资。',
           'Compensation within three times the local prior annual average wage is exempt. Enter the official monthly average.'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      } else {
+      } else if (this.taxKind !== 'bonus') {
         Text(this.tr('按一次支付的居民个人收入预扣；同一项目连续收入按月合并计算。',
           'Resident withholding per payment; continuous income from one project is grouped by month.'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
@@ -357,25 +397,34 @@ export struct TaxPage {
         }) {
         Column({ space: 10 }) {
           this.taxHeading('计算结果', 'Result')
-          this.taxResultLine('税前收入', 'Gross income', this.taxResult.grossCents)
-          if (this.taxKind === 'wage') {
-            this.taxResultLine('本期个人社保与公积金', 'Current social and housing contributions',
-              this.taxResult.contributionCents)
-            this.taxResultLine('本期专项附加扣除', 'Current special deductions', this.taxResult.specialCents)
-            this.taxResultLine('本期个人养老金', 'Current personal pension', this.taxResult.pensionCents)
-            this.taxResultLine('本期其他依法扣除', 'Current other deductions', this.taxResult.otherCents)
-          } else if (this.taxKind === 'severance') {
-            this.taxResultLine('免税补偿额', 'Exempt compensation', this.taxResult.otherCents)
+          if (this.taxKind === 'bonus') {
+            this.taxResultLine('应纳税所得（奖金全额）', 'Taxable income (full bonus)', 'taxable')
           } else {
-            this.taxResultLine('费用减除额', 'Expense deduction', this.taxResult.otherCents)
+            this.taxResultLine('税前收入', 'Gross income', 'gross')
+            if (this.taxKind === 'wage') {
+              this.taxResultLine('本期个人社保与公积金', 'Current social and housing contributions', 'contribution')
+              this.taxResultLine('本期专项附加扣除', 'Current special deductions', 'special')
+              this.taxResultLine('本期个人养老金', 'Current personal pension', 'pension')
+              this.taxResultLine('本期其他依法扣除', 'Current other deductions', 'other')
+            } else if (this.taxKind === 'severance') {
+              this.taxResultLine('免税补偿额', 'Exempt compensation', 'exempt')
+            } else {
+              this.taxResultLine('费用减除额', 'Expense deduction', 'expense')
+            }
+            this.taxResultLine(this.taxKind === 'wage' ? '累计应税额' : '本次应税额',
+              this.taxKind === 'wage' ? 'Cumulative taxable income' : 'Taxable income', 'taxable')
           }
-          this.taxResultLine(this.taxKind === 'wage' ? '累计应税额' : '本次应税额',
-            this.taxKind === 'wage' ? 'Cumulative taxable income' : 'Taxable income', this.taxResult.taxableCents)
           Text(this.tr('适用税率 ', 'Applicable rate ') + this.taxResult.ratePercent.toString() + '%')
             .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
-          this.taxResultLine(this.taxKind === 'wage' ? '本期预扣个税' : '本次个税',
-            this.taxKind === 'wage' ? 'Current tax withheld' : 'Tax withheld', this.taxResult.taxCents)
-          this.taxResultLine('实得金额', 'Net amount', this.taxResult.netCents)
+          if (this.taxKind === 'bonus') {
+            this.taxResultLine('速算扣除数', 'Quick deduction', 'quick')
+          }
+          this.taxResultLine(this.taxKind === 'wage' ? '本期预扣个税' :
+            (this.taxKind === 'bonus' ? '应纳税额' : '本次个税'),
+            this.taxKind === 'wage' ? 'Current tax withheld' :
+              (this.taxKind === 'bonus' ? 'Tax payable' : 'Tax withheld'), 'tax')
+          this.taxResultLine(this.taxKind === 'bonus' ? '税后收入' : '实得金额',
+            this.taxKind === 'bonus' ? 'Take-home' : 'Net amount', 'net')
           if (this.taxKind === 'wage') {
             Text(this.tr('实得金额只扣本期个人社保、公积金与个税；专项附加扣除、个人养老金及其他依法扣除仅用于计算税基。若养老金等由工资直接代扣，请另核对工资单实发额。',
               'Net amount subtracts current social insurance, housing fund and tax only. Special, pension and other lawful deductions reduce the tax base; if pension is also withheld from pay, check the payroll cash amount separately.'))
@@ -387,6 +436,12 @@ export struct TaxPage {
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }
         }.padding(16).width('100%')
+        }
+      }
+      if (this.taxKind === 'bonus') {
+        Text(bonusNoteText(this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+        if (this.bonusTrapText().length > 0) {
+          Text(this.bonusTrapText()).fontSize(13).fontColor(ToolPalette.warning).width('100%')
         }
       }
       Text(this.tr('仅供预扣估算；实际申报和年度汇算结果可能不同。所有输入仅在本机当前运行期间保留。',

@@ -1,17 +1,25 @@
+import { common } from '@kit.AbilityKit';
 import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { HolidayTable, parseHolidayIcs } from '../model/HolidayIcs';
+import { netErrorText } from '../model/NetworkTools';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_OPTIONS, LanguageOption, languagePreferenceAt,
   languagePreferenceIndex, languagePreferenceLabel } from '../model/LanguagePreference';
 import { InfoRow, deviceInfoRows } from '../services/DeviceInfo';
+import { loadHolidayTable, readCachedIcs } from '../services/HolidayData';
+import { HolidayUpdateOutcome, updateHolidayData } from '../services/HolidayUpdate';
 
 /**
- * 设置页（语言、应用图标、隐私与清空历史记录）。
+ * 设置页（语言、应用图标、节假日数据、设备信息、隐私与清空历史记录）。
  *
  * 展示层：语言偏好、当前图标状态与历史清空仍由父组件持有并持久化（`LocalData`），本组件只负责
  * 渲染，切换语言、更换图标、清空历史经 `@Event` 交回父组件。
+ *
+ * 节假日数据：默认用随包内置的那份（构建期生成，见 tools/fetch-holidays.mjs）；只有用户点「检查更新」
+ * 才会发起一次联网，失败时保留本地数据（离线优先）。
  */
 @ComponentV2
 export struct SettingsPage {
@@ -26,20 +34,114 @@ export struct SettingsPage {
   @Event onLanguagePreference: (preference: string) => void = () => {};
   @Event onChooseIcon: (name: string) => void = () => {};
   @Event onClearHistory: () => void = () => {};
+  // 一次性反馈（更新成功/失败）经父组件的 `status` 转 toast。
+  @Event onStatus: (message: string) => void = () => {};
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
   // 设备与应用信息：只在进入设置页时读一次（全是只读系统属性，不申请权限、不落盘）
   @Local infoRows: InfoRow[] = [];
+  // 节假日数据表：读沙箱缓存里的那一份（首次进入时由 `loadHolidayTable` 落随包数据），日期取 `dataDate`。
+  @Local holidayTable: HolidayTable = new HolidayTable();
+  @Local holidayUpdatedAt: string = '';
+  // 更新进行中：驱动按钮的 `usable`（禁用交给系统），并防止重复点击。
+  @Local holidayUpdating: boolean = false;
 
   aboutToAppear(): void {
     this.infoRows = deviceInfoRows();
+    this.refreshHolidayTable();
+  }
+
+  private ctx(): common.UIAbilityContext {
+    return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  // 与 DatesPage.refreshHolidays() 同一口径：显示解析表里的 `X-POCKET-TOOLBOX-FETCHED` 数据日期。
+  // 优先直接读沙箱缓存（`readCachedIcs()` + `parseHolidayIcs()`，都是既有入口）：`loadHolidayTable()`
+  // 会先 `materializeBundledIcs()`，用随包内容覆盖掉用户刚下载的数据，不适合用在更新之后。
+  // 缓存还不存在（首次进入）时才走 `loadHolidayTable()`，让它把随包文件落到沙箱。
+  private async refreshHolidayTable(): Promise<void> {
+    try {
+      const text: string | undefined = readCachedIcs(this.ctx());
+      if (text !== undefined && text !== '') {
+        this.holidayTable = parseHolidayIcs(text);
+        this.holidayUpdatedAt = this.holidayTable.dataDate;
+        return;
+      }
+      this.holidayTable = await loadHolidayTable(this.ctx());
+    } catch (_) {
+      this.holidayTable = new HolidayTable();
+    }
+    this.holidayUpdatedAt = this.holidayTable.dataDate;
+  }
+
+  // 数据日期文本在构建函数体内现取（`@Builder` 只收常量参数，否则更新成功后文案不刷新）。
+  // 取不到日期时显示「随包数据」/`Bundled data` 占位，而不是假装有一个日期。
+  private holidayDateText(): string {
+    if (this.holidayTable.loaded && this.holidayUpdatedAt !== '') { return this.holidayUpdatedAt; }
+    return this.tr('随包数据', 'Bundled data');
+  }
+
+  // 用户显式触发：一次 GET，校验通过才落盘；失败保留随包数据，提示里说清这一点。
+  private async checkHolidayUpdate(): Promise<void> {
+    if (this.holidayUpdating) { return; }
+    this.holidayUpdating = true;
+    let outcome: HolidayUpdateOutcome = new HolidayUpdateOutcome();
+    try {
+      outcome = await updateHolidayData(this.ctx());
+    } catch (_) {
+      outcome = new HolidayUpdateOutcome();
+      outcome.error = 'offline';
+    }
+    this.holidayUpdating = false;
+    if (outcome.ok) {
+      await this.refreshHolidayTable();
+      this.onStatus(this.tr('节假日数据已更新', 'Holiday data updated'));
+      return;
+    }
+    const reason: string = netErrorText(outcome.error, this.english);
+    if (reason === '') {
+      this.onStatus(this.tr('更新失败，仍使用随包数据', 'Update failed; still using bundled data'));
+      return;
+    }
+    this.onStatus(reason + this.tr('，仍使用随包数据', '; still using bundled data'));
   }
 
   @Builder private infoLine(zh: string, en: string, value: string) {
     Row({ space: 12 }) {
       Text(this.tr(zh, en)).fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
       Text(value).fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
+    }.width('100%')
+  }
+
+  // 节假日数据区块：显示当前数据日期 + 一枚「检查更新」纯图标按钮，下面一行小字说明联网时机。
+  // 行内文字（日期、无障碍名）都必须在构建函数体内现取，不能当 `@Builder` 参数传进去。
+  @Builder private holidaySection() {
+    Column({ space: 10 }) {
+      Text(this.tr('节假日数据', 'Holiday data')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel,
+        fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
+      }) {
+        Column({ space: 8 }) {
+          Row({ space: 12 }) {
+            Text(this.tr('当前数据日期', 'Current data date')).fontSize(13)
+              .fontColor(ToolPalette.textMuted).layoutWeight(1)
+            Text(this.holidayDateText()).fontSize(15).fontWeight(FontWeight.Medium)
+              .fontColor(ToolPalette.textPrimary)
+            IconActionButton({
+              icon: $r('sys.symbol.cloud_and_arrow_down'), tintColor: ToolPalette.primary,
+              a11yText: this.tr('检查节假日数据更新', 'Check for holiday data updates'),
+              usable: !this.holidayUpdating,
+              onTap: () => { this.checkHolidayUpdate(); }
+            })
+          }.width('100%')
+          Text(this.tr('更新只在你点击时发起；失败时保留随包数据。',
+            'Updates start only when you tap; the bundled data is kept on failure.'))
+            .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+        }.padding(16).width('100%')
+      }
     }.width('100%')
   }
 
@@ -114,6 +216,7 @@ export struct SettingsPage {
         this.iconChoice('toolbox_grid', $r('app.media.toolbox_grid_icon'), '工具网格', 'Toolbox grid')
       }.width('100%')
       this.deviceSection()
+      this.holidaySection()
       Text(this.tr('隐私', 'Privacy')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       Text(this.tr('历史记录（二维码生成与扫码、文本结果、换算结果、时间戳复制）、计时器与秒表计次、工具收藏，以及单位换算的类别/单位/精度仅保存在本机；条形码、个税、计算、日期、文本、随机选择、亲戚称呼和密码的输入不持久化（单位换算的输入值也不落盘）。文档扫描结果仅在当前运行期间保留，由你主动导出。个税在本机计算，官方查询链接由你主动打开。应用无账号、广告、统计或云同步。',
         'History (QR creation and scans, text results, conversions, copied timestamps), timers and stopwatch laps, favourites, and the converter’s last category, units and precision stay on this device; the converter’s input value is not saved. Barcode, income tax, calculator, date, text, random, kinship and password inputs are not saved. Document scans remain in memory until you export them. Tax is calculated on-device; official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))

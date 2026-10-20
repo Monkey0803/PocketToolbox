@@ -36,6 +36,10 @@ import { LoanPage } from '../component/LoanPage';
 import { ColorPage } from '../component/ColorPage';
 import { HealthPage } from '../component/HealthPage';
 import { SciencePage } from '../component/SciencePage';
+import { BasePage } from '../component/BasePage';
+import { DiffPage } from '../component/DiffPage';
+import { AnniversaryPage } from '../component/AnniversaryPage';
+import { NetworkProbePage } from '../component/NetworkProbePage';
 import { consumeStartupTool, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
   normalizeLanguagePreference } from '../model/LanguagePreference';
@@ -893,6 +897,7 @@ struct Index {
               UnitsPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, data: this.data,
                 onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
             }
             else if (name === 'timers') {
@@ -974,15 +979,41 @@ struct Index {
                 onExport: (): void => { this.exportDocuments(); } })
             }
             else if (name === 'level') {
-              LevelPage({ english: this.english, materialLevel: this.materialLevel, active: this.appActive })
+              LevelPage({ english: this.english, materialLevel: this.materialLevel, active: this.appActive,
+                data: this.data, onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'compass') {
-              CompassPage({ english: this.english, active: this.appActive })
+              CompassPage({ english: this.english, active: this.appActive, data: this.data,
+                onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'kinship') {
               KinshipPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
                 onCopy: (value: string): void => { this.copy(value); } })
+            }
+            else if (name === 'base') {
+              BasePage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'diff') {
+              DiffPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'anniversary') {
+              AnniversaryPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, data: this.data,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'net') {
+              NetworkProbePage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'history') {
               HistoryPage({ english: this.english, immersiveSupported: this.immersiveSupported,

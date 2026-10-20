@@ -6,6 +6,7 @@ import { TextStats, textStats, trimLines, collapseSpaces, removeBlankLines, join
   uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase } from '../model/TextTools';
 import { CodecResult, base64Encode, base64Decode, urlEncode, urlDecode, codecErrorText } from '../model/EncodingTools';
 import { md5, sha1, sha256 } from '../model/HashTools';
+import { MorseDecodeResult, morseEncodeText, morseDecodeText } from '../model/TorchSignal';
 
 /**
  * 文本统计与整理页。
@@ -126,7 +127,10 @@ export struct TextPage {
       this.codecMenuItem('URL 解码', 'URL decode', urlDecode),
       this.textMenuItem('MD5 摘要', 'MD5 digest', md5),
       this.textMenuItem('SHA-1 摘要', 'SHA-1 digest', sha1),
-      this.textMenuItem('SHA-256 摘要', 'SHA-256 digest', sha256)
+      this.textMenuItem('SHA-256 摘要', 'SHA-256 digest', sha256),
+      // 摩尔斯与手电筒共用 `model/TorchSignal.ets` 里那一张码表，这里只是把同一套编码搬到文本加工。
+      this.runMenuItem('摩尔斯编码', 'Morse encode', (): void => { this.runMorseEncode(); }),
+      this.runMenuItem('摩尔斯解码', 'Morse decode', (): void => { this.runMorseDecode(); })
     ];
   }
 
@@ -145,6 +149,42 @@ export struct TextPage {
       enabled: this.textInput.length > 0,
       action: (): void => { this.runCodec(decode); }
     };
+  }
+
+  /** 需要一个自有提示（而不只是 `string -> string`）的菜单项，例如摩尔斯加解码时的「已忽略」提示。 */
+  private runMenuItem(zh: string, en: string, run: () => void): MenuElement {
+    return {
+      value: this.tr(zh, en),
+      enabled: this.textInput.length > 0,
+      action: (): void => { run(); }
+    };
+  }
+
+  /** 摩尔斯编码：输入里一个 A–Z/0–9 都没有时不写结果卡，给一次性提示。 */
+  private runMorseEncode(): void {
+    if (this.textInput.length === 0) { return; }
+    const encoded: string = morseEncodeText(this.textInput);
+    if (encoded.length === 0) {
+      this.onStatus(this.tr('没有可编码的字符（摩尔斯只支持 A–Z 与 0–9）',
+        'Nothing to encode (Morse supports A–Z and 0–9 only)'));
+      return;
+    }
+    this.textOutput = encoded;
+  }
+
+  /** 摩尔斯解码：无法识别的记号丢弃并计数提示，其余照常写结果卡。 */
+  private runMorseDecode(): void {
+    if (this.textInput.length === 0) { return; }
+    const result: MorseDecodeResult = morseDecodeText(this.textInput);
+    if (result.text.length === 0) {
+      this.onStatus(this.tr('没有可解码的摩尔斯记号', 'No Morse tokens to decode'));
+      return;
+    }
+    this.textOutput = result.text;
+    if (result.unknown > 0) {
+      this.onStatus(this.tr('已忽略 ' + result.unknown + ' 个无法识别的记号，其余已解码',
+        'Ignored ' + result.unknown + ' unrecognized tokens; the rest was decoded'));
+    }
   }
 
   private runAction(apply: (value: string) => string): void {

@@ -2,6 +2,30 @@
 
 ## 当前状态
 
+- **工具卡片 20 → 24 + 现有工具深挖 + 首次引入联网（2026-10-20，已完成单测与构建，模拟器复验见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 28–32 节；真机未验收）**：本轮新增 4 张工具卡片（`base`「进制与位运算」/`Base & bitwise`、`diff`「文本对比」/`Text diff`、`anniversary`「纪念日」/`Anniversaries`、`net`「网络工具」/`Network tools`），并深挖既有工具、首次为应用引入联网能力。**联网是本轮合规重点**：`entry/src/main/module.json5` 的 `requestPermissions` 由 3 项增至 **5 项**，新增 `ohos.permission.INTERNET` 与 `ohos.permission.GET_NETWORK_INFO`（后者只用于「网络工具」的 DNS 域名解析）；三处联网入口全部用户显式触发、离线优先，HTTP 统一走 `services/HttpClient.ets`（强制 HTTPS、绝不抛出、请求结束即 `destroy()`）。
+  - **变更清单**：① 工具卡片 **20 → 24**（`base`/`diff`/`net` 不落盘；`anniversary` 是本轮唯一新增的持久化数据——纪念日清单「名称 + 日期 + 是否每年重复」，键 `anniversaries`，最多 20 条，可在页面里删除）；② 密码页新增「类型（密码 / PIN 码）」与强度预估（仍不落盘，离开页面清空）；③ 个税新增「年终奖单独计税」（本机估算）；④ 日期工具新增第 8 个方式「时间点差值」；⑤ 单位换算新增「货币」类别（汇率来自 `services/FxService.ets` 的 `FX_SOURCES`，缓存键 `fx_rates`）；⑥ 设置页新增「节假日数据」在线更新（`services/HolidayUpdate.ets`，数据源与随包数据同源）；⑦ 文本工具新增摩尔斯编解码（复用 `model/TorchSignal.ets` 的 `MORSE_TABLE`，不新写第二张表）；⑧ 新增 2 项权限。
+  - **权限核对项（5 项，逐项与 `entry/src/main/module.json5` 对齐；发布前逐条只看该文件，不要凭印象）**：
+    - [ ] `ohos.permission.PUBLISH_AGENT_REMINDER` —— 倒计时到期提醒；`module.json5` 第 11 行。
+    - [ ] `ohos.permission.DETECT_GESTURE` —— 智感握姿界面适配；第 12 行。
+    - [ ] `ohos.permission.ACCELEROMETER` —— 水平仪读加速度传感器；第 13 行。
+    - [ ] `ohos.permission.INTERNET` —— 网络工具 / 汇率更新 / 节假日更新，**仅用户显式触发时**；第 16 行。
+    - [ ] `ohos.permission.GET_NETWORK_INFO` —— **只用于**网络工具的 DNS 域名解析（`connection.getAddressesByName`）；第 17 行。
+    - [ ] 商店权限说明（`docs/STORE_LISTING.md` 截图清单段）与 `docs/PRIVACY.md` 的权限列表都已改为 5 项，且与上面逐条一致。
+  - **联网专项核对项（2026-10-20 模拟器复验：`127.0.0.1:5555`，Phone376 实例，headless 启动）**：
+    - [x] 网络工具：`example.com` → 「解析」得到 `IPv4 172.66.147.243` / `104.20.23.154`、耗时 1030 毫秒（截图 `docs/screenshots/emulator/network-dns-zh.jpeg`），证明 `INTERNET` + `GET_NETWORK_INFO` 与 `connection.getAddressesByName` 链路正常。
+    - [x] 汇率：点「更新汇率」后数据时间「刚刚更新」、`1 CNY = 0.149396 USD`；退出重进仍显示（`fx_rates` 缓存 + `units_state` 按币种代码恢复）；**未取过汇率时结果区显示「还没有可用的汇率，请联网后重试」而不是 0**（截图 `docs/screenshots/emulator/units-currency-zh.jpeg`）。
+    - [x] 节假日更新：设置页「检查更新」把数据日期从 `2026-10-16` 更新为 `2026-10-20`（截图 `docs/screenshots/emulator/settings-holiday-update-zh.jpeg`）；随后日期页「工作日」方式显示「节假日数据 2026-10-20」且工作日计算正常——**下载数据没有被随包数据刷回**（`HolidayData` 的下载标记生效）。
+    - [x] 本轮新增的四个卡片与四项深挖逐页渲染与关键链路（进制互转、文本对比、纪念日添加 + 页面级重进仍保留、DNS、货币、节假日、PIN + 强度、年终奖、时间点差值、摩尔斯编码）。
+    - [ ] **飞行模式 / 无网**下所有离线功能可用：二维码、条形码、个税、换算（非货币）、日期、时间戳、文本、随机、密码、纪念日、进制与位运算、文本对比、计时、手电筒、水平仪、指南针、亲戚称呼，以及网络工具的「网址分解」方式。
+    - [ ] 网络工具在断网/超时/域名不存在/端口不通时给出明确的中英失败提示（`netErrorText()` 的 `offline`/`timeout`/`refused`/`dns` 等），**不显示 0 或假数据**，也不静默重试；**端口连通**与**HTTP 状态和响应头**（含跟随重定向）两种方式尚未在设备上跑过。
+    - [ ] 网络工具的用户输入（主机/网址/端口）不写入历史、不落盘；「网址分解」方式全程离线（代码审查结论，未做界面右证）。
+    - [ ] 汇率在**无缓存且更新失败**时明确提示（已验「无缓存」这一半，未验「更新失败」）；失败时回退上次成功缓存且不清空。
+    - [ ] 设置页「检查更新」失败（断网/超时/响应不是合法 ICS）时**保留随包数据**（未验失败路径）。
+    - [ ] 服务卡片进程、应用启动、退到后台**都不发起任何网络请求**（可用抓包或断开网络后启动/切后台核对）。
+    - [x] `docs/PRIVACY.md` 与 `docs/STORE_LISTING.md` 的文案与实际行为一致（含「离线工具完整可用」「导出/复制仍在系统剪贴板」「不收集、不上传使用数据、不集成广告/统计/云同步」）——已按本轮实现逐条改写。
+  - **验收状态（如实）**：**模拟器复验已完成**本轮新增的 4 个工具卡片、4 项深挖与联网三条主路径（DNS 解析、汇率更新、节假日更新），明细见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 28–32 节；**真机验收尚未执行**，飞行模式/弱网/超时、端口与 HTTP 两种方式、服务卡片与启动不联网、授权撤销后的降级都还没有跑过。
+  - **待办（真机核对）**：`https://open.er-api.com/v6/latest/<基准币种>` 在本机网络下**已确认可达**；备选源 `https://api.frankfurter.dev/v1/latest?base=<基准币种>` 与节假日源 `https://raw.githubusercontent.com/.../holiday-cn.ics`（后者已确认可达）在**移动网络/境内网络**下的可达性仍需真机核对。若汇率两个源都不可达，需要换境内数据源，或砍掉「货币」类别（`model/Units.ets` 的 `currency` 类别与 `services/FxService.ets` 的 `FX_SOURCES` 需同步调整）。
+
 - **全局沉浸：窗口铺满整屏 + 状态栏/导航栏透明（2026-10-20，已完成构建、单测与模拟器复验）**：应用默认布局下**窗口不延伸到状态栏之下**（`uitest dumpLayout` 实测页面根节点从 `[0,122]` 开始），顶部永远缺一条、内容也无法滑到状态栏下。本轮把窗口级沉浸补齐，**不新增权限、不联网、不落盘**，与既有的「沉浸光感（材质）」是两件事。
   ① 纯逻辑 `model/ImmersiveBars.ets`：系统栏配色登记表 `IMMERSIVE_BAR_STYLES`（`light`/`dark`）+ `immersiveBarStyle(dark)`；底色一律 `#00000000`（透明，露出页面背景），图标色浅色底近黑 `#E5000000`、深色底近白 `#E5FFFFFF`（对应 `tool_background` 的 `#F5F7FA`／`#0F141B`）。这里的颜色字面量是**必要例外**：`setWindowSystemBarProperties()` 只接受 ARGB 字符串，`ToolPalette.*` 是 ArkUI 的 `$r` 资源、没有「资源 → 字符串」的公开接口。
   ② 系统能力 `services/ImmersiveWindow.ets`：`enableImmersiveWindow()` = `setWindowLayoutFullScreen(true)` + `setWindowSystemBarProperties({...})`；进程内状态 `isImmersiveLayout()` / `immersiveTopInset()` 供界面同步读取。`EntryAbility.onWindowStageCreate()` 改为 `prepareWindow()`，**先 await 沉浸式生效再 `loadContent()`**（沉浸式是异步生效的，顺序反了会先按非沉浸布局排一帧、随后整页上跳一格），另有 500 ms 兜底超时保证失败也照常加载；`onConfigurationUpdate()` 重新应用一次以刷新深浅色下的系统栏图标色。
@@ -96,7 +120,7 @@
   - **未覆盖**：① 窄屏（约 366 vp 手机）下的换行排布——本机连的是 853 vp 宽形态，5 个格子一行放得下（5×76 + 4×12 = 428 vp），窄屏会挤成 3 + 2 两行，需在真机复核；② `accessibilityText` 与屏幕朗读（`uitest dumpLayout` 不导出 `accessibilityText`，仅静态核对）；③ 深色模式下的格子底色与对勾对比度。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 22 节。
 
 - **指南针工具 + 快捷方式直达修复（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 19 个工具卡片**，仍不新增权限、不引入联网：
-  ① 页面 `component/CompassPage.ets` 订阅系统方向传感器 `sensor.SensorId.ORIENTATION`（当前 SDK 的 `@ohos.sensor.d.ts` 里该订阅**没有** `@permission` 标注，因此**权限仍只有 3 项**；`ACCELEROMETER` 仍是水平仪在用），按水平仪同一套生命周期订阅/取消（进入页面订阅、离开或退后台取消、读数不落盘）；盘面 24 格刻度与四个方位字按 `-heading` 反向旋转，顶部固定三角指示「手机顶部所指方向」，下方显示一位小数方位角与十六方位名。
+  ① 页面 `component/CompassPage.ets` 订阅系统方向传感器 `sensor.SensorId.ORIENTATION`（当前 SDK 的 `@ohos.sensor.d.ts` 里该订阅**没有** `@permission` 标注，因此指南针本身不新增权限；`ACCELEROMETER` 仍是水平仪在用。**注：此处「权限仍只有 3 项」是当时的历史结论；2026-10-20 起应用已因联网能力引入 `INTERNET`/`GET_NETWORK_INFO`，当前权限清单见本文顶部批次段**），按水平仪同一套生命周期订阅/取消（进入页面订阅、离开或退后台取消、读数不落盘）；盘面 24 格刻度与四个方位字按 `-heading` 反向旋转，顶部固定三角指示「手机顶部所指方向」，下方显示一位小数方位角与十六方位名。
   ② 纯逻辑 `model/CompassMath.ets` 在既有归一化/十六方位/最短弧平滑之上补 `isCompassFlat()`（`beta`/`gamma` 容差 25°）、`compassTiltHint()`、`compassCalibrationHint()`；取不到传感器时显示 `headingErrorText()` 的双语说明而**不显示 0°**（0 会被误读成正北），斜着拿时显示「请放平」提示但读数照常显示。
   ③ **快捷方式直达修复**：`resources/base/profile/shortcuts_config.json` 的 `wants` 原先写的是 `targetBundle`/`targetClass`，而当前 SDK 的 `toolchains/modulecheck/shortcuts.json` 只允许 `bundleName`/`moduleName`/`abilityName`/`parameters`（该 schema 的 description 里还留着旧名 `targetBundle`/`targetClass`，**不能照它写**）；现按 schema 改写，并给每个快捷方式的 `wants[].parameters` 显式登记 `{"tool":"<工具 id>"}`——目标工具 id 不再依赖启动器「自动注入 shortcutId」这一 SDK 里查不到的假设。`model/StartupIntent.ets` 新增可单测的 `pickStartupTool()`（先读 `tool` 参数，再兜底三个可能的 shortcutId 键名），`EntryAbility` 除 `onCreate` 外**新增 `onNewWant`**（热启动）落意图并用 `emitter` 叫醒首屏，`Index` 在 `aboutToAppear`/`onPageShow` 消费意图、`onPageHide` 清掉未被消费的残留意图。
   - **验证**：单测全绿（新增 30+ 条：`pickStartupTool` 的键优先级/非字符串/空值与 4 个快捷方式 id 的映射、`isCompassFlat` 边界与 NaN/Infinity、两条新提示文案、工具登记表 18→19 的条数与唯一性、`指南针`/`compass`/`方位角`/`磁力计` 的搜索命中）；`assembleHap` `BUILD SUCCESSFUL`。
@@ -139,7 +163,7 @@
 - 新增「时间戳」工具（独立工具，不挤占日期菜单）：`model/TimeTools.ets` 负责解析，`component/TimestampPage.ets` 负责展示，已在 `TOOL_CATALOG` 登记并由 `toolRoutes` 路由。输入支持秒/毫秒 Unix 时间戳与 `YYYY-MM-DD[ HH:mm[:ss]]`，日期时间按本地时间解释、末尾 `Z` 按 UTC；输出本地时间、UTC 时间、秒级与毫秒级时间戳（各带复制按钮），并提供「填入当前时间戳」。时间戳按 10 位及以下=秒、11 位及以上=毫秒判断；超出公元 1–9999 年返回范围错误。新增 35 条断言（含时区无关的回读往返、边界年、非法格式）与构建均通过；真机上的输入、复制与工具卡片入口待测。
 - 日期计算新增「农历」方式（第 6 个分段，短标签「农历」/ "Lunar"）：`model/LunarTools.ets` 提供纯逻辑的干支、生肖与中英双语农历文案，`services/LunarCalendar.ets` 用系统 `i18n` 的 `chinese` 历法把公历换算为农历（范围 1901–2099，越界返回空；换算完全在本机、不联网，公历年是 `extended_year - 2637` 而非 `get('year')` 的干支序数）；「星期与周数」的结果卡同时追加一行农历。为容纳 6 段，分段短标签字号由 14 fp 降为 12 fp。新增 20 条模型断言（干支序数、生肖、闰月、空值、中英文文案）已通过；本轮 `assembleHap` 尚未执行，真机上的分段宽度、切换与文案待验收。
 - 日期工具接入节假日与调休数据：`model/HolidayIcs.ets` 纯解析 iCalendar 子集（取 `VEVENT` 的 `DTSTART`/`DTEND` 与 `SUMMARY`，含「班/调休/补班」关键词的日期计为调休上班日），`services/HolidayData.ets` 把随包 `resources/rawfile/holidays.ics` 落到沙箱，法定节假日判断交给系统 `i18n.HolidayManager`（异常时回退解析表）。「工作日」方式改用 `workingDaysBetweenWithHolidays()`：排除周末与法定节假日，并把调休上班日计为工作日；无数据时退回「仅排除周六周日」并在界面注明。**以上均已按随包真实数据落地，详见下一条。**
-- **节假日数据已改为随包内置（2026-10-16 落地）**：`tools/fetch-holidays.mjs` 在构建期从 NateScarlet/holiday-cn（MIT，见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)）抓取 `holiday-cn.ics`，把假期区间（源数据 `DTEND` 为结束日不含）展开成逐日事件写入 `resources/rawfile/holidays.ics`；当前内置 2022–2026 共 180 天（休假日 147、调休上班日 33）。运行时**不联网**：原「更新节假日数据」入口与 `ohos.permission.INTERNET` 均已移除，商店文案中的「离线」不再有例外。国务院每年 11–12 月公布次年安排后，重跑脚本、跑单测与构建、在设备上核对新一年的工作日口径，然后发版。
+- **节假日数据已改为随包内置（2026-10-16 落地）**：`tools/fetch-holidays.mjs` 在构建期从 NateScarlet/holiday-cn（MIT，见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)）抓取 `holiday-cn.ics`，把假期区间（源数据 `DTEND` 为结束日不含）展开成逐日事件写入 `resources/rawfile/holidays.ics`；当前内置 2022–2026 共 180 天（休假日 147、调休上班日 33）。运行时**不联网**：原「更新节假日数据」入口与 `ohos.permission.INTERNET` 均已移除，商店文案中的「离线」不再有例外。**（历史批次记录：2026-10-20 起节假日数据重新提供了「检查更新」入口，仅用户点击时拉取、失败保留随包数据，权限与文案已同步更新，见本文顶部批次段。）**国务院每年 11–12 月公布次年安排后，重跑脚本、跑单测与构建、在设备上核对新一年的工作日口径，然后发版。
 - 智感握姿与应用级沉浸光感已接入 API 26；底部导航和返回使用组件级沉浸材质，按设备材质等级选择厚度与阴影。PLR-AL00 已检查这些入口的轮廓、图标对比度及点击。左手、右手、双手、权限失败、动态光感与不同材质等级下的真实效果尚需分别验收。
 - 底部已调整为工具、收藏、设置三个 Tab；PLR-AL00 已检查切换、收藏卡片显示及返回选中 Tab。设置页历史入口移除后的手机布局与设置 Tab 点击已复验；平板与折叠屏下的 Tab 布局仍待验收。
 - 设置页提供默认图标与四款备选图标，使用 API 26 系统接口切换。PLR-AL00 已逐一切换四款备选图标并恢复默认，检查桌面图标、应用内选中状态、进程重启后保持状态及中英文手机设置页。平板图标与布局需另行验收。
@@ -314,7 +338,7 @@
 - `ohos.permission.DETECT_GESTURE`：仅在本机识别握持手和交互手，以调整常用按钮位置；不保存或上传握姿状态。设备不支持或权限不可用时保留默认布局。
 - `ohos.permission.PUBLISH_AGENT_REMINDER`：用户启动倒计时后，在应用退到后台或进程结束时由系统按时提醒。需要代理提醒权益和通知授权。
 - `ohos.permission.ACCELEROMETER`：仅在水平仪页面读取设备加速度，计算倾角和气泡位置；离开页面或应用退后台后取消订阅，不保存数据。
-- 应用**不申请任何网络权限**：节假日数据随包内置（构建期生成，见上），运行时没有联网入口。`ohos.permission.INTERNET` 已于 2026-10-16 从 `entry/src/main/module.json5` 移除；若以后重新引入任何联网行为，必须同时更新本文件、`docs/PRIVACY.md`、`docs/STORE_LISTING.md` 与 `docs/THIRD_PARTY_NOTICES.md`。
+- 应用**不申请任何网络权限**（**历史批次记录，2026-10-16 的状态**；2026-10-20 起应用已引入联网能力与 `ohos.permission.INTERNET`/`GET_NETWORK_INFO`，当前口径见本文顶部批次段与 `docs/PRIVACY.md`）：节假日数据随包内置（构建期生成，见上），运行时没有联网入口。`ohos.permission.INTERNET` 已于 2026-10-16 从 `entry/src/main/module.json5` 移除；任何联网行为都必须同时更新本文件、`docs/PRIVACY.md`、`docs/STORE_LISTING.md` 与 `docs/THIRD_PARTY_NOTICES.md`。
 - 系统 Scan Kit 默认扫码界面包含相册入口并处理相机授权；应用未申请独立相机或媒体库读取权限。
 - 系统文档扫描控件处理拍摄、相册选择和预览；应用只在用户主动导出时通过文件选择器写入 JPG/PDF。
 - 文件选择器与系统分享面板只在用户点击“保存 PNG”“导出扫描文件”或“分享”时打开，不申请受限媒体库读写权限。

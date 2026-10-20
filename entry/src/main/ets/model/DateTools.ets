@@ -105,7 +105,9 @@ export const DATE_TOOL_MODES: DateToolMode[] = [
   { id: 'workdays', zh: '工作日', en: 'Working days' },
   { id: 'calendar', zh: '星期与周数', en: 'Weekday and week' },
   { id: 'lunar', zh: '农历', en: 'Lunar calendar' },
-  { id: 'zodiac', zh: '星座', en: 'Zodiac sign' }
+  { id: 'zodiac', zh: '星座', en: 'Zodiac sign' },
+  // 追加项一律放在末尾，避免打乱既有下标。
+  { id: 'timepoint', zh: '时间点差值', en: 'Time difference' }
 ];
 
 // 纯算术求当月天数，避免在遍历/高频路径里反复创建 Date。
@@ -424,4 +426,118 @@ export function countdownAt(first: string, second: string, reference: string): C
   info.elapsedDays = Math.round((at.getTime() - start.getTime()) / DAY_MS);
   info.remainingDays = Math.round((end.getTime() - at.getTime()) / DAY_MS);
   return info;
+}
+
+// ---------- 时间点差值 ----------
+//
+// 口径：**按墙上时间逐字段计算，不含时区与夏令时**。
+// 两端各自只读取「年/月/日/时/分/秒」六个字段，再用 `Date.UTC` 语义的时间戳求差，
+// 因此结果与运行设备的本地时区、夏令时无关（同一台设备在纽约或北京算出的差值相同）。
+
+/** `HH:mm:ss`：**逐字段补零拼串，不构造也不回读 `Date`**——时间选择器专用。 */
+export function timeTextOf(hours: number, minutes: number, seconds: number): string {
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || !Number.isInteger(seconds)) { return ''; }
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) { return ''; }
+  return hours.toString().padStart(2, '0') + ':' + minutes.toString().padStart(2, '0') + ':' +
+    seconds.toString().padStart(2, '0');
+}
+
+/** 墙上时间：只带字面字段，不带时区与瞬间语义。 */
+export class WallClock {
+  year: number = 0;
+  month: number = 0;
+  day: number = 0;
+  hours: number = 0;
+  minutes: number = 0;
+  seconds: number = 0;
+}
+
+// 两端都用 UTC 语义取值，因此两处的年份偏移（若按 `Date.UTC()` 处理 0–99 年会被加上 1900）
+// 会同时出现、相减后抵消；这里显式走 `setUTCFullYear()` 连单端也为字面年份，避免跨世纪时出错。
+function wallClockMillis(clock: WallClock): number {
+  const date: Date = new Date(0);
+  date.setUTCFullYear(clock.year, clock.month - 1, clock.day);
+  date.setUTCHours(clock.hours, clock.minutes, clock.seconds, 0);
+  return date.getTime();
+}
+
+/**
+ * 解析墙上时间文本：`YYYY-MM-DD`、`YYYY-MM-DD HH:mm`、`YYYY-MM-DD HH:mm:ss`。
+ *
+ * 日期可用 `-` 或 `/` 分隔，时间可用 `T` 或空格分隔，首尾空白忽略；只补零写法（两位月/日/时/分/秒）
+ * 才被接受。字段越界或日期不存在（如 `2025-02-29`）返回 `undefined`；年份按字面解析，
+ * 0–99 年不会像 `new Date(year, ...)` 那样被加上 1900。
+ */
+export function parseWallClock(value: string): WallClock | undefined {
+  const normalized: string = value.trim().split('/').join('-').split('T').join(' ');
+  const chunks: string[] = normalized.split(' ').filter((part: string) => part.length > 0);
+  if (chunks.length === 0 || chunks.length > 2) { return undefined; }
+  const datePart: string = chunks[0];
+  const timePart: string = chunks.length === 2 ? chunks[1] : '';
+  if (!new RegExp('^\\d{4}-\\d{2}-\\d{2}$').test(datePart)) { return undefined; }
+  if (timePart !== '' && !new RegExp('^\\d{2}:\\d{2}(:\\d{2})?$').test(timePart)) { return undefined; }
+  const clock: WallClock = new WallClock();
+  clock.year = Number(datePart.substring(0, 4));
+  clock.month = Number(datePart.substring(5, 7));
+  clock.day = Number(datePart.substring(8, 10));
+  if (timePart !== '') {
+    clock.hours = Number(timePart.substring(0, 2));
+    clock.minutes = Number(timePart.substring(3, 5));
+    clock.seconds = timePart.length > 5 ? Number(timePart.substring(6, 8)) : 0;
+  }
+  if (clock.month < 1 || clock.month > 12 || clock.day < 1 || clock.day > 31) { return undefined; }
+  // 用 UTC 字段回读校验「日期是否存在」：越界或 2 月 30 日这类不存在的日期会被系统顺移，
+  // 回读时与原字段不符即判定无效。
+  const probe: Date = new Date(0);
+  probe.setUTCFullYear(clock.year, clock.month - 1, clock.day);
+  probe.setUTCHours(clock.hours, clock.minutes, clock.seconds, 0);
+  if (probe.getUTCFullYear() !== clock.year || probe.getUTCMonth() !== clock.month - 1 ||
+    probe.getUTCDate() !== clock.day || probe.getUTCHours() !== clock.hours ||
+    probe.getUTCMinutes() !== clock.minutes || probe.getUTCSeconds() !== clock.seconds) {
+    return undefined;
+  }
+  return clock;
+}
+
+/** 两个时间点的差值：绝对值拆成 天/时/分/秒，`negative` 记录第二个时间点是否更早。 */
+export class TimeSpan {
+  totalSeconds: number = 0;
+  days: number = 0;
+  hours: number = 0;
+  minutes: number = 0;
+  seconds: number = 0;
+  negative: boolean = false;
+}
+
+// 任一端不可解析（格式、字段越界或日期不存在）返回 undefined。
+export function timeSpanBetween(first: string, second: string): TimeSpan | undefined {
+  const a: WallClock | undefined = parseWallClock(first);
+  const b: WallClock | undefined = parseWallClock(second);
+  if (a === undefined || b === undefined) { return undefined; }
+  const start: number = wallClockMillis(a);
+  const end: number = wallClockMillis(b);
+  const span: TimeSpan = new TimeSpan();
+  span.negative = end < start;
+  span.totalSeconds = Math.round(Math.abs(end - start) / 1000);
+  span.days = Math.floor(span.totalSeconds / 86400);
+  span.hours = Math.floor((span.totalSeconds % 86400) / 3600);
+  span.minutes = Math.floor((span.totalSeconds % 3600) / 60);
+  span.seconds = span.totalSeconds % 60;
+  return span;
+}
+
+/**
+ * 差值文案：中文「3 天 2 小时 5 分钟 10 秒」/ 英文 `3d 2h 5m 10s`。
+ *
+ * 为 0 的单位不显示（因此 `0 天 0 小时 30 分钟 0 秒` 只写「30 分钟」），全为 0 时写「0 秒」/`0s`；
+ * 显示精度到秒，`negative` 时整串前面加 `-`。
+ */
+export function timeSpanText(span: TimeSpan, english: boolean): string {
+  const parts: string[] = [];
+  if (span.days !== 0) { parts.push(english ? span.days + 'd' : span.days + ' 天'); }
+  if (span.hours !== 0) { parts.push(english ? span.hours + 'h' : span.hours + ' 小时'); }
+  if (span.minutes !== 0) { parts.push(english ? span.minutes + 'm' : span.minutes + ' 分钟'); }
+  if (span.seconds !== 0) { parts.push(english ? span.seconds + 's' : span.seconds + ' 秒'); }
+  if (parts.length === 0) { parts.push(english ? '0s' : '0 秒'); }
+  return (span.negative ? '-' : '') + parts.join(' ');
 }
