@@ -13,14 +13,17 @@
  * limitations under the License.
  */
 
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { TorchController } from '../services/SystemTools';
+import { enableImmersiveWindow } from '../services/ImmersiveWindow';
 import { setStartupTool, pickStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 
 const DOMAIN = 0x0000;
+// 等窗口沉浸式生效的上限（毫秒）：超时就先加载首屏，界面退回非沉浸布局也不停摆。
+const WINDOW_SETUP_TIMEOUT_MS: number = 500;
 
 export default class EntryAbility extends UIAbility {
   /**
@@ -74,7 +77,34 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+    this.prepareWindow(windowStage);
+  }
 
+  /**
+   * 先把主窗口调成沉浸式，再加载首屏。
+   *
+   * 顺序很重要：沉浸式是**异步**生效的（`setWindowLayoutFullScreen()` 返回 Promise），而首屏
+   * `Index.aboutToAppear()` 会同步读一次「沉浸式是否生效 + 状态栏高度」来决定顶部留白。若不等生效
+   * 就 `loadContent()`，首屏会先按非沉浸布局排版一帧（标题栏压在状态栏上、内容少让 35 vp），
+   * 随后整页往上跳一格。
+   *
+   * 兜底：窗口接口万一迟迟不回（异常设备/异常状态），最多等 `WINDOW_SETUP_TIMEOUT_MS` 就继续加载，
+   * 不能因为沉浸式失败让应用停在启动页——`enableImmersiveWindow()` 内部已经把异常吞成 `false`。
+   */
+  private async prepareWindow(windowStage: window.WindowStage): Promise<void> {
+    let main: window.Window | undefined = undefined;
+    try {
+      main = windowStage.getMainWindowSync();
+    } catch (err) {
+      hilog.error(DOMAIN, 'PocketToolbox', 'Failed to get main window: %{public}s', JSON.stringify(err));
+    }
+    const setup: Promise<boolean> = enableImmersiveWindow(this.context, main);
+    await Promise.race([
+      setup,
+      new Promise<void>((resolve: () => void): void => {
+        setTimeout(resolve, WINDOW_SETUP_TIMEOUT_MS);
+      })
+    ]);
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
@@ -87,6 +117,17 @@ export default class EntryAbility extends UIAbility {
   onWindowStageDestroy(): void {
     // Main window is destroyed, release UI related resources
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
+  }
+
+  /**
+   * 窗口与界面配置变化时重新应用系统栏配色。
+   *
+   * 沉浸式布局下状态栏/导航栏底色是透明的，页面背景自己铺上去，因此系统栏图标颜色必须跟着
+   * 深浅色走：系统切到深色后若还留着近黑图标，就会落在深色背景上看不见。此时窗口本身没有变化，
+   * 只有配色要重算，所以这里只传 context（服务内部取最后一个窗口）。
+   */
+  onConfigurationUpdate(newConfig: Configuration): void {
+    enableImmersiveWindow(this.context);
   }
 
   onForeground(): void {

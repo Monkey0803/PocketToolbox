@@ -65,6 +65,8 @@ const kinship = await loadEts('../entry/src/main/ets/model/KinshipMath.ets');
 const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.ets');
 const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
 const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
+const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets');
+const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
 const { createHash } = await import('node:crypto');
 
 function category(id) {
@@ -2571,5 +2573,175 @@ for (const size of [layout.layoutMetrics(0, 0), layout.layoutMetrics(-100, Numbe
   assert.ok(size.topPadding > 0);
   assert.ok(size.tabBottomPadding > 0);
 }
+
+// ---- 手电筒：求援灯语 / 摩尔斯 / 频闪 / 亮度 / 定时关闭（纯逻辑） ----
+// 段列表的通用不变量：非空、首段必为亮、相邻段状态必不同、每段时长 > 0。
+function assertTorchSegments(segments, label) {
+  assert.ok(segments.length > 0, `${label} 段列表不应为空`);
+  assert.equal(segments[0].on, true, `${label} 首段必须是亮`);
+  for (let i = 0; i < segments.length; i++) {
+    assert.ok(segments[i].ms > 0, `${label} 第 ${i} 段时长必须为正`);
+    if (i > 0) {
+      assert.notEqual(segments[i].on, segments[i - 1].on, `${label} 相邻段状态必须不同`);
+    }
+  }
+}
+const torchPairs = (segments) => segments.map((segment) => [segment.on, segment.ms]);
+const torchUnit = torchSignal.MORSE_UNIT_MS;
+
+// 摩尔斯表：A–Z 与 0–9 齐全，大小写等价，非字母数字一律不支持
+for (const char of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') {
+  assert.ok(torchSignal.morseCode(char).length > 0, `${char} 应有摩尔斯码`);
+  assert.equal(torchSignal.morseCode(char), torchSignal.morseCode(char.toLowerCase()));
+}
+assert.equal(torchSignal.morseCode('A'), '.-');
+assert.equal(torchSignal.morseCode('S'), '...');
+assert.equal(torchSignal.morseCode('O'), '---');
+assert.equal(torchSignal.morseCode('0'), '-----');
+assert.equal(torchSignal.morseCode('9'), '----.');
+assert.equal(torchSignal.morseCode('中'), '');
+assert.equal(torchSignal.morseCode(' '), '');
+
+// 输入解析：大写化、连续空白折叠成一个词间隔、首尾空白丢弃
+assert.deepEqual(torchSignal.morseChars(' sos ', 20).map((entry) => entry.char), ['S', 'O', 'S']);
+const wordChars = torchSignal.morseChars('a  b', 20);
+assert.deepEqual(wordChars.map((entry) => entry.char), ['A', ' ', 'B']);
+assert.equal(torchSignal.morseText(wordChars), '.- / -...');
+assert.equal(torchSignal.morseText(torchSignal.morseChars('sos', 3)), '... --- ...');
+
+// 不支持的字符被丢弃并如实回报（中文输入不会静默不闪）
+assert.equal(torchSignal.morseText(torchSignal.morseChars('a中b', 20)), '.- -...');
+assert.equal(torchSignal.ignoredMorseChars('a中b'), '中');
+assert.equal(torchSignal.ignoredMorseChars('abc'), '');
+assert.deepEqual(torchSignal.morseChars('中文', 20), []);
+
+// 长度上限只算真正的字符，空格不占名额
+assert.equal(torchSignal.morseChars('abcdefghijklmnopqrst', 20).length, 20);
+assert.equal(torchSignal.morseChars('abcdefghijklmnopqrstuvw', 20).length, 20);
+assert.deepEqual(torchSignal.morseChars('A A', 1).map((entry) => entry.char), ['A']);
+
+// 段构造：点 1u、划 3u、字符内 1u、字符间 3u、词间 7u
+assert.deepEqual(torchPairs(torchSignal.segmentsForMorse(torchSignal.morseChars('A', 4), torchUnit)),
+  [[true, torchUnit], [false, torchUnit], [true, 3 * torchUnit]]);
+// 'A B'：A 共 5u + 词间 7u + B（-... = 3+1+1+1+1+1+1 = 9u）= 21u
+const abSegments = torchSignal.segmentsForMorse(torchSignal.morseChars('A B', 4), torchUnit);
+assert.equal(torchSignal.cycleMs(abSegments), 21 * torchUnit);
+assertTorchSegments(abSegments, 'A B');
+
+// SOS：34u = 5.1 秒；且登记表里的节奏等于「摩尔斯推导 + 7u 循环间隔」，不允许两处各写一份
+const sosSignal = torchSignal.torchSignalById('sos');
+assert.ok(sosSignal);
+assert.equal(torchSignal.cycleMs(sosSignal.segments), 5100);
+assert.equal(torchSignal.secondsText(5100), '5.1');
+const derivedSos = torchSignal.normalizeSegments(
+  torchSignal.segmentsForMorse(torchSignal.morseChars(torchSignal.SOS_MORSE_TEXT, 20), torchUnit)
+    .concat([new torchSignal.TorchSegment(false, 7 * torchUnit)]));
+assert.deepEqual(torchPairs(sosSignal.segments), torchPairs(derivedSos));
+const sosTail = sosSignal.segments[sosSignal.segments.length - 1];
+assert.equal(sosTail.on, false);
+assert.equal(sosTail.ms, 7 * torchUnit);
+
+// 引导定位：亮 2 秒 / 灭 1 秒（非国际标准，文案已如实标注）
+assert.deepEqual(torchPairs(torchSignal.torchSignalSegments('guide')), [[true, 2000], [false, 1000]]);
+
+// normalizeSegments：合并相邻同态、丢弃非正时长、开头是灭段则整体判空
+assert.deepEqual(torchPairs(torchSignal.normalizeSegments([
+  new torchSignal.TorchSegment(true, 100), new torchSignal.TorchSegment(true, 50),
+  new torchSignal.TorchSegment(false, 0), new torchSignal.TorchSegment(false, 30),
+  new torchSignal.TorchSegment(true, 20)])), [[true, 150], [false, 30], [true, 20]]);
+assert.deepEqual(torchSignal.normalizeSegments([
+  new torchSignal.TorchSegment(false, 100), new torchSignal.TorchSegment(true, 100)]), []);
+
+// 灯语登记表：id 唯一、双语标题与说明非空、段列表满足不变量
+assert.equal(torchSignal.TORCH_SIGNALS.length, 2);
+assert.equal(new Set(torchSignal.TORCH_SIGNALS.map((entry) => entry.id)).size, 2);
+for (const entry of torchSignal.TORCH_SIGNALS) {
+  assert.ok(entry.titleZh.length > 0 && entry.titleEn.length > 0);
+  assert.ok(entry.noteZh.length > 0 && entry.noteEn.length > 0);
+  assertTorchSegments(entry.segments, entry.id);
+}
+assert.equal(torchSignal.torchSignalIndex('nope'), 0);
+assert.ok(torchSignal.torchSignalLabel('nope', true).length > 0);
+assert.equal(torchSignal.torchSignalNote('nope', false), '');
+// 未知 id 回退 SOS，绝不能把空段列表交给播放器
+assert.deepEqual(torchPairs(torchSignal.torchSignalSegments('nope')), torchPairs(sosSignal.segments));
+
+// 频闪：周期 = 1000/hz、闪光宽度固定、灭的时长必须为正
+assert.deepEqual(torchSignal.STROBE_FREQUENCIES, [1, 2, 3, 5]);
+for (const hz of torchSignal.STROBE_FREQUENCIES) {
+  const segments = torchSignal.strobeSegments(hz);
+  assert.equal(segments.length, 2);
+  assert.equal(segments[0].on, true);
+  assert.equal(segments[0].ms, torchSignal.STROBE_FLASH_MS);
+  assert.ok(segments[1].ms > 0);
+  assert.equal(torchSignal.cycleMs(segments), torchSignal.strobePeriodMs(hz));
+}
+assert.equal(torchSignal.strobeSegments(5)[1].ms, 120);
+assert.equal(torchSignal.strobeLabel(3), '3 Hz');
+assert.ok(torchSignal.strobeIndex(99) >= 0);
+
+// 亮度：档位、百分数换算与夹取
+assert.deepEqual(torchSignal.BRIGHTNESS_OPTIONS, [25, 50, 75, 100]);
+assert.equal(torchSignal.torchLevel(25), 0.25);
+assert.equal(torchSignal.torchLevel(100), 1);
+assert.equal(torchSignal.torchLevel(0), 0.01);
+assert.equal(torchSignal.torchLevel(150), 1);
+assert.equal(torchSignal.brightnessLabel(75), '75%');
+assert.ok(torchSignal.brightnessIndex(999) >= 0);
+
+// 定时关闭与剩余时间：0 表示关闭、mm:ss 补零、非正数返回空串
+assert.deepEqual(torchSignal.AUTO_OFF_OPTIONS, [0, 5, 10, 30]);
+assert.equal(torchSignal.autoOffLabel(0, false), '关闭');
+assert.equal(torchSignal.autoOffLabel(0, true), 'Off');
+assert.equal(torchSignal.autoOffLabel(10, false), '10 分钟');
+assert.equal(torchSignal.remainingText(90), '01:30');
+assert.equal(torchSignal.remainingText(1800), '30:00');
+assert.equal(torchSignal.remainingText(0), '');
+assert.equal(torchSignal.remainingText(-5), '');
+
+// 摩尔斯时序文案由单位推导（改单位不会漏改文案）
+assert.equal(torchSignal.preciseSecondsText(torchSignal.MORSE_UNIT_MS), '0.15');
+assert.equal(torchSignal.preciseSecondsText(torchSignal.MORSE_UNIT_MS * 7), '1.05');
+assert.ok(torchSignal.morseTimingText(false).indexOf('0.15') >= 0);
+assert.ok(torchSignal.morseTimingText(true).indexOf('0.15') >= 0);
+
+// 模式与柔光色调登记表
+assert.deepEqual(torchSignal.TORCH_MODES.map((entry) => entry.id),
+  ['steady', 'signal', 'morse', 'strobe', 'screen']);
+assert.equal(new Set(torchSignal.TORCH_MODES.map((entry) => entry.id)).size, 5);
+for (const entry of torchSignal.TORCH_MODES) {
+  assert.ok(entry.titleZh.length > 0 && entry.titleEn.length > 0);
+}
+assert.equal(torchSignal.torchModeIndex('nope'), 0);
+assert.ok(torchSignal.torchModeLabel('nope', true).length > 0);
+assert.deepEqual(torchSignal.SCREEN_TONES.map((entry) => entry.id), ['cool', 'warm']);
+assert.ok(torchSignal.screenToneLabel('nope', true).length > 0);
+assert.equal(torchSignal.screenToneIndex('nope'), 0);
+
+// 错误码文案：不可用与不支持必须区分
+assert.notEqual(torchSignal.torchErrorText('busy', false), torchSignal.torchErrorText('other', false));
+assert.ok(torchSignal.torchErrorText('busy', true).length > 0);
+
+// 沉浸式系统栏配色登记表（全局沉浸）
+// 两个系统栏的底色都必须透明：沉浸式布局下页面背景自己铺到系统栏之下，系统栏再上色就会盖出色带。
+assert.equal(immersiveBars.TRANSPARENT_SYSTEM_BAR, '#00000000');
+assert.deepEqual(immersiveBars.IMMERSIVE_BAR_STYLES.map((entry) => entry.id), ['light', 'dark']);
+assert.equal(new Set(immersiveBars.IMMERSIVE_BAR_STYLES.map((entry) => entry.id)).size, 2);
+for (const entry of immersiveBars.IMMERSIVE_BAR_STYLES) {
+  assert.equal(entry.statusBarColor, immersiveBars.TRANSPARENT_SYSTEM_BAR);
+  assert.equal(entry.navigationBarColor, immersiveBars.TRANSPARENT_SYSTEM_BAR);
+  // 内容色必须是 8 位 ARGB（窗口接口只认十六进制字符串，长度写错时不会报错、只会显示成默认色）
+  assert.match(entry.statusBarContentColor, /^#[0-9A-F]{8}$/);
+  assert.equal(entry.statusBarContentColor, entry.navigationBarContentColor);
+}
+// 浅色底配近黑图标、深色底配近白图标：两者必须相反，否则深色下系统栏会看不见
+assert.equal(immersiveBars.immersiveBarStyleId(false), 'light');
+assert.equal(immersiveBars.immersiveBarStyleId(true), 'dark');
+assert.equal(immersiveBars.immersiveBarStyle(false).statusBarContentColor, '#E5000000');
+assert.equal(immersiveBars.immersiveBarStyle(true).statusBarContentColor, '#E5FFFFFF');
+assert.equal(immersiveBars.immersiveBarStyle(true).id, 'dark');
+// 取色不会返回 undefined，未知入参也落在登记表内
+assert.equal(immersiveBars.IMMERSIVE_BAR_STYLES.indexOf(immersiveBars.immersiveBarStyle(false)), 0);
+assert.equal(immersiveBars.IMMERSIVE_BAR_STYLES.indexOf(immersiveBars.immersiveBarStyle(true)), 1);
 
 console.log('All toolbox model assertions passed');

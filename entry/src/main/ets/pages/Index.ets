@@ -45,6 +45,7 @@ import { saveScannedDocuments, systemPreferredLanguage } from '../services/Syste
 import { refreshQuickToolsCards } from '../services/WidgetData';
 import { WindowSizeVp, currentWindowSizeVp, subscribeFoldStatus,
   unsubscribeFoldStatus } from '../services/WindowLayout';
+import { immersiveTopInset, isImmersiveLayout, refreshImmersiveMetrics } from '../services/ImmersiveWindow';
 
 const HDS_MATERIAL_EFFECT: SystemMaterialParams = {
   materialType: hdsMaterial.MaterialType.ADAPTIVE,
@@ -84,6 +85,13 @@ struct Index {
   @Local iconReady: boolean = false;
   @Local iconBusy: boolean = false;
   @Local widthVp: number = 390;
+  // 沉浸式布局下状态栏的高度（vp），界面顶部要让出这一段（未开沉浸式时为 0）。
+  // 取值口径见 services/ImmersiveWindow.ets：窗口已经避让状态栏时返回 0，
+  // 否则会把标题栏顶到状态栏上、内容再少让一段。
+  @Local safeAreaTop: number = 0;
+  // 窗口是否真的开了沉浸式布局（`EntryAbility.prepareWindow()` 在本页挂载前已把窗口调好）。
+  // 标题栏按它决定是否「避让系统安全区域」：非沉浸布局下窗口本身已在状态栏之下，再避让一次会多出一段。
+  @Local immersiveLayout: boolean = false;
   // 窗口逻辑高度：高度断点按宽高比（宽/高）判定，阔折叠展开、三折叠全展开、平板横屏这类「矮而宽」的形态
   // 要收紧纵向留白（见 model/LayoutAdaptive.ets）。
   @Local heightVp: number = 844;
@@ -116,6 +124,7 @@ struct Index {
   // 形态值本身不进界面状态：展开/折叠必然改变窗口尺寸，布局只由断点决定，避免同一件事两套判断。
   private foldCallback: (_status: number) => void = (_status: number): void => {
     this.refreshWindowSize();
+    this.refreshSafeArea();
   };
   // 热启动快捷方式：EntryAbility.onNewWant 落好意图后用 emitter 叫醒已挂载的首屏
   // （冷启动由 aboutToAppear 直接消费，不需要事件）。
@@ -140,6 +149,9 @@ struct Index {
     this.setupAdaptiveUi();
     // 首帧起就按真实窗口尺寸算布局：`onAreaChange` 也会给一次，这里先读一遍更稳（折叠态冷启动尤其明显）。
     this.refreshWindowSize();
+    // 沉浸式：窗口在 `EntryAbility.prepareWindow()` 里已开好（见 services/ImmersiveWindow.ets），
+    // 这里同步读到首帧就要用的值（标题栏是否避让、顶部让出多少），随后再异步量一次兜底。
+    this.refreshSafeArea();
     if (subscribeFoldStatus(this.foldCallback)) { this.foldSubscribed = true; }
     try {
       emitter.on({ eventId: STARTUP_INTENT_EVENT_ID }, this.startupCallback);
@@ -269,6 +281,21 @@ struct Index {
     if (size === undefined) { return; }
     this.widthVp = size.widthVp;
     this.heightVp = size.heightVp;
+  }
+
+  /**
+   * 刷新「沉浸式状态 + 状态栏高度」：沉浸式布局下标题栏与可滚动内容都要额外让出这一段的顶部留白。
+   *
+   * 页面挂载时先用同步值把首帧排对（`EntryAbility` 在 `loadContent()` 之前已经调好窗口），
+   * 这里再异步量一次兜底；折叠/展开改变窗口尺寸后也会重跑一次。
+   */
+  private refreshSafeArea(): void {
+    this.immersiveLayout = isImmersiveLayout();
+    this.safeAreaTop = immersiveTopInset();
+    refreshImmersiveMetrics(this.ctx()).then((immersive: boolean): void => {
+      this.immersiveLayout = immersive;
+      this.safeAreaTop = immersiveTopInset();
+    });
   }
 
   // 智感握姿：把高频操作靠近正在使用的手。宽屏（MD 及以上）不按手机握姿移动控件，保持稳定布局。
@@ -643,9 +670,22 @@ struct Index {
         scrollEffectOpts: { enableScrollEffect: false, scrollEffectType: ScrollEffectType.GRADIENT_BLUR },
         systemMaterialEffect: HDS_MATERIAL_EFFECT
       },
-      avoidLayoutSafeArea: false,
+      // 全局沉浸（窗口铺满整屏）后必须让标题栏避让状态栏，否则标题会与状态栏时钟叠在一起
+      // （Mate X7 模拟器实测：默认 `false` 时「工具」正好压住 03:07）。避让的量由系统按安全区域算，
+      // 所以只有真的开了沉浸式布局时才打开——非沉浸布局下窗口本身已在状态栏之下，再避让一次
+      // 会让标题与内容整体再低一个状态栏高度（实测标题 170→291 px）。
+      avoidLayoutSafeArea: this.immersiveLayout,
       enableComponentSafeArea: false
     };
+  }
+
+  /**
+   * 可滚动内容的顶部留白：标题栏高度（HDS 的内容区会延伸到标题栏之下）+ 沉浸式布局下的状态栏高度。
+   *
+   * 内容区从窗口顶部起算，而标题栏避让后会占掉 `safeAreaTop + 56 vp`，因此这里也要一起让出。
+   */
+  private contentTopPadding(): number {
+    return this.metrics().topPadding + HDS_TITLE_BAR_HEIGHT + this.safeAreaTop;
   }
 
   private destinationName(route: string): string {
@@ -778,7 +818,7 @@ struct Index {
         .padding({
           left: this.metrics().horizontalPadding,
           right: this.metrics().horizontalPadding,
-          top: this.metrics().topPadding + HDS_TITLE_BAR_HEIGHT,
+          top: this.contentTopPadding(),
           bottom: this.metrics().tabBottomPadding
         })
     }.width('100%').height('100%').scrollBar(BarState.Auto).align(Alignment.Top)
@@ -863,6 +903,8 @@ struct Index {
             }
             else if (name === 'torch') {
               TorchPage({ english: this.english, actionAlign: this.actionAlignment(), active: this.appActive,
+                immersiveSupported: this.immersiveSupported, materialLevel: this.materialLevel,
+                safeAreaTop: this.safeAreaTop,
                 onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'dates') {
@@ -956,7 +998,7 @@ struct Index {
             .padding({
               left: this.metrics().horizontalPadding,
               right: this.metrics().horizontalPadding,
-              top: this.metrics().topPadding + HDS_TITLE_BAR_HEIGHT,
+              top: this.contentTopPadding(),
               bottom: this.metrics().detailBottomPadding
             })
         }.width('100%').height('100%').scrollBar(BarState.Auto).align(Alignment.Top)

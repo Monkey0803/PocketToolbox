@@ -11,6 +11,7 @@ import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { i18n } from '@kit.LocalizationKit';
 import { BarcodeKind, barcodeFormatId, barcodeTwoDimensional } from '../model/BarcodeTools';
 import { QrColorEntry, qrColorEntry, qrLevelValue } from '../model/QrStyle';
+import { TorchSegment } from '../model/TorchSignal';
 
 /**
  * 某个 IANA 时区在给定瞬间相对 UTC 的偏移（分钟，含夏令时）。系统不支持该 id 时返回 NaN，
@@ -265,10 +266,29 @@ export async function saveScannedDocuments(context: common.UIAbilityContext, uri
   return targets.length;
 }
 
+/**
+ * 闪光灯的唯一持有者：常亮、亮度、以及灯语/摩尔斯/频闪的段播放都在这里。
+ *
+ * 会话模型（**必须保持的不变量**）：只要「亮着 or 正在播放段列表」，`TorchController.active`
+ * 就一直指向这个实例，直到 `stop()` 才清空。这样 `EntryAbility.onBackground()` 的
+ * `stopActive()` 既能关掉常亮，也能**取消闪烁计时器**——否则闪烁会在「灭的半周期」里
+ * 把 active 清空，应用退后台后计时器仍在跑，返回前台还在闪。
+ *
+ * `isEnabled()` 返回的是**会话状态**（闪烁期间即使处于灭的半周期也是 true），
+ * 不再等同于「此刻灯亮着」：页面用它判断会话是否还在，不要用它判断某瞬间的亮灭。
+ */
 export class TorchController {
   private static active: TorchController | undefined = undefined;
   private manager: camera.CameraManager;
   private enabled: boolean = false;
+  // 段播放会话
+  private playing: boolean = false;
+  private timer: number = -1;
+  private segments: TorchSegment[] = [];
+  private cursor: number = 0;
+  private loop: boolean = true;
+  private level: number = 1;
+  private onError: ((code: string) => void) | undefined = undefined;
 
   constructor(context: common.UIAbilityContext) {
     this.manager = camera.getCameraManager(context);
@@ -278,25 +298,163 @@ export class TorchController {
     return this.manager.isTorchSupported() && this.manager.isTorchModeSupported(camera.TorchMode.ON);
   }
 
+  /**
+   * 设备是否支持闪光灯亮度控制（API 26 `setTorchModeOnWithLevel`）。
+   *
+   * 老设备/模拟器上该接口可能不存在或抛错，一律按「不支持」处理，界面据此**整行隐藏**亮度选项，
+   * 不显示一个假的禁用控件。
+   */
+  levelSupported(): boolean {
+    try {
+      return this.manager.isTorchLevelControlSupported();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * 设置亮度（0–1，夹取）。
+   *
+   * 常亮中会立即按新亮度重设；**闪烁（段播放）中不立即重设**——那会把当前「灭」的段强行点亮、
+   * 打乱节奏，改为让下一个亮的段取用新亮度。
+   */
+  setLevel(level: number): void {
+    const clamped: number = Math.min(1, Math.max(0, level));
+    this.level = clamped;
+    if (this.enabled && !this.playing) {
+      if (!this.turnOn()) { this.fail('busy'); }
+    }
+  }
+
   setEnabled(enabled: boolean): void {
-    this.manager.setTorchMode(enabled ? camera.TorchMode.ON : camera.TorchMode.OFF);
-    this.enabled = enabled;
-    TorchController.active = enabled ? this : undefined;
+    if (enabled) {
+      this.clearTimer();
+      this.playing = false;
+      this.enabled = true;
+      this.applyOn();
+      TorchController.active = this;
+      return;
+    }
+    this.stop();
+  }
+
+  /**
+   * 播放段列表（首段必为亮、亮灭交替）。`loop` 为真时到末尾回到第一段。
+   *
+   * 播放前先 `stop()` 清掉上一种输出（常亮或旧段列表），保证同一时刻只有一个输出来源。
+   * 任何一次 `setTorchMode*` 抛错（相机被其它应用占用等）都会立即停止并回调 `onError`。
+   */
+  play(segments: TorchSegment[], loop: boolean, onError?: (code: string) => void): void {
+    this.stop();
+    if (segments.length === 0) { return; }
+    this.segments = segments;
+    this.loop = loop;
+    this.cursor = 0;
+    this.playing = true;
+    this.enabled = true;
+    this.onError = onError;
+    TorchController.active = this;
+    this.applySegment();
   }
 
   isEnabled(): boolean {
     return this.enabled;
   }
 
+  isPatternRunning(): boolean {
+    return this.playing;
+  }
+
   stop(): void {
-    if (this.enabled) {
-      this.setEnabled(false);
-    }
+    this.clearTimer();
+    this.playing = false;
+    const wasOn: boolean = this.enabled;
+    this.enabled = false;
+    // 只有真在亮着的时候才需要向相机发 OFF；同时清掉 active，避免 stopActive() 反复操作。
+    if (TorchController.active === this) { TorchController.active = undefined; }
+    if (wasOn) { this.turnOff(); }
   }
 
   static stopActive(): void {
     if (TorchController.active) {
       TorchController.active.stop();
+    }
+  }
+
+  /**
+   * 开灯：优先用带亮度的接口，机型声称支持但实际拒绝时**退回普通 ON**（否则一个亮度调用失败
+   * 就会让整盏灯不可用）；两者都失败才算不可用。返回是否成功。
+   */
+  private turnOn(): boolean {
+    if (this.levelSupported()) {
+      try {
+        this.manager.setTorchModeOnWithLevel(this.level);
+        return true;
+      } catch (_) {
+      }
+    }
+    try {
+      this.manager.setTorchMode(camera.TorchMode.ON);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  private turnOff(): boolean {
+    try {
+      this.manager.setTorchMode(camera.TorchMode.OFF);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** 按当前亮度开灯；失败即判定不可用。 */
+  private applyOn(): void {
+    if (!this.turnOn()) { this.fail('busy'); }
+  }
+
+  /** 应用当前段状态，并安排下一段。 */
+  private applySegment(): void {
+    if (!this.playing) { return; }
+    const segment: TorchSegment = this.segments[this.cursor];
+    const ok: boolean = segment.on ? this.turnOn() : this.turnOff();
+    if (!ok) {
+      this.fail('busy');
+      return;
+    }
+    // 每段各自 schedule，累积漂移只有几毫秒量级；这里不做时间补偿。
+    this.timer = setTimeout(() => this.advance(), segment.ms);
+  }
+
+  private advance(): void {
+    this.timer = -1;
+    if (!this.playing) { return; }
+    this.cursor++;
+    if (this.cursor >= this.segments.length) {
+      if (!this.loop) {
+        this.stop();
+        return;
+      }
+      this.cursor = 0;
+    }
+    this.applySegment();
+  }
+
+  private fail(code: string): void {
+    const callback: ((code: string) => void) | undefined = this.onError;
+    this.onError = undefined;
+    this.stop();
+    if (callback !== undefined) {
+      callback(code);
+    }
+  }
+
+  private clearTimer(): void {
+    if (this.timer >= 0) {
+      clearTimeout(this.timer);
+      this.timer = -1;
     }
   }
 }

@@ -52,4 +52,9 @@ export class ToolPalette {
   static readonly tintIndigo: Resource = $r('app.color.tool_tint_indigo');
   static readonly tintMint: Resource = $r('app.color.tool_tint_mint');
   static readonly tintSky: Resource = $r('app.color.tool_tint_sky');
+
+  // 屏幕补光的两种光色。**两套 color.json 里故意写成同一个值**：这是光源本身，不是主题色，
+  // 深色模式下也要保持同样的白/暖色，因此不要给它们做深色变体。
+  static readonly fillLightCool: Resource = $r('app.color.tool_fill_light_cool');
+  static readonly fillLightWarm: Resource = $r('app.color.tool_fill_light_warm');
 }

@@ -143,6 +143,14 @@
     {
       "name": "tool_tint_sky",
       "value": "#1C2E44"
+    },
+    {
+      "name": "tool_fill_light_cool",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "tool_fill_light_warm",
+      "value": "#FFE6BF"
     }
   ]
 }
