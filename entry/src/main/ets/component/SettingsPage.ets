@@ -1,4 +1,5 @@
 import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -114,13 +115,13 @@ export struct SettingsPage {
       }.width('100%')
       this.deviceSection()
       Text(this.tr('隐私', 'Privacy')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
-      Text(this.tr('历史记录（二维码生成与扫码、文本结果、换算结果、时间戳复制）、计时器与秒表计次、工具收藏，以及单位换算的类别/单位/精度仅保存在本机；条形码、个税、计算、日期、文本、随机选择和密码的输入不持久化（单位换算的输入值也不落盘）。文档扫描结果仅在当前运行期间保留，由你主动导出。个税在本机计算，官方查询链接由你主动打开。应用无账号、广告、统计或云同步。',
-        'History (QR creation and scans, text results, conversions, copied timestamps), timers and stopwatch laps, favourites, and the converter’s last category, units and precision stay on this device; the converter’s input value is not saved. Barcode, income tax, calculator, date, text, random and password inputs are not saved. Document scans remain in memory until you export them. Tax is calculated on-device; official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
+      Text(this.tr('历史记录（二维码生成与扫码、文本结果、换算结果、时间戳复制）、计时器与秒表计次、工具收藏，以及单位换算的类别/单位/精度仅保存在本机；条形码、个税、计算、日期、文本、随机选择、亲戚称呼和密码的输入不持久化（单位换算的输入值也不落盘）。文档扫描结果仅在当前运行期间保留，由你主动导出。个税在本机计算，官方查询链接由你主动打开。应用无账号、广告、统计或云同步。',
+        'History (QR creation and scans, text results, conversions, copied timestamps), timers and stopwatch laps, favourites, and the converter’s last category, units and precision stay on this device; the converter’s input value is not saved. Barcode, income tax, calculator, date, text, random, kinship and password inputs are not saved. Document scans remain in memory until you export them. Tax is calculated on-device; official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
-      Button() {
-        SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-      }.width(48).height(48).backgroundColor(ToolPalette.danger)
-        .accessibilityText(this.tr('清空历史记录', 'Clear all history')).onClick(() => this.onClearHistory())
+      IconActionButton({
+        icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+        a11yText: this.tr('清空历史记录', 'Clear all history'), onTap: () => this.onClearHistory()
+      })
       Text(this.tr('版本 1.0.0 · 离线工具', 'Version 1.0.0 · Offline tools'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')

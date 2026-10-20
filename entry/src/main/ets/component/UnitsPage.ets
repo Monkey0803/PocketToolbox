@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -187,12 +188,13 @@ export struct UnitsPage {
       Column({ space: 12 }) {
         Row({ space: 8 }) {
           Text(this.tr('单位', 'Units')).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
-          Button() {
-            SymbolGlyph($r('sys.symbol.arrow_2_circlepath')).fontSize(22).fontColor([Color.White])
-          }.backgroundColor(ToolPalette.accentPurple).width(40).height(40)
-            .accessibilityText(this.tr('交换单位', 'Swap units')).onClick(() => {
-            const previous: number = this.fromUnit; this.fromUnit = this.toUnit; this.toUnit = previous;
-            this.saveState();
+          IconActionButton({
+            icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.accentPurple,
+            a11yText: this.tr('交换单位', 'Swap units'), boxSize: 44, iconSize: 22,
+            onTap: () => {
+              const previous: number = this.fromUnit; this.fromUnit = this.toUnit; this.toUnit = previous;
+              this.saveState();
+            }
           })
         }.width('100%')
         OptionSelect({
@@ -225,11 +227,11 @@ export struct UnitsPage {
               Text(this.unitName(this.toUnit)).fontSize(15).fontColor(ToolPalette.textMuted)
             }.alignItems(VerticalAlign.Bottom)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.primary)
-            .enabled(this.numericInput() !== undefined)
-            .accessibilityText(this.tr('复制结果', 'Copy result')).onClick(() => this.copyResult())
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
+            a11yText: this.tr('复制结果', 'Copy result'), usable: this.numericInput() !== undefined,
+            onTap: () => this.copyResult()
+          })
         }.width('100%').padding(16)
       }
       OptionSelect({

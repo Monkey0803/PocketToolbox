@@ -1,3 +1,4 @@
+import { IconActionButton } from './IconActionButton';
 import { ToolPalette } from '../model/ToolPalette';
 
 /**
@@ -25,12 +26,12 @@ export struct DocumentsPage {
         'Capture paper or choose from the gallery. The system crops and enhances documents as JPG or PDF.'))
         .fontSize(16).fontColor(ToolPalette.textSecondary).width('100%')
       Row() {
-        Button() {
-          SymbolGlyph($r('sys.symbol.doc_text')).fontSize(28).fontColor([Color.White])
-        }.width(56).height(56).backgroundColor(this.scannerSupported ? ToolPalette.primary : ToolPalette.textFaint)
-          .enabled(this.scannerSupported)
-          .accessibilityText(this.tr('开始扫描文档', 'Start document scan'))
-          .onClick(() => this.onScan())
+        IconActionButton({
+          icon: $r('sys.symbol.doc_text'),
+          tintColor: this.scannerSupported ? ToolPalette.primary : ToolPalette.textFaint,
+          a11yText: this.tr('开始扫描文档', 'Start document scan'),
+          boxSize: 56, iconSize: 28, usable: this.scannerSupported, onTap: () => this.onScan()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       if (!this.scannerSupported) {
         Text(this.tr('当前设备未提供系统文档扫描能力，此工具不可用。',
@@ -48,11 +49,11 @@ export struct DocumentsPage {
           }, (uri: string, index: number) => index.toString())
         }
         Row() {
-          Button() {
-            SymbolGlyph($r('sys.symbol.square_and_arrow_down')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.success).enabled(!this.documentSaving)
-            .accessibilityText(this.tr('导出扫描文件', 'Export scanned files'))
-            .onClick(() => this.onExport())
+          IconActionButton({
+            icon: $r('sys.symbol.square_and_arrow_down'), tintColor: ToolPalette.success,
+            a11yText: this.tr('导出扫描文件', 'Export scanned files'), usable: !this.documentSaving,
+            onTap: () => this.onExport()
+          })
         }.width('100%').justifyContent(this.actionAlign)
       }
     }.width('100%')

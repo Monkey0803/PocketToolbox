@@ -32,7 +32,8 @@ export class ToolMeta {
 export const TOOL_META: ToolMeta[] = [
   new ToolMeta('qr', '二维码', 'QR code', ['qrcode', '扫码', '扫一扫', '生成二维码', 'wifi 码']),
   new ToolMeta('barcode', '条形码', 'Barcode', ['条码', '一维码', 'code128', 'ean', 'pdf417']),
-  new ToolMeta('calculator', '折扣与均摊', 'Quick calculator', ['打折', '折扣', '均摊', 'aa', '百分比']),
+  new ToolMeta('calculator', '折扣与均摊', 'Quick calculator',
+    ['打折', '折扣', '均摊', 'aa', '百分比', '立减', '满减', '优惠券', '反推', '毛利率', '加价', '小费']),
   new ToolMeta('tax', '个税计算', 'Income tax', ['个税', '工资', '年终奖', '社保', '公积金']),
   new ToolMeta('units', '单位换算', 'Converter', ['换算', '长度', '重量', '温度', '汇率外的换算']),
   new ToolMeta('timers', '计时', 'Timers', ['倒计时', '秒表', '番茄钟', '计时器']),
@@ -53,7 +54,11 @@ export const TOOL_META: ToolMeta[] = [
   new ToolMeta('documents', '文档扫描', 'Document scanner', ['扫描', '图片转 pdf', '证件扫描']),
   new ToolMeta('level', '水平仪', 'Spirit level', ['测平', '角度', '倾斜']),
   new ToolMeta('compass', '指南针', 'Compass',
-    ['方向', '方位', '方位角', '磁力计', '指北针', '正北', '罗盘', 'compass', 'heading'])
+    ['方向', '方位', '方位角', '磁力计', '指北针', '正北', '罗盘', 'compass', 'heading']),
+  // 关键词刻意不含「计算」二字：「亲戚计算器」会把 `matchTools('计算')` 的结果改掉，
+  // 而标题「亲戚称呼」本身已经能被「亲戚」「称呼」搜到。
+  new ToolMeta('kinship', '亲戚称呼', 'Kinship calculator',
+    ['亲戚', '称谓', '称呼', '关系', '辈分', '亲属', '家族', 'kinship', 'relative', 'family'])
 ];
 
 /** 全部工具 id，顺序即工具网格顺序。 */

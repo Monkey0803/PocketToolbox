@@ -87,9 +87,28 @@ function pad4(value: number): string {
   return text;
 }
 
+/** `YYYY-MM-DD`：读本地字段（日期选择器回填与「当前值」展示都走它）。 */
+export function localDateText(date: Date): string {
+  return pad4(date.getFullYear()) + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+}
+
+/** `HH:mm:ss`：读本地字段。 */
+export function localTimeText(date: Date): string {
+  return pad2(date.getHours()) + ':' + pad2(date.getMinutes()) + ':' + pad2(date.getSeconds());
+}
+
+/**
+ * `HH:mm:ss`：**逐字段补零，不构造也不回读 `Date`**——时间选择器专用。
+ *
+ * 时间选择器回传的是 `hour/minute/second` 三个数字；若把它们 `setHours()` 进一个 `Date` 再读回来，
+ * 夏令时前跳的空档会被系统顺移（选 02:30 会写成 03:30）。这里原样拼串，交给解析层判 `dst` 并如实提示。
+ */
+export function timeTextOf(hour: number, minute: number, second: number): string {
+  return pad2(hour) + ':' + pad2(minute) + ':' + pad2(second);
+}
+
 function localTextOf(date: Date): string {
-  return pad4(date.getFullYear()) + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate()) + ' ' +
-    pad2(date.getHours()) + ':' + pad2(date.getMinutes()) + ':' + pad2(date.getSeconds());
+  return localDateText(date) + ' ' + localTimeText(date);
 }
 
 function utcTextOf(date: Date): string {

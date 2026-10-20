@@ -6,6 +6,9 @@
     { "name": "shortcut_timers", "value": "Timers and stopwatch" },
     { "name": "module_desc", "value": "Offline everyday utilities" },
     { "name": "EntryAbility_desc", "value": "Pocket Toolbox" },
-    { "name": "EntryAbility_label", "value": "Pocket Toolbox" }
+    { "name": "EntryAbility_label", "value": "Pocket Toolbox" },
+    { "name": "widget_quick_tools_label", "value": "Pocket Toolbox" },
+    { "name": "widget_quick_tools_display_name", "value": "Quick tools" },
+    { "name": "widget_quick_tools_desc", "value": "Favourite-first shortcuts; tap a tile to open the tool" }
   ]
 }

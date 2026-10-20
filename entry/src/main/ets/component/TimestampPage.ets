@@ -1,9 +1,12 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { buildImmersiveMaterial } from '../model/Materials';
 import { StampResult, StampModeEntry, STAMP_MODES, stampModeIndex, stampModeLabel, parseStampInput,
-  currentSeconds, currentMillis, weekdayText, relativeTimeText } from '../model/TimeTools';
+  currentSeconds, currentMillis, weekdayText, relativeTimeText,
+  localDateText, localTimeText, timeTextOf } from '../model/TimeTools';
 import { TimeZoneEntry, TIME_ZONES, LOCAL_ZONE_ID, timeZoneIndex, timeZoneLabel, localZoneDisplay,
   timeZoneEntry, formatOffsetText, offsetDiffText, zoneDateTimeText } from '../model/TimeZoneTools';
 import { timeZoneOffsetMinutes, localTimeZoneId } from '../services/SystemTools';
@@ -27,6 +30,8 @@ export struct TimestampPage {
   // 从历史记录点进来时的回填内容（秒级时间戳）：只在进入页面时消费一次。
   @Param initialValue: string = '';
   @Event onInitialConsumed: () => void = () => {};
+  // 日期/时间选择器打不开等一次性反馈，由父组件转成系统 toast。
+  @Event onStatus: (message: string) => void = () => {};
 
   @Local input: string = currentSeconds().toString();
   // 时间戳的解释方式（`auto`/`s`/`ms`），登记表在 `model/TimeTools.ets` 的 `STAMP_MODES`
@@ -103,6 +108,72 @@ export struct TimestampPage {
   /** 「现在」按解释方式预填：按毫秒时给 13 位，其余给 10 位。 */
   private useNow(): void {
     this.input = this.stampMode === 'ms' ? currentMillis().toString() : currentSeconds().toString();
+  }
+
+  // 日期/时间选择器对话框用：与可点表面同一套材质（触控变形 + 光感），与 `DatesPage` 保持一致。
+  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
+  }
+
+  /**
+   * 选择器的基准时刻：输入可解析时取该瞬时的 `Date`（读出来就是本机时区的墙上时间），
+   * 否则返回 `undefined`——这时两张卡显示占位文案、选择器定位到「现在」。
+   */
+  private pickBase(): Date | undefined {
+    const result: StampResult = this.result;
+    if (!result.ok || !Number.isFinite(result.millis)) { return undefined; }
+    return new Date(result.millis);
+  }
+
+  /** 卡片上的当前值；输入不可解析时给占位文案，不假装已经有一个值。 */
+  private pickLabel(kind: string): string {
+    const base: Date | undefined = this.pickBase();
+    if (base === undefined) {
+      return kind === 'date' ? this.tr('选取日期', 'Pick a date') : this.tr('选取时间', 'Pick a time');
+    }
+    return kind === 'date' ? localDateText(base) : localTimeText(base);
+  }
+
+  private pickLabelMuted(kind: string): boolean {
+    return this.pickBase() === undefined;
+  }
+
+  /**
+   * 打开日期或时间选择器，确认后把「日期 + 时间」拼成 `YYYY-MM-DD HH:mm:ss` 写回输入框（按本地时间解释）。
+   *
+   * **时间部分逐字段拼串、绝不回读 `Date`**：时间选择器回传的是时/分/秒三个数字，把它们 `setHours()`
+   * 进 `Date` 再读回来，夏令时前跳的空档会被系统顺移（选 02:30 会悄悄变成 03:30）；原样写入则交给
+   * `parseStampInput` 判 `dst`，用户能看到真实原因。
+   */
+  private openPicker(kind: string): void {
+    const picked: Date | undefined = this.pickBase();
+    const base: Date = picked === undefined ? new Date() : picked;
+    const dateText: string = localDateText(base);
+    const timeText: string = localTimeText(base);
+    try {
+      if (kind === 'date') {
+        this.getUIContext().showDatePickerDialog({
+          selected: base,
+          systemMaterial: this.immersiveMaterial(true),
+          onDateAccept: (value: Date) => {
+            this.input = localDateText(value) + ' ' + timeText;
+          }
+        });
+      } else {
+        this.getUIContext().showTimePickerDialog({
+          selected: base,
+          format: TimePickerFormat.HOUR_MINUTE_SECOND,
+          useMilitaryTime: true,
+          enableCascade: false,
+          systemMaterial: this.immersiveMaterial(true),
+          onAccept: (value: TimePickerResult) => {
+            this.input = dateText + ' ' + timeTextOf(value.hour, value.minute, value.second);
+          }
+        });
+      }
+    } catch (_) {
+      this.onStatus(this.tr('无法打开日期或时间选择器', 'Could not open the date or time picker'));
+    }
   }
 
   private zoneEntries(): TimeZoneEntry[] { return TIME_ZONES; }
@@ -259,12 +330,61 @@ export struct TimestampPage {
           .fontColor(ToolPalette.textPrimary).width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
 
-      Button() {
-        SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(22).fontColor([Color.White])
-      }.width(44).height(44).backgroundColor(ToolPalette.primary)
-        .accessibilityText(this.english ? 'Copy ' + this.lineLabelEn(kind) : '复制' + this.lineLabelZh(kind))
-        .onClick(() => this.copyValue(kind))
+      IconActionButton({
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
+        a11yText: this.english ? 'Copy ' + this.lineLabelEn(kind) : '复制' + this.lineLabelZh(kind),
+        boxSize: 44, iconSize: 22, onTap: () => this.copyValue(kind)
+      })
     }.width('100%').alignItems(VerticalAlign.Center)
+  }
+
+  /**
+   * 一张可点的日期/时间卡：只收常量 `kind` 与图标资源，当前值在函数体内经 `pickLabel(kind)` 现取
+   * （`@Builder` 按值传参不随状态刷新，所以不能把日期文本当参数传进来）。
+   */
+  @Builder private pickCard(zh: string, en: string, kind: string, icon: Resource) {
+    Column({ space: 6 }) {
+      Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        Row({ space: 8 }) {
+          SymbolGlyph(icon).fontSize(22).fontColor([ToolPalette.textSubtle])
+          Text(this.pickLabel(kind))
+            .fontSize(18)
+            .fontWeight(this.pickLabelMuted(kind) ? FontWeight.Normal : FontWeight.Bold)
+            .fontColor(this.pickLabelMuted(kind) ? ToolPalette.textMuted : ToolPalette.textPrimary)
+            .layoutWeight(1)
+        }
+        .width('100%').padding(14)
+        .accessibilityText(this.tr(zh, en) + (this.english ? ', ' : '，') + this.pickLabel(kind))
+        .onClick(() => this.openPicker(kind))
+      }
+    }.width('100%')
+  }
+
+  /**
+   * 日期时间选择：一行两张卡（日期 / 时间）。选完立刻写入输入框，六行结果与时区一起刷新；
+   * 输入框仍可手输，这两张卡只是「不用记格式」的入口。
+   */
+  @Builder private dateTimePick() {
+    Column({ space: 6 }) {
+      Row({ space: 12 }) {
+        Column() {
+          this.pickCard('日期', 'Date', 'date', $r('sys.symbol.calendar'))
+        }.layoutWeight(1)
+        Column() {
+          this.pickCard('时间', 'Time', 'time', $r('sys.symbol.timer'))
+        }.layoutWeight(1)
+      }.width('100%')
+      Text(this.tr('选择结果按本地时间写入输入框（不含时区偏移）。',
+        'Picked values are written as local time (no UTC offset).'))
+        .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+    }.width('100%')
   }
 
   /**
@@ -305,8 +425,8 @@ export struct TimestampPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('支持秒或毫秒级 Unix 时间戳，也支持 YYYY-MM-DD HH:mm:ss（可带 .SSS）；日期时间按本地时间解释，末尾加 Z 或 +08:00 表示绝对时刻。',
-        'Accepts a Unix timestamp in seconds or milliseconds, or YYYY-MM-DD HH:mm:ss (with optional .SSS); a date and time is read as local time, while a trailing Z or +08:00 gives an absolute instant.'))
+      Text(this.tr('支持秒或毫秒级 Unix 时间戳，也支持 YYYY-MM-DD HH:mm:ss（可带 .SSS）；日期时间按本地时间解释，末尾加 Z 或 +08:00 表示绝对时刻。也可以直接选取日期与时间。',
+        'Accepts a Unix timestamp in seconds or milliseconds, or YYYY-MM-DD HH:mm:ss (with optional .SSS); a date and time is read as local time, while a trailing Z or +08:00 gives an absolute instant. You can also pick a date and time directly.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
@@ -319,6 +439,7 @@ export struct TimestampPage {
           .backgroundColor(Color.Transparent)
           .onChange((value: string) => this.input = value).height(52)
       }
+      this.dateTimePick()
       OptionSelect({
         label: this.tr('解释方式', 'Read as'),
         options: this.modeOptions(),
@@ -330,11 +451,10 @@ export struct TimestampPage {
         }
       })
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph($r('sys.symbol.clock')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.success)
-          .accessibilityText(this.tr('填入当前时间戳', 'Use the current timestamp'))
-          .onClick(() => this.useNow())
+        IconActionButton({
+          icon: $r('sys.symbol.clock'), tintColor: ToolPalette.success,
+          a11yText: this.tr('填入当前时间戳', 'Use the current timestamp'), onTap: () => this.useNow()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,

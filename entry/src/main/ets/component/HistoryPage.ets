@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -87,14 +88,14 @@ export struct HistoryPage {
         Text(item.content).fontSize(16).maxLines(3).width('100%')
           .onClick(() => this.onOpen(item.kind, item.content))
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制记录', 'Copy history item')).onClick(() => this.onCopy(item.content))
-          Button() {
-            SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.danger)
-            .accessibilityText(this.tr('删除记录', 'Delete history item')).onClick(() => this.onDelete(item.id))
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制记录', 'Copy history item'), onTap: () => this.onCopy(item.content)
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+            a11yText: this.tr('删除记录', 'Delete history item'), onTap: () => this.onDelete(item.id)
+          })
         }.width('100%')
       }.padding(16).width('100%')
     }
@@ -131,20 +132,18 @@ export struct HistoryPage {
           })
         }.layoutWeight(1)
         if (this.filtered()) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.minus_circle')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.danger)
-            .enabled(this.visibleItems().length > 0)
-            .accessibilityText(this.tr('删除当前筛选结果', 'Delete filtered records'))
-            .onClick(() => this.onDeleteMany(
-              this.visibleItems().map((item: HistoryItem): string => item.id)))
+          IconActionButton({
+            icon: $r('sys.symbol.minus_circle'), tintColor: ToolPalette.danger,
+            a11yText: this.tr('删除当前筛选结果', 'Delete filtered records'),
+            usable: this.visibleItems().length > 0,
+            onTap: () => this.onDeleteMany(this.visibleItems().map((item: HistoryItem): string => item.id))
+          })
         }
-        Button() {
-          SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.danger)
-          .enabled(this.items.length > 0)
-          .accessibilityText(this.tr('清空历史记录', 'Clear all history'))
-          .onClick(() => this.onClear())
+        IconActionButton({
+          icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+          a11yText: this.tr('清空历史记录', 'Clear all history'), usable: this.items.length > 0,
+          onTap: () => this.onClear()
+        })
       }.width('100%')
       if (this.visibleItems().length === 0) {
         Text(this.emptyText()).fontSize(16).fontColor(ToolPalette.textMuted).width('100%')

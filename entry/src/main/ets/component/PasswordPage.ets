@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { PasswordOptions, validPasswordOptions } from '../model/PasswordTools';
@@ -114,10 +115,10 @@ export struct PasswordPage {
         'Some lookalike letters and digits are excluded for readability.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph($r('sys.symbol.arrow_2_circlepath')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.primary).enabled(!this.passwordBusy)
-          .accessibilityText(this.tr('生成密码', 'Generate password')).onClick(() => this.makePassword())
+        IconActionButton({
+          icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.primary, usable: !this.passwordBusy,
+          a11yText: this.tr('生成密码', 'Generate password'), onTap: () => this.makePassword()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       if (this.passwordValue) {
       MaterialSurface({
@@ -128,18 +129,17 @@ export struct PasswordPage {
           .fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')
       }
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph(this.passwordVisible ? $r('sys.symbol.eye_slash') : $r('sys.symbol.eye'))
-              .fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-            .accessibilityText(this.passwordVisible ? this.tr('隐藏密码', 'Hide password') :
-              this.tr('显示密码', 'Show password'))
-            .onClick(() => this.passwordVisible = !this.passwordVisible)
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制密码', 'Copy password'))
-            .onClick(() => this.onCopy(this.passwordValue))
+          IconActionButton({
+            icon: this.passwordVisible ? $r('sys.symbol.eye_slash') : $r('sys.symbol.eye'),
+            tintColor: ToolPalette.accentPurple,
+            a11yText: this.passwordVisible ? this.tr('隐藏密码', 'Hide password') :
+              this.tr('显示密码', 'Show password'),
+            onTap: () => { this.passwordVisible = !this.passwordVisible; }
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制密码', 'Copy password'), onTap: () => this.onCopy(this.passwordValue)
+          })
         }.width('100%').justifyContent(this.actionAlign)
       }
       Text(this.tr('密码只在当前页面保留；复制后会进入系统剪贴板。',

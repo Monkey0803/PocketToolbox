@@ -27,6 +27,18 @@
     {
       "name": "EntryAbility_label",
       "value": "随身工具箱"
+    },
+    {
+      "name": "widget_quick_tools_label",
+      "value": "随身工具箱"
+    },
+    {
+      "name": "widget_quick_tools_display_name",
+      "value": "常用工具"
+    },
+    {
+      "name": "widget_quick_tools_desc",
+      "value": "收藏优先的工具快捷入口，点一格直达工具"
     }
   ]
 }

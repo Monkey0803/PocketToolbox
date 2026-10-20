@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -158,43 +159,43 @@ export struct BarcodePage {
           .enabled(!this.barcodeBusy).height(52)
       }
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.primary).enabled(!this.barcodeBusy)
-          .accessibilityText(this.tr('生成条形码', 'Create barcode')).onClick(() => this.generateBarcodeImage())
+        IconActionButton({
+          icon: $r('sys.symbol.plus'), tintColor: ToolPalette.primary, usable: !this.barcodeBusy,
+          a11yText: this.tr('生成条形码', 'Create barcode'), onTap: () => this.generateBarcodeImage()
+        })
         // 二维码制下不挂「扫描一维码」入口：一维扫码器读不出 Data Matrix/PDF417/Aztec，
         // 这类码图是给其它设备扫的，留着按钮只会让人以为扫不动是坏了。
         if (!barcodeTwoDimensional(this.barcodeKind)) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.barcode_viewfinder')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.success).enabled(!this.barcodeBusy)
-            .accessibilityText(this.tr('扫描一维码或从相册选择', 'Scan a one-dimensional barcode or choose from gallery'))
-            .onClick(() => this.scanBarcodeImage())
+          IconActionButton({
+            icon: $r('sys.symbol.barcode_viewfinder'), tintColor: ToolPalette.success, usable: !this.barcodeBusy,
+            a11yText: this.tr('扫描一维码或从相册选择', 'Scan a one-dimensional barcode or choose from gallery'),
+            onTap: () => this.scanBarcodeImage()
+          })
         }
         // 图片识别对所有码制都可用（Scan Kit 的图片解码支持二维/一维，按 ALL 识别）
-        Button() {
-          SymbolGlyph($r('sys.symbol.picture')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple).enabled(!this.barcodeBusy)
-          .accessibilityText(this.tr('从相册图片识别条码', 'Read a barcode from a picture'))
-          .onClick(() => this.decodeFromImage())
+        IconActionButton({
+          icon: $r('sys.symbol.picture'), tintColor: ToolPalette.accentPurple, usable: !this.barcodeBusy,
+          a11yText: this.tr('从相册图片识别条码', 'Read a barcode from a picture'),
+          onTap: () => this.decodeFromImage()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       if (this.barcodePixel) {
         Image(this.barcodePixel).width('100%').height(190).objectFit(ImageFit.Contain)
           .backgroundColor(Color.White).borderRadius(14)
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.square_and_arrow_down')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.primary)
-            .accessibilityText(this.tr('保存条形码 PNG', 'Save barcode PNG')).onClick(() => this.saveBarcodeImage())
-          Button() {
-            SymbolGlyph($r('sys.symbol.picture')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.success).enabled(!this.barcodeBusy)
-            .accessibilityText(this.tr('保存条形码到相册', 'Save barcode to gallery'))
-            .onClick(() => this.saveBarcodeToGallery())
-          Button() {
-            SymbolGlyph($r('sys.symbol.share')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-            .accessibilityText(this.tr('分享条形码', 'Share barcode')).onClick(() => this.shareBarcodeImage())
+          IconActionButton({
+            icon: $r('sys.symbol.square_and_arrow_down'), tintColor: ToolPalette.primary,
+            a11yText: this.tr('保存条形码 PNG', 'Save barcode PNG'), onTap: () => this.saveBarcodeImage()
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.picture'), tintColor: ToolPalette.success, usable: !this.barcodeBusy,
+            a11yText: this.tr('保存条形码到相册', 'Save barcode to gallery'),
+            onTap: () => this.saveBarcodeToGallery()
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.share'), tintColor: ToolPalette.accentPurple,
+            a11yText: this.tr('分享条形码', 'Share barcode'), onTap: () => this.shareBarcodeImage()
+          })
         }.width('100%').justifyContent(this.actionAlign)
       }
       if (this.barcodeResult) {
@@ -206,11 +207,11 @@ export struct BarcodePage {
           Text(this.barcodeResult).fontSize(20).copyOption(CopyOptions.LocalDevice).padding(14).width('100%')
         }
         Row() {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制条形码内容', 'Copy barcode value'))
-            .onClick(() => this.onCopy(this.barcodeResult))
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制条形码内容', 'Copy barcode value'),
+            onTap: () => this.onCopy(this.barcodeResult)
+          })
         }.width('100%').justifyContent(this.actionAlign)
       }
     }.width('100%')

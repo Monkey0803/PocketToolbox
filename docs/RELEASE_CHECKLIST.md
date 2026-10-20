@@ -2,11 +2,40 @@
 
 ## 当前状态
 
+- **纯图标按钮去掉彩色圆底（2026-10-20，已完成构建、单测与模拟器复验）**：用户圈出二维码页操作行的四个彩色圆底图标，要求「把背景色去掉，使用 HMSymbol 自带图标」。
+  ① 新增 `component/IconActionButton.ets`（`@ComponentV2`）：`icon`/`tintColor`/`a11yText`/`boxSize`/`iconSize`/`usable` + `onTap`，底色固定透明、颜色只落在 `SymbolGlyph` 上，`.enabled()` 由 `usable` 驱动；`tintColor` 就是原来那个底色，因此**语义色不变**（生成/复制=primary、扫描/分享=success、编辑/历史/计次=accentPurple、删除/清空=danger、中性的复制/重置=textSecondary/textMuted）。
+  ② 全 App **57 个调用点**改为该组件（二维码 8、计时 9、条形码 7、历史 4、健康 3、亲属 3、贷款 3、密码 3、文本 3、文档 2、随机 2、科学 2、时间戳 2、单位 2、计算器 1、颜色 1、日期 1、设置 1）。两处颜色口径调整：`neutralDark`（浅色深灰、深色下发暗，作图标色对比不足）→ `textSecondary`；`accentOrange` → `warning`（`#E88823` 对白底约 2.7:1，低于图形 3:1）。单位换算页「交换单位」由 40 vp 提到 44 vp（满足 ≥44 vp 的触控约定）。
+  ③ 未改动（有意保留）：带文字的动作按钮（随机选择/个税/常用时长预设）、收藏页排序开关（靠底色表示选中态）、144 vp 手电筒英雄按钮——它们不是「纯图标操作行」。
+  ④ 验证：`assembleHap` `BUILD SUCCESSFUL`、单测 `All toolbox model assertions passed`；模拟器（API 26）复验二维码页四枚图标无底色、点击历史图标仍能进入历史页、颜色工具三行复制图标无底色、计时页「计次」禁用态仍可辨识；另临时把 `EntryAbility` 改成 `COLOR_MODE_DARK` 构建一次复核深色对比度后**已回退并重新构建**。
+  - **未覆盖**：真机与宽屏/折叠屏的观感、屏幕朗读下的 `accessibilityText`（`dumpLayout` 不导出该字段）。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 26 节。
+
+- **亲戚称呼（亲戚关系计算器，2026-10-20，已完成单测、构建与模拟器复验）**：**新增第 20 个工具卡片** `kinship`（「亲戚称呼」/`Kinship calculator`），**不新增权限、不引入联网、不落盘**。
+  ① 纯逻辑 `model/KinshipMath.ets`：原子步骤登记表 `KIN_STEPS`（父/母/兄/弟/姐/妹/夫/妻/子/女，含中英别名）＋称谓登记表 `KIN_TERMS`（约 85 条：祖辈/曾祖辈、父母的兄弟姐妹及其配偶、堂表兄弟姐妹、侄甥、孙辈、岳父母/公婆、配偶的兄弟姐妹、儿媳女婿，以及「爸爸的儿子」「姑妈的儿子」这类长幼歧义项的并列称谓 + 提示）；解析用「去空格/所有格/分隔符 + 贪心最长匹配」，先按 `normalizeKinPath()` 的四类规则消解可确定的关系（爸爸的老婆=妈妈、老公的老婆=本人、哥哥的哥哥=哥哥、子女+父/母 按本人性别返身），再按归一化路径查表；**未收录不猜**，返回关系链描述并标记 `named = false`。
+  ② 页面 `component/KinshipPage.ets`：本人性别 `OptionSelect` + 关系链输入框 + 十个步骤按钮（点选拼接，`appendKinStep`/`removeLastKinStep` 为纯函数）+ 删除/清空纯图标按钮 + 结果卡（称谓、关系链、辈分、性别、提示、复制）。
+  ③ 登记：`TOOL_META` 加 `kinship`（关键词刻意不含「计算」二字，避免改变 `matchTools('计算')` 的既有命中集）、`ToolCatalog.toolSpecs()` 绑定 `sys.symbol.family` + `ToolPalette.tintAmber`（不新增颜色）、`Index.toolRoutes()` 补静态分支（标题由登记表自动提供）。
+  ④ **验证**：`tests/run-unit-tests.mjs` 新增约 60 条断言（解析/归一化/60 条称谓表驱动/未收录回退/辈分与复制文案/登记表完整性与「步骤标题可被别名还原」），并同步工具登记表 19→20、`matchTools('cal')` 期望值与「亲戚/称呼/辈分/kinship/relative」命中；`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`；`assembleHap` → `BUILD SUCCESSFUL`。
+  ⑤ **模拟器复验（API 26）**：点选「爸爸」「哥哥」得到「伯父 / 爸爸 → 哥哥 / 高我一辈 / 男」，复制按钮弹出「已复制」（截图 `docs/screenshots/emulator/kinship-page-zh.jpeg`）；「老婆的哥哥的老婆」给关系描述 + 「暂未收录成单一称谓」；清空按钮生效；切 English 后标题 `Kinship calculator`、标签 `Me/Relationship/Build step by step`、结果 `father → older brother / one generation above me / Male`（截图 `kinship-page-en.jpeg`，深色模式下，同批验证深色资源）。
+- **桌面服务卡片「常用工具」（2026-10-20，已完成单测与构建，模拟器部分复验）**：给应用新增服务卡片（ArkTS 卡片），工具数量不变（19）、**不新增权限、不引入联网**。
+  ① 接入：`module.json5` 新增 `extensionAbilities`（`QuickToolsFormAbility`，`type: "form"` + `ohos.extension.form` 元数据指向 `$profile:form_config`）；`resources/base/profile/form_config.json` 登记卡片 `quick_tools`（2×2 / 2×4 / 4×4，默认 2×2，`updateDuration: 1` = 系统每 30 分钟兜底刷新）。
+  ② 分层：显示规则（收藏优先 → 默认四个 → `TOOL_IDS` 补齐、去重、尺寸→格子数/列数、标题与格子文案）全在纯逻辑 `model/WidgetCards.ets`；读偏好与装配绑定数据在 `services/WidgetData.ets`（`onAddForm` 同步返回，故新增 `LocalData.openSync/getStringSync/getFavoritesSync`，`open()` 参数类型由 `UIAbilityContext` 放宽到 `Context`）；卡片页 `ets/widget/pages/QuickToolsCard.ets` 只摆放。
+  ③ 卡片页受 ArkTS 卡片白名单限制（不能 `SymbolGlyph`/`Grid`/`Scroll`/`Select`/`Search`/`TextInput`），因此用「文字色块」表达工具；数据经 `formBindingData` → `@LocalStorageProp` 下发（`tools` 为 JSON 文本、`columns` 按字符串解析）；`postCardAction(router, params:{ tool })` 复用既有 `StartupIntent` 直达工具页。
+  ④ 主动刷新：应用内改收藏/置顶/拖拽排序/切语言后调 `services/WidgetData.refreshQuickToolsCards()`，用 `formProvider.getPublishedRunningFormInfos()` 找到自己的已发布卡片后 `updateForm`（不落地 formId）；不支持该 API 时静默跳过。
+  ⑤ 验证：`assembleHap` `BUILD SUCCESSFUL`（HAP 内含 `ets/widgets.abc`、`ets/widget/component_collection.json` 只用到 `Column/Row/Text`）；单测新增 30+ 条（尺寸映射、收藏优先与补齐、去重与上限、payload 中英文案）；模拟器复验**卡片中心入口与 2×2 预览渲染**（截图 `docs/screenshots/emulator/widget-quick-tools-picker-zh.jpeg`）与工具直达 want 链路回归；**「添加至桌面」与点格子未能在折叠屏模拟器上自动完成**（`uitest` 点击对卡片中心浮层不生效），主动刷新 API 在模拟器上返回 `16500100`（代码已按设计静默降级）——两项均需真机按 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 22 节确认。
+  ⑥ 文档联动：`README.md`、`AGENTS.md`（新增「服务卡片」约定）、`docs/STORE_LISTING.md`、`docs/PRIVACY.md`、`docs/COMPETITIVE_ANALYSIS.md`。
+
 - **输入框四角发白修复：被 `MaterialSurface` 包裹的输入类组件统一改为透明底色（2026-10-20，已完成构建、单测与全 App 模拟器复核）**：用户反馈「灰色背景的输入框四个角有白色」。
   ① 定位（`uitest dumpLayout` + 像素取样）：外层 `MaterialSurface` 是 `backgroundColor #FFFFFFFF` + 圆角 16，内层 `TextInput` 自带半透明底 `#0C000000` 且**系统默认圆角比外层更大**——两者叠加后，四角露出的是外层白底（实测取样：输入框内 `#F3F3F3`、四角 `#FFFFFF`、页面 `#F3F7FA`）。
   ② 修复：给全部被包裹的 `TextInput`/`TextArea`/`Search` 显式加 `.backgroundColor(Color.Transparent)`（输入类组件共 **24 处**，覆盖 15 个页面文件；其中工具页搜索框与历史搜索框此前已有），底色与圆角由外层 `MaterialSurface.fallback` 独家提供。输入框因此由「自带的灰」变成与日期卡/结果卡一致的 `ToolPalette.surface`，全 App 一套表面样式；真机上材质也不会再被输入框自带底色盖住。
   ③ 复核（模拟器 API 26）：逐个工具页 `--ps tool <id>` 打开后 dump，**24 个输入节点的 `backgroundColor` 全部为 `#00000000`**；像素复测输入框内为 `#FFFFFF`、边角与页面底色平滑过渡，无白色夹层（截图 `docs/screenshots/emulator/input-corner-white-before-fix.jpeg` 与 `input-corner-fixed-after-fix.jpeg`）。`assembleHap` `BUILD SUCCESSFUL`、单测全绿。
   - **未覆盖**：真机沉浸材质下输入框的观感（材质是否透出，模拟器内容区不上屏）、深色模式下输入框与页面底色的对比度、`showDatePickerDialog` 等系统弹窗里的输入样式。
+
+- **折扣与均摊扩展：折扣反推 / 立减叠加 / 百分比扩展 / 加价与毛利 + 结果可复制并记入历史（2026-10-19，已完成单测与构建，模拟器部分复验）**：计算类型从 3 项扩到 **5 项**（`CALC_MODES`：折扣计算 / 折扣反推 / 百分比计算 / 加价与毛利 / 均摊计算），仍是一个工具卡片、不新增权限、不联网。
+  ① 纯逻辑 `model/QuickCalculators.ets`：金额一律整数分（`moneyCents()`）、比率用「百分之一」整数（`hundredths()`）。**折扣** `discountPrice(price, fold, deduction)` = 原价 × 折数 ÷ 10 **− 立减**（立减在折扣之后扣，**超过折后价按 0 计**、券额作废），并给出 `equivalentFold` 等效折扣（原价 0 时 `-1`）；**反推** `originalFromFinal()`（折后价 ÷ 折数 → 原价，折数 0 无效）与 `foldFromPrices()`（折后价 ÷ 原价 → 折数 + `offPercent`，折后价高于原价时折数 > 10、显示「贵」）；**百分比**新增 `percentAdjust()`（一次给出加后与减后，先算增量再加减，`100` 加 `13%` 精确等于 `113`）与 `percentDelta()`（以原值为基数、下降为负）；**加价毛利** `priceFromMarkup()`（售价 = 成本 × (1 + 加价率)）与 `marginFromPrices()`（同时给出毛利率与加价率），**加价率按成本算、毛利率按售价算**，成本 0 时加价率取 `-1`（不适用），成本高于售价时两个比率均为负（亏本）；所有比率**先乘后除**，避免 `-19.999999999999996` 这类浮点误差。
+  ② 页面 `component/CalculatorPage.ets`：五种类型互斥显示（`OptionSelect`，文案随语言现取），每类型输入状态都留在页面上、切换不丢值；输入框与结果卡统一由 `@Builder inputField(kind,…)`／`resultCard(kind)` 生成（只收常量 kind，值在构建函数体内现取）。**结果一律带复制按钮**（`sys.symbol.text_clipboard`，44 vp，双语 `accessibilityText`，结果非法时置灰）：复制出去的是**纯值**，写进历史的是**带输入上下文的整句**（如 `折扣计算 · 原价 100 × 8 折 − 立减 0 = 80.00（省 20.00）`）。
+  ③ 历史新增类别 `calculator`（计算结果 / Calculation）：`HISTORY_KINDS` 加一项、`Index` 的 `calculator` 路由补 `onCopy`/`onRecord`；`historyTargetRoute('calculator')` 返回空串（整句没有唯一回填字段，与 `units` 同口径，点条目只展示不跳转）。工具搜索关键词补 `立减/满减/优惠券/反推/毛利率/加价/小费`。
+  ④ 验证：单测新增 **60+ 条**（立减含「超过折后价按 0 计」与等效折扣、反推两种方向含折数 0 与涨价、百分比 13% 的精确性、加价与毛利率两种口径含成本 0 与亏本、`CALC_MODES` 五项、`HISTORY_KINDS` 7 项与 `calculator` 文案/路由），`All toolbox model assertions passed`；`assembleHap` `BUILD SUCCESSFUL`。
+  ⑤ 模拟器复验（API 26）：类型下拉 5 项齐全；折扣计算 100 × 8 折 − 0 → `80.00`、`省 20.00 · 等效 8 折`；折扣反推 80 ÷ 8 → `100.00`（省 20.00）、原价 100 → 折后 80 → `8`（省 20%）；加价与毛利 成本 80 + 25% → `100.00`（毛利 20.00 · 毛利率 20%）、成本 80 / 售价 100 → `20%`（加价率 25%）；百分比计算前两块 `20` 与 `25%`；**点复制后本机历史里确实出现 `kind=calculator` 的记录**（用 `hdc shell cat` 读沙箱 preferences 核对原文）。
+  - **未覆盖**：百分比计算第 3、4 块（增减百分比 / 百分比变化）与均摊计算的界面复验——复验期间模拟器被并行会话占用（应用被反复替换/force-stop，页面在工具网格、时间戳与计算器之间跳），未能稳定完成；这两块的分支写法与已验证的加价/反推同构，逻辑由单测覆盖。另需真机/模拟器补：英文界面文案、深色模式、宽屏与窄屏换行。步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 24 节。
 
 - **工具卡片收藏星缩小 + 卡片版式对齐（2026-10-19，已完成构建与模拟器复验）**：用户反馈「工具 Tab 里每张卡片的收藏按钮太大、卡片内元素对齐要优化」。
   ① 星形图标 25 vp → **20 vp**，并去掉原来那圈「卡片色底 + 1 px 描边」的圆环（视觉上比工具图标还抢眼）；44 vp 的透明 `Button` 只保留可点区域，满足「可点区域 ≥ 44 vp」的约定。

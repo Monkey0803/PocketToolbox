@@ -1,10 +1,10 @@
 # 隐私政策草案 / Privacy policy draft
 
-更新日期：2026-10-19（补充单位换算在本机记住上次类别/单位/精度、不保存输入值；补充指南针的方向传感器说明；2026-10-16 节假日数据改为随包内置、移除网络权限）。发布前应补充运营主体、联系邮箱、政策生效日期及可公开访问的网址，并由运营主体审核。
+更新日期：2026-10-20（补充「亲戚称呼」的输入不落盘；补充桌面「常用工具」服务卡片只读取本机收藏与语言偏好；2026-10-19 补充单位换算在本机记住上次类别/单位/精度、不保存输入值；补充指南针的方向传感器说明；2026-10-16 节假日数据改为随包内置、移除网络权限）。发布前应补充运营主体、联系邮箱、政策生效日期及可公开访问的网址，并由运营主体审核。
 
 ## 简体中文
 
-随身工具箱不要求注册账号，不集成广告、统计或云同步服务。应用在本机保存二维码生成与扫描历史（最多 50 条）、计时器、秒表状态、工具收藏、语言偏好，以及单位换算上次使用的类别、源单位、目标单位与有效位数（不含你输入的数值）。个税、条形码、计算、日期、文本、随机选择和密码的输入与结果仅在当前运行期间保留，不写入应用持久存储；离开密码页会清除本页生成的密码。主动复制内容时，内容会进入系统剪贴板。你可以在设置中清空二维码历史；点击工具卡片上的星标可以取消收藏。卸载应用会删除应用沙箱中的这些数据。
+随身工具箱不要求注册账号，不集成广告、统计或云同步服务。应用在本机保存二维码生成与扫描历史（最多 50 条）、计时器、秒表状态、工具收藏、语言偏好，以及单位换算上次使用的类别、源单位、目标单位与有效位数（不含你输入的数值）。个税、条形码、计算、日期、文本、随机选择、亲戚称呼和密码的输入与结果仅在当前运行期间保留，不写入应用持久存储；离开密码页会清除本页生成的密码。主动复制内容时，内容会进入系统剪贴板。你可以在设置中清空二维码历史；点击工具卡片上的星标可以取消收藏。桌面「常用工具」服务卡片同样只在本机读取你的**工具收藏与语言偏好**，用来在卡片上显示工具名称；卡片不读取任何输入内容或计算结果，也不新增权限或联网行为——敏感的工具输入（个税、密码、文本等）从不出现在卡片上。卸载应用会删除应用沙箱中的这些数据。
 
 应用可读取系统识别的握持手与交互手状态，仅用于在本机调整高频按钮位置；该状态不保存，也不发送给开发者。沉浸光感读取设备材质支持情况和材质等级，仅用于选择本机界面效果。
 
@@ -16,7 +16,7 @@
 
 ## English
 
-Pocket Toolbox requires no account and includes no ads, analytics, or cloud sync. It stores QR creation and scan history (up to 50 entries), timers, stopwatch state, tool favorites, language preference, and the converter's last category, source unit, target unit and significant digits (never the value you typed). Income tax, barcode, calculator, date, text, random picker, and password inputs and results remain in memory only while the app runs; leaving the password page clears its generated password. Copying content places it on the system clipboard. You can delete individual QR entries or clear the history in Settings, and remove favorites with the star on each tool card. Uninstalling the app removes its sandbox data.
+Pocket Toolbox requires no account and includes no ads, analytics, or cloud sync. It stores QR creation and scan history (up to 50 entries), timers, stopwatch state, tool favorites, language preference, and the converter's last category, source unit, target unit and significant digits (never the value you typed). Income tax, barcode, calculator, date, text, random picker, kinship and password inputs and results remain in memory only while the app runs; leaving the password page clears its generated password. Copying content places it on the system clipboard. You can delete individual QR entries or clear the history in Settings, and remove favorites with the star on each tool card. The home-screen "Quick tools" widget likewise reads only your locally stored **tool favorites and language preference** to label its tiles; it never reads typed input or results, and it adds no permission and no network access — sensitive inputs (income tax, passwords, text, …) never appear on the widget. Uninstalling the app removes its sandbox data.
 
 The app may read the hand holding or operating the device to place frequent controls within easier reach. This status is used on the device only and is neither stored nor sent to the developer. It also reads the device's material support and level to choose a local visual effect.
 

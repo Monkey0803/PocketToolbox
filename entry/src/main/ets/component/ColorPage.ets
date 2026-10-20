@@ -1,5 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { HdsColorPicker } from '@kit.UIDesignKit';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { RgbColor, HslColor, parseColorInput, parsePickedColor, toHex, toRgbText, rgbToHsl, toHslText,
@@ -69,11 +70,11 @@ export struct ColorPage {
         Text(this.valueText(kind)).fontSize(18).fontWeight(FontWeight.Medium)
           .fontColor(ToolPalette.textPrimary).width('100%')
       }.layoutWeight(1)
-      Button() {
-        SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(22).fontColor([Color.White])
-      }.width(44).height(44).backgroundColor(ToolPalette.primary)
-        .accessibilityText(this.english ? 'Copy ' + en : '复制' + zh)
-        .onClick(() => this.onCopy(this.valueText(kind)))
+      IconActionButton({
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
+        a11yText: this.english ? 'Copy ' + en : '复制' + zh,
+        boxSize: 44, iconSize: 22, onTap: () => this.onCopy(this.valueText(kind))
+      })
     }.width('100%')
   }
 

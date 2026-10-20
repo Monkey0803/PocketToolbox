@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { TextStats, textStats, trimLines, collapseSpaces, removeBlankLines, joinLines,
@@ -161,13 +162,6 @@ export struct TextPage {
     this.textOutput = result.text;
   }
 
-  @Builder private iconAction(icon: Resource, zh: string, en: string, enabled: boolean, action: () => void) {
-    Button() {
-      SymbolGlyph(icon).fontSize(24).fontColor([Color.White])
-    }.width(48).height(48).backgroundColor(ToolPalette.neutralDark).enabled(enabled)
-      .accessibilityText(this.tr(zh, en)).onClick(action)
-  }
-
   build() {
     Column({ space: 14 }) {
       Text(this.tr('输入文本', 'Input text')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
@@ -206,12 +200,22 @@ export struct TextPage {
           .fontSize(16).copyOption(CopyOptions.LocalDevice).padding(16).width('100%')
       }
       Row({ space: 8 }) {
-        this.iconAction($r('sys.symbol.text_clipboard'), '复制处理结果', 'Copy result',
-          this.textOutput.length > 0, (): void => this.copyResult())
-        this.iconAction($r('sys.symbol.arrow_2_circlepath'), '把结果用作输入', 'Use result as input',
-          this.textOutput.length > 0, (): void => this.useResultAsInput())
-        this.iconAction($r('sys.symbol.trash'), '清空输入与结果', 'Clear input and result',
-          this.textInput.length > 0 || this.textOutput.length > 0, (): void => this.clearAll())
+        IconActionButton({
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          a11yText: this.tr('复制处理结果', 'Copy result'), usable: this.textOutput.length > 0,
+          onTap: () => this.copyResult()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.textSecondary,
+          a11yText: this.tr('把结果用作输入', 'Use result as input'), usable: this.textOutput.length > 0,
+          onTap: () => this.useResultAsInput()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
+          a11yText: this.tr('清空输入与结果', 'Clear input and result'),
+          usable: this.textInput.length > 0 || this.textOutput.length > 0,
+          onTap: () => this.clearAll()
+        })
       }.width('100%')
     }.width('100%')
   }

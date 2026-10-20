@@ -37,12 +37,39 @@ export class LocalData {
     this.store = store;
   }
 
-  static async open(context: common.UIAbilityContext): Promise<LocalData> {
+  /**
+   * 打开本地存储。
+   *
+   * 参数类型是基类 `common.Context` 而不是 `UIAbilityContext`：桌面服务卡片的 `FormExtensionAbility`
+   * 拿到的 `FormExtensionContext` 只继承到 `Context`，但 `preferences.getPreferences()` 本来就收基类，
+   * 放宽后 UIAbility 侧的调用（`Index.load()`）不受影响。
+   */
+  static async open(context: common.Context): Promise<LocalData> {
     return new LocalData(await preferences.getPreferences(context, 'pocket_toolbox'));
+  }
+
+  /**
+   * 同步打开（服务卡片专用）。
+   *
+   * `FormExtensionAbility.onAddForm()` 是**同步**返回绑定数据的，没法 `await`，因此卡片侧读收藏与语言
+   * 走同步 API；写入仍然只发生在应用进程（`putString` 等异步方法），卡片进程只读。
+   */
+  static openSync(context: common.Context): LocalData {
+    return new LocalData(preferences.getPreferencesSync(context, { name: 'pocket_toolbox' }));
   }
 
   async getString(key: string, fallback: string = ''): Promise<string> {
     return await this.store.get(key, fallback) as string;
+  }
+
+  /** 同步读取字符串（卡片进程用；读不到或类型不符时返回 `fallback`）。 */
+  getStringSync(key: string, fallback: string = ''): string {
+    try {
+      const value: preferences.ValueType = this.store.getSync(key, fallback);
+      return typeof value === 'string' ? value : fallback;
+    } catch (_) {
+      return fallback;
+    }
   }
 
   async putString(key: string, value: string): Promise<void> {
@@ -110,6 +137,21 @@ export class LocalData {
       let items: string[] = JSON.parse(await this.getString('favorite_tools', '[]')) as string[];
       // 白名单由 model/ToolMeta.ets 的 TOOL_META 派生，不再在此另抄一份 id 列表：
       // 之前的手写列表漏掉 'timestamp'，导致收藏「时间戳」重启后被静默丢弃。
+      return allowedFavorites(items);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * 同步读取收藏（服务卡片专用）。
+   *
+   * 与 `getFavorites()` 共用同一套 `allowedFavorites()` 过滤与 JSON 容错，避免卡片和收藏页对
+   * 「未知 id / 重复项」出现两套规则。
+   */
+  getFavoritesSync(): string[] {
+    try {
+      const items: string[] = JSON.parse(this.getStringSync('favorite_tools', '[]')) as string[];
       return allowedFavorites(items);
     } catch (_) {
       return [];

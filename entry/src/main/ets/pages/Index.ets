@@ -24,6 +24,7 @@ import { TaxPage } from '../component/TaxPage';
 import { PasswordPage } from '../component/PasswordPage';
 import { LevelPage } from '../component/LevelPage';
 import { CompassPage } from '../component/CompassPage';
+import { KinshipPage } from '../component/KinshipPage';
 import { HistoryPage } from '../component/HistoryPage';
 import { TorchPage } from '../component/TorchPage';
 import { QrPage } from '../component/QrPage';
@@ -39,6 +40,7 @@ import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPrefere
 import { SettingsPage } from '../component/SettingsPage';
 import { TimersPage } from '../component/TimersPage';
 import { saveScannedDocuments, systemPreferredLanguage } from '../services/SystemTools';
+import { refreshQuickToolsCards } from '../services/WidgetData';
 
 const HDS_MATERIAL_EFFECT: SystemMaterialParams = {
   materialType: hdsMaterial.MaterialType.ADAPTIVE,
@@ -165,6 +167,20 @@ struct Index {
       this.applyLanguagePreference(this.languagePreference);
     }
     if (this.page === 'home' && this.selectedTab === 'settings') { this.refreshIcon(); }
+    // 回到前台时兜底推送一次桌面卡片：系统语言可能刚变过（「跟随系统」时界面语言跟着变），
+    // 卡片内容也应与设置页一致。
+    this.refreshWidgets();
+  }
+
+  /**
+   * 主动刷新桌面「常用工具」服务卡片。
+   *
+   * 收藏（加星标/置顶/拖拽排序）与界面语言变了都要通知卡片，否则桌面会一直显示旧内容（系统定时刷新
+   * 最细只有 30 分钟）。刷新失败是静默的：卡片显示不是用户操作的成败条件，`refreshQuickToolsCards()`
+   * 内部已吞掉异常（设备不支持枚举卡片 API 时返回 0）。
+   */
+  private refreshWidgets(): void {
+    refreshQuickToolsCards(this.ctx());
   }
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
@@ -382,6 +398,8 @@ struct Index {
   private async setLanguagePreference(preference: string): Promise<void> {
     this.applyLanguagePreference(preference);
     if (this.data) { await this.data.putString('language', this.languagePreference); }
+    // 卡片文案跟随应用内语言偏好，切换后立即推送新内容。
+    this.refreshWidgets();
   }
 
   private async clearHistory(): Promise<void> {
@@ -403,6 +421,7 @@ struct Index {
     try {
       await this.data.saveFavorites(this.favorites);
       this.status = this.tr('已置顶', 'Moved to top');
+      this.refreshWidgets();
     } catch (_) {
       this.favorites = previous;
       this.status = this.tr('收藏保存失败', 'Could not save favorites');
@@ -422,6 +441,7 @@ struct Index {
     this.favorites = next;
     try {
       await this.data.saveFavorites(this.favorites);
+      this.refreshWidgets();
     } catch (_) {
       this.favorites = previous;
       this.status = this.tr('收藏保存失败', 'Could not save favorites');
@@ -441,6 +461,7 @@ struct Index {
       await this.data.saveFavorites(this.favorites);
       this.status = this.isFavorite(id) ? this.tr('已收藏工具', 'Tool added to favorites') :
         this.tr('已取消收藏', 'Tool removed from favorites');
+      this.refreshWidgets();
     } catch (_) {
       this.favorites = previous;
       this.status = this.tr('收藏保存失败', 'Could not save favorites');
@@ -755,8 +776,9 @@ struct Index {
             }
             else if (name === 'calculator') {
               CalculatorPage({
-                english: this.english, immersiveSupported: this.immersiveSupported, materialLevel: this.materialLevel
-              })
+                english: this.english, immersiveSupported: this.immersiveSupported, materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
             }
             else if (name === 'tax') {
               TaxPage({ english: this.english, immersiveSupported: this.immersiveSupported,
@@ -790,6 +812,7 @@ struct Index {
                 materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
                 onCopy: (value: string): void => { this.copy(value); },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
+                onStatus: (message: string): void => { this.status = message; },
                 initialValue: this.pendingInput,
                 onInitialConsumed: (): void => { this.pendingInput = ''; } })
             }
@@ -848,6 +871,11 @@ struct Index {
             }
             else if (name === 'compass') {
               CompassPage({ english: this.english, active: this.appActive })
+            }
+            else if (name === 'kinship') {
+              KinshipPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'history') {
               HistoryPage({ english: this.english, immersiveSupported: this.immersiveSupported,

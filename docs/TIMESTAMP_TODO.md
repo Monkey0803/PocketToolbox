@@ -33,6 +33,7 @@
 | TS-14 | 历史内容 = 来源 · 实际复制值 | ✅ 已实现 | `copyValue(kind)` + `historyRefill()` 取最后一个 `·` 之后 |
 | TS-15 | 搜索关键词补充 | ✅ 已实现 | `ToolMeta` 加 `epoch` / `毫秒` / `millisecond` / `时间戳转换器` |
 | TS-16 | 单测补充 | ✅ 已实现 | 时间戳断言扩到约 90 行，时区断言加固定偏移与本机显示名 |
+| TS-17 | 系统日期/时间选择器直接选日期时间 | ✅ 已实现（模拟器实测） | `TimeTools.localDateText()/localTimeText()/timeTextOf()` + `TimestampPage.dateTimePick()` |
 
 ## 验证证据（2026-10-19）
 
@@ -67,6 +68,9 @@ node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs
 | 时区换算 | 「本机」显示为 `本机 · 北京`（`i18n.TimeZone.getAppDefaultTimeZone().getID()` 返回上海并命中登记表）、行标题 `本机时间`、偏移 `UTC+08:00`、差值「与本机相同」 | TS-09、TS-10、TS-13 |
 | 历史一致性 | 复制 ISO（本地）行后，历史页新条目为 `iso-local · 2026-10-19T08:30:05.000+08:00`；`hdc file recv` 取出的 `preferences/pocket_toolbox` 里存的 JSON `content` 与界面一致 | TS-14 |
 | 历史回填往返 | 点该条历史 → 回到时间戳页，输入框填入 `2026-10-19T08:30:05.000+08:00` 并再次解析出同一时刻 | TS-14 |
+| 日期选择（TS-17） | 输入框是 10 位时间戳时，输入框下方「日期 / 时间」两张半宽卡分别显示派生的 `2026-10-19` 与 `20:06:42`；点「日期」卡 → 系统日期选择器（定位到 `2026年10月19日星期一`）→ 确定 → 输入框变成 `2026-10-19 20:10:56`，六行结果 + 时区行同时刷新 | TS-17 |
+| 时间选择（TS-17） | 只点「时间」卡 → 系统时间选择器（`时/分/秒` 三列、24 小时制，定位到当前值 `20:10:56`）→ 确定 → 输入框由 10 位时间戳变成 `2026-10-19 20:13:48`，六行结果同步刷新（证明写回来自时间路径的 `timeTextOf`） | TS-17 |
+| 占位态（TS-17） | 清空输入框 → 两张卡显示「选取日期」/「选取时间」（不假装有值），结果区给「请输入时间戳或日期时间」 | TS-17 |
 
 DST 空档无法在 `Asia/Shanghai` 上自然触发，因此 TS-01 除纯函数单测外，还把**真机时区切换做进了标准单测**：
 `tests/run-unit-tests.mjs` 在断言前临时把 `process.env.TZ` 设为 `America/New_York`（Node 运行时改 TZ 即生效）、
@@ -131,12 +135,25 @@ $env:TZ='America/New_York'; node -e "const d=new Date(2000,2,8,2,30,0,0); d.setF
 - `historyRefill()` 取**最后一个 `·` 之后**的部分（兼容旧版「本地时间  ·  秒级时间戳」写法），没有 `·` 时整条即回填值；
   截断（结尾 `…`）仍不回填。旧断言「没有秒级数字就不回填」随之更新，因为新格式下本地时间文本本身就是合法输入。
 
+### 日期时间选择（TS-17）
+
+- 纯逻辑新增 `localDateText(date)` / `localTimeText(date)` / `timeTextOf(hour, minute, second)`；`localTextOf()` 改为复用前两者，
+  输出逐字节不变（既有 `localText` 断言就是这次重构的回归保护）。
+- 页面新增 `@Builder dateTimePick()`：一行两张半宽卡（`Row` 的两个 `Column.layoutWeight(1)`，`MaterialSurface` 只带 `interactive: true`），
+  日期卡 `sys.symbol.calendar`、时间卡 `sys.symbol.timer`（分别与 `DatesPage` 的日期卡、`TimersPage` 的时长卡同款图标），
+  卡下的 `accessibilityText` 带当前值；`pickBase()` 从**当前输入**取基准瞬时，`pickLabel()` 在输入不可解析时给「选取日期」/「选取时间」占位。
+- 确认后的写回：日期卡用 `localDateText(选择结果)` + 原本的时分秒；时间卡用原本的日期 + `timeTextOf(value.hour, value.minute, value.second)`。
+  **时间部分只补零拼串、不回读 `Date`**——否则时间选择器选到夏令时空档会被顺移（选 02:30 写成 03:30），
+  而现在会由解析层如实报 `dst`。两条路径都只写 `this.input`，结果与时区全部由既有的 `@Computed result` 驱动刷新。
+- 选择器打不开时走新增的 `@Event onStatus` → `Index` 的 `status` → 系统 toast（`Index.toolRoutes('timestamp')` 补了这一个回调，其余不动）。
+
 ## 遗留与后续
 
 1. **夏令时提示文案的真机观感**：空档/重复小时的**行为**已在标准单测里按真实模块回归（见上），但「该本地时间在夏令时切换中不存在…」这条提示在夏令时地区真机上的显示效果未截图（模拟器 `Asia/Shanghai` 触发不到该分支）。
 2. **TS-09 第 3 项（时区分组 / 搜索）**：27 条时，下拉仍可用，按设计不做搜索框；条目继续增长时再评估。
 3. **解释方式不落盘**：与单位换算「输入值不落盘」一致，本轮没加持久化；若用户反馈需要再议。
-4. **真机形态与观感**：本轮为 API 26 模拟器（手机形态、中文系统），沉浸材质观感、宽屏/折叠屏布局仍需真机复核（与工具本身无关的既有事项）。
+4. **选择器滚轮本身未经自动化复验**：本轮模拟器上**确认/取消按钮与写回路径**都实测通过，但用 `uitest uiInput swipe` 拨动选择器滚轮时手势被系统弹窗吞掉（多次落到下层页面），滚轮改值的交互沿用的是 `DatesPage` 既有结论（`DEVICE_ACCEPTANCE.md` 里滚到 2027-01-16 那条），建议真机手点一遍。
+5. **真机形态与观感**：本轮为 API 26 模拟器（手机形态、中文系统），沉浸材质观感、宽屏/折叠屏布局仍需真机复核（与工具本身无关的既有事项）。
 
 ## 明确不做（避免范围蔓延）
 
@@ -152,3 +169,4 @@ $env:TZ='America/New_York'; node -e "const d=new Date(2000,2,8,2,30,0,0); d.setF
 | 2026-10-19 | 建立清单：从静态复核与一次本地可复现的 DST 实验整理出 TS-01…TS-16 |
 | 2026-10-19 | 全部实现：`TimeTools` 重写（错误码 / 模式 / ISO / 相对时间）、`TimeZoneTools` 增加固定偏移与本机显示名、`SystemTools.localTimeZoneId()`、`HistoryKinds.historyRefill()`、`TimestampPage` 重排结果卡与解释方式、`ToolMeta` 关键词、单测扩充；构建与模拟器实测通过，约定回写 `AGENTS.md` |
 | 2026-10-19 | 补强验证：DST 空档与重复小时做进标准单测（临时切 `process.env.TZ` 后恢复），英文界面在模拟器上走查一遍；两项遗留（夏令时真机文案、英文行宽）清零 |
+| 2026-10-19 | 新增 TS-17：系统日期/时间选择器直接选日期时间并写回输入框（`localDateText`/`localTimeText`/`timeTextOf` + `TimestampPage.dateTimePick()` + `onStatus`）；构建、单测、模拟器（日期卡与时间卡各确认一次、占位态）通过，约定回写 `AGENTS.md` |

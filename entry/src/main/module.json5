@@ -43,6 +43,23 @@
           }
         ]
       }
+    ],
+    // 桌面服务卡片（「常用工具」）的提供方；卡片页与显示规则见
+    // resources/base/profile/form_config.json 与 ets/widget/pages/QuickToolsCard.ets。
+    "extensionAbilities": [
+      {
+        "name": "QuickToolsFormAbility",
+        "srcEntry": "./ets/widgetform/QuickToolsFormAbility.ets",
+        "label": "$string:widget_quick_tools_label",
+        "description": "$string:widget_quick_tools_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      }
     ]
   }
 }

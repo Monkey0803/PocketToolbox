@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -72,16 +73,16 @@ export struct SciencePage {
         .width('100%')
       if (this.resultValid()) {
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制结果', 'Copy the result'))
-            .onClick(() => this.onCopy(formatResult(this.result().value)))
-          Button() {
-            SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.danger)
-            .accessibilityText(this.tr('清空表达式', 'Clear the expression'))
-            .onClick(() => { this.expression = ''; })
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制结果', 'Copy the result'),
+            onTap: () => this.onCopy(formatResult(this.result().value))
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+            a11yText: this.tr('清空表达式', 'Clear the expression'),
+            onTap: () => { this.expression = ''; }
+          })
         }.width('100%')
       }
     }.padding(16).width('100%')

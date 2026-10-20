@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -166,11 +167,11 @@ export struct RandomPage {
         }) {
           Text(this.randomNumberResult).fontSize(30).fontWeight(FontWeight.Bold).padding(16).width('100%')
         }
-        Button() {
-          SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-          .accessibilityText(this.tr('复制随机数', 'Copy random number'))
-          .onClick(() => this.onCopy(this.randomNumberResult))
+        IconActionButton({
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          a11yText: this.tr('复制随机数', 'Copy random number'),
+          onTap: () => this.onCopy(this.randomNumberResult)
+        })
       }
 
       Text(this.tr('骰子与硬币', 'Dice and coin')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
@@ -249,10 +250,10 @@ export struct RandomPage {
           Text(this.listResult).fontSize(20).fontWeight(FontWeight.Bold).padding(16).width('100%')
             .copyOption(CopyOptions.LocalDevice)
         }
-        Button() {
-          SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-          .accessibilityText(this.tr('复制结果', 'Copy result')).onClick(() => this.onCopy(this.listResult))
+        IconActionButton({
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          a11yText: this.tr('复制结果', 'Copy result'), onTap: () => this.onCopy(this.listResult)
+        })
       }
     }.width('100%')
   }

@@ -3,7 +3,7 @@
  *
  * 历史条目统一存在 `LocalData` 的同一份列表里（最多 50 条），`kind` 标识来源：
  * - `generated` / `scanned`：二维码生成与扫码（历史最久的两个类别）
- * - `text` / `units` / `timestamp`：文本工具、单位换算、时间戳的**复制结果**
+ * - `text` / `units` / `timestamp` / `calculator`：文本工具、单位换算、时间戳、折扣与均摊的**复制结果**
  *
  * 展示规则也在本文件：类别筛选、关键字搜索、时间标签、内容截断，以及「点条目跳回哪个工具、回填什么」。
  *
@@ -32,7 +32,8 @@ export const HISTORY_KINDS: HistoryKindEntry[] = [
   new HistoryKindEntry('scanned', '扫码识别', 'Scanned code', true),
   new HistoryKindEntry('text', '文本结果', 'Text result', true),
   new HistoryKindEntry('units', '换算结果', 'Conversion', true),
-  new HistoryKindEntry('timestamp', '时间戳', 'Timestamp', true)
+  new HistoryKindEntry('timestamp', '时间戳', 'Timestamp', true),
+  new HistoryKindEntry('calculator', '计算结果', 'Calculation', true)
 ];
 
 /** 筛选下拉用的类别（含「全部」）。 */
@@ -69,8 +70,9 @@ export function historyItemShown(kind: string, content: string, filter: string, 
 }
 
 /**
- * 点击历史条目时跳转到哪个工具页；返回空串表示该类别不提供回填（例如换算结果是整句文案）。
+ * 点击历史条目时跳转到哪个工具页；返回空串表示该类别不提供回填。
  * 生成的二维码与扫码结果都回到二维码页，便于直接再生成/再分享。
+ * `units` 与 `calculator` 记录的是整句结果，没有唯一可回填的字段，因此返回空串（只展示、不跳转）。
  */
 export function historyTargetRoute(kind: string): string {
   if (kind === 'generated' || kind === 'scanned') { return 'qr'; }

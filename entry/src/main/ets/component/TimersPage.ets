@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, CountdownItem, StopwatchData } from '../model/LocalData';
@@ -359,10 +360,10 @@ export struct TimersPage {
           .onChange((isOn: boolean) => { this.repeatTimer = isOn; })
       }.width('100%')
       Row() {
-        Button() {
-          SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.accentOrange)
-          .accessibilityText(this.tr('添加计时器', 'Add timer')).onClick(() => this.addTimer())
+        IconActionButton({
+          icon: $r('sys.symbol.plus'), tintColor: ToolPalette.warning,
+          a11yText: this.tr('添加计时器', 'Add timer'), onTap: () => this.addTimer()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       ForEach(this.timers, (timer: CountdownItem) => {
         MaterialSurface({
@@ -387,31 +388,32 @@ export struct TimersPage {
           }
           Row({ space: 6 }) {
             if (timer.state === 'running') {
-              Button() {
-                SymbolGlyph($r('sys.symbol.pause_fill')).fontSize(24).fontColor([Color.White])
-              }.width(48).height(48).backgroundColor(ToolPalette.accentOrange)
-                .accessibilityText(this.tr('暂停计时器', 'Pause timer')).onClick(() => this.pauseTimer(timer))
+              IconActionButton({
+                icon: $r('sys.symbol.pause_fill'), tintColor: ToolPalette.warning,
+                a11yText: this.tr('暂停计时器', 'Pause timer'), onTap: () => this.pauseTimer(timer)
+              })
             } else {
-              Button() {
-                SymbolGlyph($r('sys.symbol.play_fill')).fontSize(24).fontColor([Color.White])
-              }.width(48).height(48).backgroundColor(ToolPalette.success)
-                .accessibilityText(timer.state === 'paused' ? this.tr('继续计时器', 'Resume timer') :
-                  this.tr('开始计时器', 'Start timer')).onClick(() => this.startTimer(timer))
+              IconActionButton({
+                icon: $r('sys.symbol.play_fill'), tintColor: ToolPalette.success,
+                a11yText: timer.state === 'paused' ? this.tr('继续计时器', 'Resume timer') :
+                  this.tr('开始计时器', 'Start timer'),
+                onTap: () => this.startTimer(timer)
+              })
             }
-            Button() {
-              SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(24).fontColor([Color.White])
-            }.width(48).height(48).backgroundColor(ToolPalette.textMuted)
-              .accessibilityText(this.tr('重置计时器', 'Reset timer')).onClick(() => this.resetTimer(timer))
+            IconActionButton({
+              icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
+              a11yText: this.tr('重置计时器', 'Reset timer'), onTap: () => this.resetTimer(timer)
+            })
           }.width('100%').justifyContent(this.actionAlign)
           Row({ space: 6 }) {
-            Button() {
-              SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(24).fontColor([Color.White])
-            }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-              .accessibilityText(this.tr('编辑计时器', 'Edit timer')).onClick(() => this.editTimer(timer))
-            Button() {
-              SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-            }.width(48).height(48).backgroundColor(ToolPalette.danger)
-              .accessibilityText(this.tr('删除计时器', 'Delete timer')).onClick(() => this.deleteTimer(timer))
+            IconActionButton({
+              icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
+              a11yText: this.tr('编辑计时器', 'Edit timer'), onTap: () => this.editTimer(timer)
+            })
+            IconActionButton({
+              icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+              a11yText: this.tr('删除计时器', 'Delete timer'), onTap: () => this.deleteTimer(timer)
+            })
           }.width('100%').justifyContent(this.actionAlign)
         }.padding(16).width('100%')
         }
@@ -422,21 +424,21 @@ export struct TimersPage {
       Text(this.tr('秒表', 'Stopwatch')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.watchTime()).fontSize(36).fontWeight(FontWeight.Bold).width('100%')
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph(this.watch.running ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
-            .fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.primary)
-          .accessibilityText(this.watch.running ? this.tr('暂停秒表', 'Pause stopwatch') :
-            this.tr('开始或继续秒表', 'Start or resume stopwatch')).onClick(() => this.toggleWatch())
-        Button() {
-          SymbolGlyph($r('sys.symbol.flag')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-          .enabled(this.watchElapsedMs() > 0)
-          .accessibilityText(this.tr('计次', 'Lap')).onClick(() => this.lapWatch())
-        Button() {
-          SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.textMuted)
-          .accessibilityText(this.tr('重置秒表', 'Reset stopwatch')).onClick(() => this.resetWatch())
+        IconActionButton({
+          icon: this.watch.running ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'),
+          tintColor: ToolPalette.primary,
+          a11yText: this.watch.running ? this.tr('暂停秒表', 'Pause stopwatch') :
+            this.tr('开始或继续秒表', 'Start or resume stopwatch'),
+          onTap: () => this.toggleWatch()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.flag'), tintColor: ToolPalette.accentPurple, usable: this.watchElapsedMs() > 0,
+          a11yText: this.tr('计次', 'Lap'), onTap: () => this.lapWatch()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
+          a11yText: this.tr('重置秒表', 'Reset stopwatch'), onTap: () => this.resetWatch()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       if (this.watch.laps.length > 0) {
         MaterialSurface({

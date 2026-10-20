@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -327,37 +328,37 @@ export struct QrPage {
         }
       })
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph($r('sys.symbol.qrcode')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.primary)
-          .accessibilityText(this.tr('生成二维码', 'Create QR code')).onClick(() => this.generate())
-        Button() {
-          SymbolGlyph($r('sys.symbol.barcode_viewfinder')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.success)
-          .accessibilityText(this.tr('扫描二维码或从相册选择', 'Scan QR code or choose from gallery'))
-          .onClick(() => this.scan())
-        Button() {
-          SymbolGlyph($r('sys.symbol.picture')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-          .accessibilityText(this.tr('从相册图片识别二维码', 'Read a QR code from a picture'))
-          .onClick(() => this.decodeFromImage())
+        IconActionButton({
+          icon: $r('sys.symbol.qrcode'), tintColor: ToolPalette.primary,
+          a11yText: this.tr('生成二维码', 'Create QR code'), onTap: () => this.generate()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.barcode_viewfinder'), tintColor: ToolPalette.success,
+          a11yText: this.tr('扫描二维码或从相册选择', 'Scan QR code or choose from gallery'),
+          onTap: () => this.scan()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.picture'), tintColor: ToolPalette.accentPurple,
+          a11yText: this.tr('从相册图片识别二维码', 'Read a QR code from a picture'),
+          onTap: () => this.decodeFromImage()
+        })
         // 历史入口放在产生历史数据的页面上：生成/扫码会记录到本机历史，之前只有「清空」没有「查看」。
-        Button() {
-          SymbolGlyph($r('sys.symbol.clock_arrow_2_circlepath')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-          .accessibilityText(this.tr('二维码历史', 'QR history')).onClick(() => this.onOpenHistory())
+        IconActionButton({
+          icon: $r('sys.symbol.clock_arrow_2_circlepath'), tintColor: ToolPalette.accentPurple,
+          a11yText: this.tr('二维码历史', 'QR history'), onTap: () => this.onOpenHistory()
+        })
       }.width('100%').justifyContent(this.actionAlign)
       if (this.qrPixel) {
         Image(this.qrPixel).width(240).height(240).objectFit(ImageFit.Contain).backgroundColor(Color.White)
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.square_and_arrow_down')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.primary)
-            .accessibilityText(this.tr('保存 PNG', 'Save PNG')).onClick(() => this.saveImage())
-          Button() {
-            SymbolGlyph($r('sys.symbol.share')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.accentPurple)
-            .accessibilityText(this.tr('分享二维码', 'Share QR code')).onClick(() => this.shareImage())
+          IconActionButton({
+            icon: $r('sys.symbol.square_and_arrow_down'), tintColor: ToolPalette.primary,
+            a11yText: this.tr('保存 PNG', 'Save PNG'), onTap: () => this.saveImage()
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.share'), tintColor: ToolPalette.accentPurple,
+            a11yText: this.tr('分享二维码', 'Share QR code'), onTap: () => this.shareImage()
+          })
         }.width('100%').justifyContent(this.actionAlign)
       }
       if (this.qrResult) {
@@ -369,15 +370,15 @@ export struct QrPage {
           Text(this.qrResult).fontSize(16).copyOption(CopyOptions.LocalDevice).padding(14).width('100%')
         }
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制内容', 'Copy content')).onClick(() => this.onCopy(this.qrResult))
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制内容', 'Copy content'), onTap: () => this.onCopy(this.qrResult)
+          })
           if (this.isLink(this.qrResult)) {
-            Button() {
-              SymbolGlyph($r('sys.symbol.arrow_up_right')).fontSize(24).fontColor([Color.White])
-            }.width(48).height(48).backgroundColor(ToolPalette.success)
-              .accessibilityText(this.tr('打开链接', 'Open link')).onClick(() => this.openLink())
+            IconActionButton({
+              icon: $r('sys.symbol.arrow_up_right'), tintColor: ToolPalette.success,
+              a11yText: this.tr('打开链接', 'Open link'), onTap: () => this.openLink()
+            })
           }
         }.width('100%').justifyContent(this.actionAlign)
       }

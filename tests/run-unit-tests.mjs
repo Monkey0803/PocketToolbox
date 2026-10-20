@@ -61,7 +61,9 @@ const health = await loadEts('../entry/src/main/ets/model/HealthMath.ets');
 const science = await loadEts('../entry/src/main/ets/model/ScientificCalc.ets');
 const startup = await loadEts('../entry/src/main/ets/model/StartupIntent.ets');
 const compass = await loadEts('../entry/src/main/ets/model/CompassMath.ets');
+const kinship = await loadEts('../entry/src/main/ets/model/KinshipMath.ets');
 const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.ets');
+const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
 const { createHash } = await import('node:crypto');
 
 function category(id) {
@@ -516,6 +518,22 @@ assert.ok(timeTools.currentSeconds() > 1700000000);
 assert.equal(typeof timeTools.currentMillis(), 'number');
 assert.ok(timeTools.currentMillis() > 1700000000000);
 
+// 日期/时间选择器用的格式化：逐字段补零、不做 Date 往返（时间选择器回传的是三个数字）
+const picked = new Date(2026, 9, 19, 8, 30, 45, 0);
+assert.equal(timeTools.localDateText(picked), '2026-10-19');
+assert.equal(timeTools.localTimeText(picked), '08:30:45');
+assert.equal(timeTools.localTimeText(new Date(2026, 9, 19, 0, 5, 9, 0)), '00:05:09');
+assert.equal(timeTools.timeTextOf(0, 5, 9), '00:05:09');
+assert.equal(timeTools.timeTextOf(9, 8, 7), '09:08:07');
+assert.equal(timeTools.timeTextOf(23, 59, 59), '23:59:59');
+// 选择器写回输入框的串必须能被解析回同一时刻，且与 localText 口径一致（本机构造，时区无关）
+assert.equal(timeTools.parseStampInput(timeTools.localDateText(picked) + ' ' +
+  timeTools.localTimeText(picked)).millis, picked.getTime());
+assert.equal(timeTools.localDateText(picked) + ' ' + timeTools.localTimeText(picked),
+  timeTools.parseStampInput(picked.getTime().toString()).localText);
+assert.equal(timeTools.parseStampInput('2026-10-19 ' + timeTools.timeTextOf(0, 0, 0)).millis,
+  new Date(2026, 9, 19, 0, 0, 0).getTime());
+
 // 星期几与相对时间（用本机构造的 Date，断言与运行机器时区无关）
 const monday = new Date(2026, 9, 19, 12, 0, 0).getTime();
 assert.equal(timeTools.weekdayText(monday, false), '星期一');
@@ -796,14 +814,76 @@ assert.equal(barcodes.barcodeKindIndex('unknown'), -1);
 
 assert.equal(calculators.moneyCents('12.34'), 1234);
 assert.equal(calculators.moneyCents('12.345'), undefined);
-assert.equal(calculators.discountPrice('100.00', '8').finalCents, 8000);
-assert.equal(calculators.discountPrice('100.00', '8').savedCents, 2000);
-assert.equal(calculators.discountPrice('0.05', '9').finalCents, 5);
-assert.equal(calculators.discountPrice('100.00', '8.555'), undefined);
-assert.equal(calculators.discountPrice('100', '11'), undefined);
+// 折扣计算：折后价 = 原价 × 折数 ÷ 10 − 立减
+assert.equal(calculators.discountPrice('100.00', '8', '0').finalCents, 8000);
+assert.equal(calculators.discountPrice('100.00', '8', '0').savedCents, 2000);
+assert.equal(calculators.discountPrice('0.05', '9', '0').finalCents, 5);
+assert.equal(calculators.discountPrice('100.00', '8.555', '0'), undefined);
+assert.equal(calculators.discountPrice('100', '11', '0'), undefined);
+// 立减在折扣之后扣除，等效折扣按最终成交价反推
+assert.equal(calculators.discountPrice('100.00', '8', '10').finalCents, 7000);
+assert.equal(calculators.discountPrice('100.00', '8', '10').savedCents, 3000);
+assert.equal(calculators.discountPrice('100.00', '8', '10').equivalentFold, 7);
+assert.equal(calculators.discountPrice('200.00', '8', '30').equivalentFold, 6.5);
+// 立减超过折后价时按 0 计（券额作废），不会出现负的实付
+assert.equal(calculators.discountPrice('10.00', '8', '20').finalCents, 0);
+assert.equal(calculators.discountPrice('10.00', '8', '20').savedCents, 1000);
+assert.equal(calculators.discountPrice('10.00', '8', '20').equivalentFold, 0);
+// 原价为 0 时无法算等效折扣
+assert.equal(calculators.discountPrice('0', '8', '0').equivalentFold, -1);
+// 立减本身也要合法（两位小数、非负、不超上限）
+assert.equal(calculators.discountPrice('100.00', '8', '1.234'), undefined);
+assert.equal(calculators.discountPrice('100.00', '8', '-1'), undefined);
+assert.equal(calculators.discountPrice('100.00', '8', ''), undefined);
+
+// 折扣反推：折后价 ÷ 折数 → 原价
+assert.equal(calculators.originalFromFinal('80.00', '8').originalCents, 10000);
+assert.equal(calculators.originalFromFinal('80.00', '8').savedCents, 2000);
+assert.equal(calculators.originalFromFinal('75.00', '7.5').originalCents, 10000);
+assert.equal(calculators.originalFromFinal('80.00', '0'), undefined);
+assert.equal(calculators.originalFromFinal('80.00', '11'), undefined);
+assert.equal(calculators.originalFromFinal('abc', '8'), undefined);
+// 折扣反推：原价 + 折后价 → 折数（折后价高于原价是合法输入，折数 > 10、offPercent 为负）
+assert.equal(calculators.foldFromPrices('100.00', '75.00').fold, 7.5);
+assert.equal(calculators.foldFromPrices('100.00', '75.00').offPercent, 25);
+assert.equal(calculators.foldFromPrices('100.00', '100.00').offPercent, 0);
+assert.equal(calculators.foldFromPrices('100.00', '120.00').fold, 12);
+assert.equal(calculators.foldFromPrices('100.00', '120.00').offPercent, -20);
+assert.equal(calculators.foldFromPrices('0', '75'), undefined);
+assert.equal(calculators.foldFromPrices('100.00', 'abc'), undefined);
+
 assert.equal(calculators.percentageOf('150', '20'), 30);
 assert.equal(calculators.percentageRatio('25', '200'), 12.5);
 assert.equal(calculators.percentageRatio('25', '0'), undefined);
+// 增减百分比：先算增量再加减，13% 这类输入不能出现浮点尾差
+assert.equal(calculators.percentAdjust('100', '13').increased, 113);
+assert.equal(calculators.percentAdjust('100', '13').decreased, 87);
+assert.equal(calculators.percentAdjust('100', '0').increased, 100);
+assert.equal(calculators.percentAdjust('0', '20').increased, 0);
+assert.equal(calculators.percentAdjust('100', '200').decreased, -100);
+assert.equal(calculators.percentAdjust('abc', '20'), undefined);
+// 百分比变化：以原值为基数，下降为负；原值为 0 无意义
+assert.equal(calculators.percentDelta('100', '120'), 20);
+assert.equal(calculators.percentDelta('100', '80'), -20);
+assert.equal(calculators.percentDelta('100', '100'), 0);
+assert.equal(calculators.percentDelta('0', '5'), undefined);
+assert.equal(calculators.percentDelta('100', 'abc'), undefined);
+// 加价定价：售价 = 成本 × (1 + 加价率)，毛利率按售价算
+assert.equal(calculators.priceFromMarkup('80.00', '25').priceCents, 10000);
+assert.equal(calculators.priceFromMarkup('80.00', '25').profitCents, 2000);
+assert.equal(calculators.priceFromMarkup('80.00', '25').marginPercent, 20);
+assert.equal(calculators.priceFromMarkup('80.00', '0').priceCents, 8000);
+assert.equal(calculators.priceFromMarkup('0', '25'), undefined);
+assert.equal(calculators.priceFromMarkup('80.00', 'abc'), undefined);
+// 毛利反推：同时给出毛利率（÷ 售价）与加价率（÷ 成本）
+assert.equal(calculators.marginFromPrices('80.00', '100.00').profitCents, 2000);
+assert.equal(calculators.marginFromPrices('80.00', '100.00').marginPercent, 20);
+assert.equal(calculators.marginFromPrices('80.00', '100.00').markupPercent, 25);
+assert.equal(calculators.marginFromPrices('0', '100').marginPercent, 100);
+assert.equal(calculators.marginFromPrices('0', '100').markupPercent, -1);
+assert.equal(calculators.marginFromPrices('120.00', '100.00').marginPercent, -20);
+assert.ok(Math.abs(calculators.marginFromPrices('120.00', '100.00').markupPercent + 16.666666666666664) < 1e-9);
+assert.equal(calculators.marginFromPrices('100', '0'), undefined);
 assert.equal(calculators.splitBill('100.00', '3', '0').baseCents, 3333);
 assert.equal(calculators.splitBill('100.00', '3', '0').extraPeople, 1);
 assert.equal(calculators.splitBill('100.00', '3', '10').totalCents, 11000);
@@ -811,10 +891,11 @@ assert.equal(calculators.splitBill('0.05', '2', '10').tipCents, 1);
 assert.equal(calculators.splitBill('100.00', '2', '7.555'), undefined);
 assert.equal(calculators.splitBill('100.00', '0', '0'), undefined);
 
-// 计算类型登记表：折扣 / 百分比 / 均摊三项，id 唯一、文案齐全（页面「类型」下拉由它驱动）
-assert.equal(calculators.CALC_MODES.length, 3);
+// 计算类型登记表：五种计算，id 唯一、文案齐全、顺序即下拉顺序（页面「类型」下拉由它驱动）
+assert.equal(calculators.CALC_MODES.length, 5);
 assert.equal(new Set(calculators.CALC_MODES.map((mode) => mode.id)).size, calculators.CALC_MODES.length);
-assert.deepEqual(calculators.CALC_MODES.map((mode) => mode.id), ['discount', 'percentage', 'split']);
+assert.deepEqual(calculators.CALC_MODES.map((mode) => mode.id),
+  ['discount', 'reverse', 'percentage', 'markup', 'split']);
 for (const mode of calculators.CALC_MODES) {
   assert.ok(mode.zh.length > 0 && mode.en.length > 0, `incomplete calc mode ${mode.id}`);
 }
@@ -998,16 +1079,19 @@ assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-01', fa
 assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', true, [], []), undefined);
 
 // --- 工具元数据：单一数据源（收藏白名单与工具搜索都由它派生）---
-assert.equal(toolMeta.TOOL_META.length, 19);
-assert.equal(toolMeta.TOOL_IDS.length, 19);
-assert.equal(new Set(toolMeta.TOOL_IDS).size, 19);
+assert.equal(toolMeta.TOOL_META.length, 20);
+assert.equal(toolMeta.TOOL_IDS.length, 20);
+assert.equal(new Set(toolMeta.TOOL_IDS).size, 20);
 assert.equal(toolMeta.TOOL_IDS[0], 'qr');
-assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'compass');
+assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'kinship');
 assert.ok(toolMeta.TOOL_IDS.includes('timestamp'), 'timestamp must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('loan'), 'loan must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('color'), 'color must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('health'), 'health must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('compass'), 'compass must be a known tool id');
+assert.ok(toolMeta.TOOL_IDS.includes('kinship'), 'kinship must be a known tool id');
+assert.equal(toolMeta.toolMetaById('kinship').titleZh, '亲戚称呼');
+assert.equal(toolMeta.toolMetaById('kinship').titleEn, 'Kinship calculator');
 assert.equal(toolMeta.toolMetaById('compass').titleZh, '指南针');
 assert.equal(toolMeta.toolMetaById('compass').titleEn, 'Compass');
 for (const meta of toolMeta.TOOL_META) {
@@ -1028,7 +1112,7 @@ assert.deepEqual(toolMeta.allowedFavorites(['qr', 'qr']), ['qr']);
 assert.deepEqual(toolMeta.allowedFavorites([]), []);
 assert.deepEqual(toolMeta.allowedFavorites(['history']), []);
 assert.deepEqual(toolMeta.allowedFavorites(undefined), []);
-assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 19);
+assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 20);
 assert.deepEqual(toolMeta.allowedFavorites(toolMeta.TOOL_IDS), toolMeta.TOOL_IDS);
 
 // 工具搜索：空查询返回全部；中英双语与 id 都能命中；无命中返回空
@@ -1044,8 +1128,8 @@ assert.deepEqual(toolMeta.matchTools('时间戳'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('epoch'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('毫秒'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('millisecond'), ['timestamp']);
-// 'cal' 现在还会命中 Loan calculator 与 Health calculator（英文标题含 calculator）
-assert.deepEqual(toolMeta.matchTools('cal'), ['calculator', 'dates', 'loan', 'health', 'science']);
+// 'cal' 现在还会命中 Loan calculator、Health calculator 与 Kinship calculator（英文标题含 calculator）
+assert.deepEqual(toolMeta.matchTools('cal'), ['calculator', 'dates', 'loan', 'health', 'science', 'kinship']);
 assert.deepEqual(toolMeta.matchTools('计算'), ['tax', 'dates', 'loan', 'health', 'science']);
 assert.deepEqual(toolMeta.matchTools('贷款'), ['loan']);
 assert.deepEqual(toolMeta.matchTools('loan'), ['loan']);
@@ -1064,6 +1148,16 @@ assert.deepEqual(toolMeta.matchTools('指南针'), ['compass']);
 assert.deepEqual(toolMeta.matchTools('compass'), ['compass']);
 assert.deepEqual(toolMeta.matchTools('方位角'), ['compass']);
 assert.deepEqual(toolMeta.matchTools('磁力计'), ['compass']);
+// 亲戚称呼：标题与关键词都能命中，且关键词不含「计算」二字
+assert.deepEqual(toolMeta.matchTools('亲戚'), ['kinship']);
+assert.deepEqual(toolMeta.matchTools('称呼'), ['kinship']);
+assert.deepEqual(toolMeta.matchTools('辈分'), ['kinship']);
+assert.deepEqual(toolMeta.matchTools('称谓'), ['kinship']);
+assert.deepEqual(toolMeta.matchTools('kinship'), ['kinship']);
+assert.deepEqual(toolMeta.matchTools('relative'), ['kinship']);
+assert.deepEqual(toolMeta.matchTools('亲戚称呼'), ['kinship']);
+// 「计算」的命中集合不受亲戚称呼影响（关键词刻意不含「计算」）
+assert.deepEqual(toolMeta.matchTools('计算'), ['tax', 'dates', 'loan', 'health', 'science']);
 assert.deepEqual(toolMeta.matchTools('介绍一个不存在的工具'), []);
 // 关键词不能反过来污染标题匹配：`barcode` 只应命中条形码（不是健康/贷款）
 assert.deepEqual(toolMeta.matchTools('barcode'), ['barcode']);
@@ -1244,10 +1338,10 @@ for (const length of [1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 1000]) {
 }
 
 // --- 统一历史：类别文案、筛选与时间/长度处理 ---
-assert.equal(historyKinds.HISTORY_KINDS.length, 6);
-assert.equal(historyKinds.historyFilters().length, 6);
+assert.equal(historyKinds.HISTORY_KINDS.length, 7);
+assert.equal(historyKinds.historyFilters().length, 7);
 assert.equal(historyKinds.historyFilters()[0].id, 'all');
-assert.equal(new Set(historyKinds.HISTORY_KINDS.map((entry) => entry.id)).size, 6);
+assert.equal(new Set(historyKinds.HISTORY_KINDS.map((entry) => entry.id)).size, 7);
 for (const entry of historyKinds.HISTORY_KINDS) {
   assert.ok(entry.zh.length > 0 && entry.en.length > 0, `incomplete history kind ${entry.id}`);
 }
@@ -1256,6 +1350,8 @@ assert.equal(historyKinds.historyKindLabel('scanned', true), 'Scanned code');
 assert.equal(historyKinds.historyKindLabel('text', false), '文本结果');
 assert.equal(historyKinds.historyKindLabel('units', true), 'Conversion');
 assert.equal(historyKinds.historyKindLabel('timestamp', false), '时间戳');
+assert.equal(historyKinds.historyKindLabel('calculator', false), '计算结果');
+assert.equal(historyKinds.historyKindLabel('calculator', true), 'Calculation');
 assert.equal(historyKinds.historyKindLabel('all', false), '记录');
 assert.equal(historyKinds.historyKindLabel('nope', true), 'Record');
 assert.equal(historyKinds.historyItemVisible('text', 'all'), true);
@@ -1295,6 +1391,8 @@ assert.equal(historyKinds.historyTargetRoute('scanned'), 'qr');
 assert.equal(historyKinds.historyTargetRoute('text'), 'text');
 assert.equal(historyKinds.historyTargetRoute('timestamp'), 'timestamp');
 assert.equal(historyKinds.historyTargetRoute('units'), '');
+// 计算结果与换算结果一样是整句文案，没有唯一可回填的字段 → 不回填
+assert.equal(historyKinds.historyTargetRoute('calculator'), '');
 assert.equal(historyKinds.historyTargetRoute('nope'), '');
 
 // 回填内容：截断过的条目不回填；时间戳取「最后一个 · 之后」的部分（那是实际复制、可再次解析的值）
@@ -1931,5 +2029,252 @@ assert.equal(language.englishFromPreference('system', 'en-US'), true);
 assert.equal(language.englishFromPreference('system', 'zh-Hans-CN'), false);
 assert.equal(language.englishFromPreference('system', ''), false);
 assert.equal(language.englishFromPreference('nope', 'en-US'), true);
+
+// --- 桌面「常用工具」服务卡片：尺寸映射、收藏优先、默认集合与登记表同源 ---
+assert.equal(widgetCards.QUICK_TOOLS_FORM_NAME, 'quick_tools');
+assert.equal(widgetCards.quickToolSlotCount(2), 4);
+assert.equal(widgetCards.quickToolSlotCount(3), 8);
+assert.equal(widgetCards.quickToolSlotCount(4), 16);
+assert.equal(widgetCards.quickToolSlotCount(0), 4);
+assert.equal(widgetCards.quickToolSlotCount(99), 4);
+assert.equal(widgetCards.quickToolColumnCount(2), 2);
+assert.equal(widgetCards.quickToolColumnCount(3), 4);
+assert.equal(widgetCards.quickToolColumnCount(4), 4);
+assert.equal(widgetCards.quickToolColumnCount(99), 2);
+assert.equal(widgetCards.normalizeDimensionId(3), 3);
+assert.equal(widgetCards.normalizeDimensionId('4'), 4);
+assert.equal(widgetCards.normalizeDimensionId(undefined), 2);
+assert.equal(widgetCards.normalizeDimensionId('nope'), 2);
+// 默认集合必须都在 TOOL_IDS 里，防止工具改名后这里静默失效
+assert.equal(widgetCards.DEFAULT_QUICK_TOOL_IDS.length, 4);
+for (const id of widgetCards.DEFAULT_QUICK_TOOL_IDS) {
+  assert.ok(toolMeta.TOOL_IDS.includes(id), `unknown default quick tool: ${id}`);
+}
+// 无收藏 → 默认四个；收藏优先且保持收藏顺序
+assert.deepEqual(widgetCards.quickToolIds([], 4), widgetCards.DEFAULT_QUICK_TOOL_IDS);
+assert.deepEqual(widgetCards.quickToolIds(['health'], 4), ['health', 'qr', 'units', 'timers']);
+assert.deepEqual(widgetCards.quickToolIds(['health', 'health', 'nope'], 2), ['health', 'qr']);
+assert.deepEqual(widgetCards.quickToolIds(['compass', 'loan', 'color', 'health', 'science'], 3),
+  ['compass', 'loan', 'color']);
+// 默认四个不够填格子 → 按 TOOL_IDS 顺序补齐，不重复
+const filledQuickTools = widgetCards.quickToolIds([], 16);
+assert.equal(filledQuickTools.length, 16);
+assert.equal(new Set(filledQuickTools).size, 16);
+assert.equal(filledQuickTools[0], 'qr');
+assert.equal(filledQuickTools[4], 'barcode');
+// 上限是工具总数；slots 非法返回空
+assert.equal(widgetCards.quickToolIds([], 999).length, toolMeta.TOOL_IDS.length);
+assert.deepEqual(widgetCards.quickToolIds([], 0), []);
+assert.deepEqual(widgetCards.quickToolIds([], -3), []);
+assert.deepEqual(widgetCards.quickToolIds([], NaN), []);
+// payload：尺寸 → 列数、JSON 文本、语言切换
+const payloadZh = widgetCards.buildQuickToolsPayload([], 2, false);
+assert.equal(payloadZh.columns, 2);
+assert.equal(payloadZh.title, '常用工具');
+const tilesZh = JSON.parse(payloadZh.tools);
+assert.equal(tilesZh.length, 4);
+assert.equal(tilesZh[0].id, 'qr');
+assert.equal(tilesZh[0].label, '二维码');
+const payloadEn = widgetCards.buildQuickToolsPayload(['health'], 3, true);
+assert.equal(payloadEn.columns, 4);
+assert.equal(payloadEn.title, 'Quick tools');
+const tilesEn = JSON.parse(payloadEn.tools);
+assert.equal(tilesEn.length, 8);
+assert.equal(tilesEn[0].id, 'health');
+assert.equal(tilesEn[0].label, 'Health calculator');
+
+// --- 亲戚称呼：解析 / 归一化 / 称谓登记表 / 文案 ---
+assert.equal(kinship.KIN_GENDERS.length, 2);
+assert.equal(kinship.kinGenderIndex('female'), 1);
+assert.equal(kinship.kinGenderIndex('nope'), -1);
+assert.equal(kinship.kinGenderLabel('female', true), 'Female');
+assert.equal(kinship.kinGenderLabel('female', false), '女');
+assert.equal(kinship.kinGenderLabel('nope', true), 'Male');
+assert.equal(kinship.KIN_MAX_STEPS, 16);
+
+// 解析：别名、可省「的」、中英混排、全角空格与智能引号
+assert.deepEqual(kinship.parseKinChain('爸爸的哥哥').steps, ['father', 'olderBrother']);
+assert.equal(kinship.parseKinChain('爸爸的哥哥').error, '');
+assert.deepEqual(kinship.parseKinChain('妈妈妹妹').steps, ['mother', 'youngerSister']);
+assert.deepEqual(kinship.parseKinChain('父亲的老婆').steps, ['father', 'wife']);
+assert.deepEqual(kinship.parseKinChain("father's older brother").steps, ['father', 'olderBrother']);
+assert.deepEqual(kinship.parseKinChain('mother’s son').steps, ['mother', 'son']);
+assert.deepEqual(kinship.parseKinChain(' 爸爸  的\u3000哥哥 ').steps, ['father', 'olderBrother']);
+assert.deepEqual(kinship.parseKinChain('爸爸,哥哥').steps, ['father', 'olderBrother']);
+assert.deepEqual(kinship.parseKinChain('爸爸 → 哥哥').steps, ['father', 'olderBrother']);
+assert.equal(kinship.parseKinChain('').error, 'empty');
+assert.equal(kinship.parseKinChain('   ').error, 'empty');
+assert.equal(kinship.parseKinChain('爸爸的狗').error, 'unknown');
+assert.ok(kinship.parseKinChain('爸爸的狗').token.length > 0, 'unknown token must be reported');
+assert.equal(kinship.parseKinChain(Array(17).fill('爸爸').join('的')).error, 'limit');
+// 每个步骤的中英标题都必须能被自己的别名表还原（防别名冲突被最长匹配吃掉）
+for (const step of kinship.KIN_STEPS) {
+  assert.deepEqual(kinship.parseKinChain(step.zh).steps, [step.id], `label ${step.zh} must parse back`);
+  assert.deepEqual(kinship.parseKinChain(step.en).steps, [step.id], `label ${step.en} must parse back`);
+}
+
+// 归一化：只消解能唯一确定的关系，不猜长幼
+assert.deepEqual(kinship.normalizeKinPath(['father', 'wife'], 'male'), ['mother']);
+assert.deepEqual(kinship.normalizeKinPath(['mother', 'husband'], 'male'), ['father']);
+assert.deepEqual(kinship.normalizeKinPath(['husband', 'wife'], 'female'), []);
+assert.deepEqual(kinship.normalizeKinPath(['wife', 'husband'], 'male'), []);
+assert.deepEqual(kinship.normalizeKinPath(['son', 'mother'], 'male'), ['wife']);
+assert.deepEqual(kinship.normalizeKinPath(['son', 'mother'], 'female'), []);
+assert.deepEqual(kinship.normalizeKinPath(['daughter', 'father'], 'male'), []);
+assert.deepEqual(kinship.normalizeKinPath(['daughter', 'father'], 'female'), ['husband']);
+assert.deepEqual(kinship.normalizeKinPath(['olderBrother', 'olderBrother'], 'male'), ['olderBrother']);
+assert.deepEqual(kinship.normalizeKinPath(['youngerSister', 'youngerSister'], 'female'), ['youngerSister']);
+// 相邻两步的消解会在链条中间生效：爸爸的儿子的妈妈 = 妈妈
+assert.deepEqual(kinship.normalizeKinPath(['father', 'son', 'mother'], 'male'), ['mother']);
+// 长幼有歧义的关系不动：爸爸的儿子保持原样，交给登记表给并列称谓
+assert.deepEqual(kinship.normalizeKinPath(['father', 'son'], 'male'), ['father', 'son']);
+
+// 称谓登记表：常见关系逐条核对（表驱动）
+const kinCases = [
+  ['爸爸', 'male', '爸爸'],
+  ['爸爸的哥哥', 'male', '伯父'],
+  ['爸爸的弟弟', 'male', '叔叔'],
+  ['爸爸的姐姐', 'male', '姑妈'],
+  ['爸爸的妹妹', 'male', '姑姑'],
+  ['妈妈的哥哥', 'male', '舅舅'],
+  ['妈妈的弟弟', 'male', '舅舅'],
+  ['妈妈的姐姐', 'male', '姨妈'],
+  ['妈妈的妹妹', 'male', '小姨'],
+  ['爸爸的哥哥的老婆', 'male', '伯母'],
+  ['爸爸的弟弟的老婆', 'male', '婶婶'],
+  ['爸爸的姐姐的老公', 'male', '姑父'],
+  ['妈妈的哥哥的老婆', 'male', '舅妈'],
+  ['妈妈的姐姐的老公', 'male', '姨父'],
+  ['爸爸的爸爸', 'male', '爷爷'],
+  ['爸爸的妈妈', 'male', '奶奶'],
+  ['妈妈的爸爸', 'male', '外公'],
+  ['妈妈的妈妈', 'male', '外婆'],
+  ['爸爸的爸爸的爸爸', 'male', '曾祖父'],
+  ['妈妈的爸爸的爸爸', 'male', '外曾祖父'],
+  ['爸爸的爸爸的哥哥', 'male', '伯祖父'],
+  ['爸爸的爸爸的弟弟', 'male', '叔祖父'],
+  ['爸爸的爸爸的姐姐', 'male', '姑奶奶'],
+  ['妈妈的爸爸的哥哥', 'male', '舅公'],
+  ['妈妈的妈妈的姐姐', 'male', '姨婆'],
+  ['爸爸的哥哥的儿子', 'male', '堂兄弟'],
+  ['爸爸的哥哥的女儿', 'male', '堂姐妹'],
+  ['爸爸的姐姐的儿子', 'male', '表兄弟'],
+  ['妈妈的哥哥的女儿', 'male', '表姐妹'],
+  ['妈妈的妹妹的儿子', 'male', '表兄弟'],
+  ['哥哥的儿子', 'male', '侄子'],
+  ['弟弟的女儿', 'male', '侄女'],
+  ['姐姐的儿子', 'male', '外甥'],
+  ['妹妹的女儿', 'male', '外甥女'],
+  ['哥哥的老婆', 'male', '嫂子'],
+  ['弟弟的老婆', 'male', '弟媳'],
+  ['姐姐的老公', 'male', '姐夫'],
+  ['妹妹的老公', 'male', '妹夫'],
+  ['儿子的儿子', 'male', '孙子'],
+  ['儿子的女儿', 'male', '孙女'],
+  ['女儿的儿子', 'male', '外孙'],
+  ['女儿的女儿', 'male', '外孙女'],
+  ['儿子的儿子的儿子', 'male', '曾孙'],
+  ['老婆的爸爸', 'male', '岳父'],
+  ['老婆的妈妈', 'male', '岳母'],
+  ['老公的爸爸', 'female', '公公'],
+  ['老公的妈妈', 'female', '婆婆'],
+  ['老婆的哥哥', 'male', '大舅子'],
+  ['老婆的弟弟', 'male', '小舅子'],
+  ['老婆的姐姐', 'male', '大姨子'],
+  ['老婆的妹妹', 'male', '小姨子'],
+  ['老公的哥哥', 'female', '大伯子'],
+  ['老公的弟弟', 'female', '小叔子'],
+  ['老公的姐姐', 'female', '大姑子'],
+  ['老公的妹妹', 'female', '小姑子'],
+  ['儿子的老婆', 'male', '儿媳'],
+  ['女儿的老公', 'male', '女婿'],
+  ['爸爸的儿子', 'male', '兄弟'],
+  ['妈妈的女儿', 'female', '姐妹']
+];
+for (const [input, gender, zh] of kinCases) {
+  const outcome = kinship.computeKinship(input, gender);
+  assert.equal(outcome.error, '', `unexpected error for ${input}`);
+  assert.equal(outcome.result.named, true, `${input} must hit the term registry`);
+  assert.equal(outcome.result.zh, zh, `wrong term for ${input}`);
+  assert.ok(outcome.result.en.length > 0, `${input} needs an English label`);
+}
+// 归一化后的称谓：爸爸的老婆 = 妈妈；老公的老婆 = 自己；性别只影响子女返身
+assert.equal(kinship.computeKinship('爸爸的老婆', 'male').result.zh, '妈妈');
+assert.equal(kinship.computeKinship('妈妈的老公', 'male').result.zh, '爸爸');
+assert.equal(kinship.computeKinship('老公的老婆', 'female').result.zh, '自己');
+assert.equal(kinship.computeKinship('儿子的妈妈', 'male').result.zh, '老婆');
+assert.equal(kinship.computeKinship('儿子的妈妈', 'female').result.zh, '自己');
+assert.equal(kinship.computeKinship('女儿的父亲', 'male').result.zh, '自己');
+assert.equal(kinship.computeKinship('女儿的父亲', 'female').result.zh, '老公');
+assert.equal(kinship.computeKinship('儿子的父亲', 'male').result.zh, '自己');
+// 「女儿的老公」不是返身关系，就是女婿（返身规则只认父/母两步）
+assert.equal(kinship.computeKinship('女儿的老公', 'male').result.zh, '女婿');
+// 长幼歧义：并列称谓 + 提示，不猜「哥」或「弟」
+assert.equal(kinship.computeKinship('爸爸的儿子', 'male').result.noteZh.length > 0, true);
+assert.equal(kinship.computeKinship('爸爸的哥哥的儿子', 'male').result.noteEn.length > 0, true);
+assert.equal(kinship.computeKinship('爸爸的儿子', 'male').result.zh, '兄弟');
+
+// 未收录：给关系链描述、named=false（远亲不硬套名词）
+const unknownKin = kinship.computeKinship('老婆的哥哥的老婆', 'male');
+assert.equal(unknownKin.error, '');
+assert.equal(unknownKin.result.named, false);
+assert.ok(unknownKin.result.zh.length > 0 && unknownKin.result.en.length > 0);
+assert.deepEqual(unknownKin.result.path, ['wife', 'olderBrother', 'wife']);
+
+// 关系链 / 辈分 / 性别 / 错误 / 复制文案
+assert.equal(kinship.kinChainText(['father', 'olderBrother'], false), '爸爸 → 哥哥');
+assert.equal(kinship.kinChainPhrase(['father', 'olderBrother'], false), '爸爸的哥哥');
+assert.equal(kinship.kinChainPhrase(['father', 'olderBrother'], true), "father's older brother");
+assert.equal(kinship.kinChainPhrase([], false), '自己');
+assert.equal(kinship.kinGeneration(['father', 'father']), 2);
+assert.equal(kinship.kinGeneration(['olderBrother', 'son']), -1);
+assert.equal(kinship.kinGenerationText(['father', 'olderBrother'], false), '高我一辈');
+assert.equal(kinship.kinGenerationText(['father', 'father'], false), '高我两辈');
+assert.equal(kinship.kinGenerationText(['olderBrother'], false), '同辈');
+assert.equal(kinship.kinGenerationText(['olderBrother', 'son'], false), '低我一辈');
+assert.equal(kinship.kinGenerationText(['son', 'son'], true), 'two generations below me');
+assert.equal(kinship.kinGenerationText(['father'], true), 'one generation above me');
+assert.equal(kinship.kinGenderText(['father', 'olderBrother'], false, 'male'), '男');
+assert.equal(kinship.kinGenderText(['mother', 'olderSister'], true, 'male'), 'Female');
+assert.equal(kinship.kinGenderText([], false, 'female'), '女');
+assert.ok(kinship.kinshipErrorText('empty', '', false).length > 0);
+assert.ok(kinship.kinshipErrorText('empty', '', true).length > 0);
+assert.ok(kinship.kinshipErrorText('limit', '', false).length > 0);
+assert.ok(kinship.kinshipErrorText('unknown', '狗', true).includes('狗'));
+const kinCopy = kinship.computeKinship('爸爸的哥哥', 'male');
+assert.ok(kinship.kinCopyText(kinCopy, false).includes('伯父'));
+assert.ok(kinship.kinCopyText(kinCopy, false).includes('爸爸的哥哥'));
+assert.ok(kinship.kinCopyText(kinCopy, true).includes("father's older brother"));
+assert.equal(kinship.kinCopyText(kinship.computeKinship('', 'male'), false), '');
+assert.equal(kinship.kinCopyText(kinship.computeKinship('爸爸的狗', 'male'), false), '');
+
+// 拼接与退格（快捷按钮的纯逻辑）
+assert.equal(kinship.appendKinStep('', '爸爸'), '爸爸');
+assert.equal(kinship.appendKinStep('爸爸', '哥哥'), '爸爸的哥哥');
+assert.equal(kinship.appendKinStep('爸爸的', '哥哥'), '爸爸的哥哥');
+assert.equal(kinship.appendKinStep('father', 'older brother'), "father's older brother");
+assert.equal(kinship.removeLastKinStep('爸爸的哥哥'), '爸爸');
+assert.equal(kinship.removeLastKinStep('爸爸'), '');
+assert.equal(kinship.removeLastKinStep("father's older brother"), 'father');
+assert.equal(kinship.removeLastKinStep(''), '');
+// 往返：拼两次再退两次回到空串
+const built = kinship.appendKinStep(kinship.appendKinStep('', '爸爸'), '哥哥');
+assert.equal(kinship.removeLastKinStep(kinship.removeLastKinStep(built)), '');
+
+// 登记表完整性：id 唯一、路径只由已知步骤组成、无重复路径、文案非空
+const kinStepIds = new Set(kinship.KIN_STEPS.map((step) => step.id));
+assert.equal(kinStepIds.size, kinship.KIN_STEPS.length);
+assert.ok(kinship.KIN_QUICK_STEPS.length >= 10);
+const kinTermPaths = new Set();
+for (const entry of kinship.KIN_TERMS) {
+  assert.ok(entry.zh.length > 0 && entry.en.length > 0, `empty term text ${entry.id}`);
+  assert.equal(entry.id, entry.path.join('>'));
+  assert.ok(!kinTermPaths.has(entry.id), `duplicate term path ${entry.id}`);
+  kinTermPaths.add(entry.id);
+  for (const id of entry.path) {
+    assert.ok(kinStepIds.has(id), `unknown step ${id} in term ${entry.id}`);
+  }
+}
+assert.equal(kinTermPaths.size, kinship.KIN_TERMS.length);
 
 console.log('All toolbox model assertions passed');

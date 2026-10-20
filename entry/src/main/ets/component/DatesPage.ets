@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -373,12 +374,11 @@ export struct DatesPage {
           Text(this.shiftedDate()).fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')
         }
         Row() {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.primary)
-            .enabled(this.shiftPossible())
-            .accessibilityText(this.tr('复制计算后的日期', 'Copy calculated date'))
-            .onClick(() => this.onCopy(this.shiftedDate()))
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary, usable: this.shiftPossible(),
+            a11yText: this.tr('复制计算后的日期', 'Copy calculated date'),
+            onTap: () => this.onCopy(this.shiftedDate())
+          })
         }.width('100%').justifyContent(this.actionAlign)
       } else if (this.dateMode === 'age') {
         this.dateField('出生日期', 'Birthday', 'first')

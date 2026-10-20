@@ -58,6 +58,7 @@ function toolSpecs(): Map<string, ToolSpec> {
   specs.set('documents', new ToolSpec($r('sys.symbol.doc_text'), ToolPalette.tintBlue));
   specs.set('level', new ToolSpec($r('sys.symbol.ruler'), ToolPalette.tintGreen));
   specs.set('compass', new ToolSpec($r('sys.symbol.compass'), ToolPalette.tintSky));
+  specs.set('kinship', new ToolSpec($r('sys.symbol.family'), ToolPalette.tintAmber));
   return specs;
 }
 

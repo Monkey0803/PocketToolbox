@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -173,17 +174,15 @@ export struct HealthPage {
           .fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制结果摘要', 'Copy the summary'))
-            .onClick(() => this.copySummary())
-          Button() {
-            SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.danger)
-            .accessibilityText(this.tr('清空输入', 'Clear inputs')).onClick(() => {
-              this.heightCm = ''; this.weightKg = ''; this.ageYears = '';
-            })
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制结果摘要', 'Copy the summary'), onTap: () => this.copySummary()
+          })
+          IconActionButton({
+            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+            a11yText: this.tr('清空输入', 'Clear inputs'),
+            onTap: () => { this.heightCm = ''; this.weightKg = ''; this.ageYears = ''; }
+          })
         }.width('100%')
       }
     }.padding(16).width('100%')
@@ -236,11 +235,10 @@ export struct HealthPage {
         }
       })
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph($r('sys.symbol.heart')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.primary)
-          .accessibilityText(this.tr('检查输入', 'Validate inputs'))
-          .onClick(() => this.validateInputs())
+        IconActionButton({
+          icon: $r('sys.symbol.heart'), tintColor: ToolPalette.primary,
+          a11yText: this.tr('检查输入', 'Validate inputs'), onTap: () => this.validateInputs()
+        })
       }.width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,

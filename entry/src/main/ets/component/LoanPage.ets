@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -156,11 +157,10 @@ export struct LoanPage {
         Text(this.tr('共 ' + this.result.months + ' 期', this.result.months + ' months'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         Row({ space: 8 }) {
-          Button() {
-            SymbolGlyph($r('sys.symbol.text_clipboard')).fontSize(24).fontColor([Color.White])
-          }.width(48).height(48).backgroundColor(ToolPalette.neutralDark)
-            .accessibilityText(this.tr('复制结果摘要', 'Copy the summary'))
-            .onClick(() => this.onCopy(this.summary()))
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            a11yText: this.tr('复制结果摘要', 'Copy the summary'), onTap: () => this.onCopy(this.summary())
+          })
         }.width('100%')
       } else {
         Text(this.tr('填入本金、年利率与期限后点「计算」。',
@@ -193,17 +193,18 @@ export struct LoanPage {
         }
       })
       Row({ space: 8 }) {
-        Button() {
-          SymbolGlyph($r('sys.symbol.percent_coupon')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.primary)
-          .accessibilityText(this.tr('计算', 'Calculate')).onClick(() => this.compute())
-        Button() {
-          SymbolGlyph($r('sys.symbol.trash')).fontSize(24).fontColor([Color.White])
-        }.width(48).height(48).backgroundColor(ToolPalette.danger)
-          .accessibilityText(this.tr('清空输入', 'Clear inputs')).onClick(() => {
+        IconActionButton({
+          icon: $r('sys.symbol.percent_coupon'), tintColor: ToolPalette.primary,
+          a11yText: this.tr('计算', 'Calculate'), onTap: () => this.compute()
+        })
+        IconActionButton({
+          icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+          a11yText: this.tr('清空输入', 'Clear inputs'),
+          onTap: () => {
             this.principal = ''; this.annualRate = ''; this.years = ''; this.extraMonths = '';
             this.result = undefined;
-          })
+          }
+        })
       }.width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,

@@ -7,7 +7,7 @@
 - **竞品信息未经联网核实**：整理本文档的会话里 `web_search` 不可用（无 API Key）。第 1 节的竞品能力来自公开认知，一律标注「待核实」；发布相关结论前请按下文「核对方式」在应用商店详情页逐项勾选。
 - **本应用事实来源**：`entry/src/main/ets/model/ToolCatalog.ets` 与 `model/ToolMeta.ets` 的工具登记表、各 `model/*.ets` 的实现范围、`docs/RELEASE_CHECKLIST.md` 与 `docs/DEVICE_ACCEPTANCE.md` 的验收记录。
 - **产品前提（不可动摇）**：全部功能离线可用、**不申请网络权限**、不收集上传数据；中英双语；手机 / 平板 / 折叠屏；沉浸光感与智感握姿按系统能力自适应。任何「需要联网才有意义」的能力（实时汇率、天气、网络测速、云同步、账号体系）默认**不做**，除非同时修改隐私政策、商店文案与发布检查表。
-- **工具数口径**：当前 14 个工具卡片（`TOOL_CATALOG`）。新增工具卡片必须同步 `README.md`、`docs/STORE_LISTING.md`、`docs/RELEASE_CHECKLIST.md` 里的「14」与权限说明。
+- **工具数口径**：当前 **20 个工具卡片**（`TOOL_CATALOG`，第 20 个是 2026-10-20 新增的「亲戚称呼」）。新增工具卡片必须同步 `README.md`、`docs/STORE_LISTING.md`、`docs/RELEASE_CHECKLIST.md` 的工具数口径与权限说明。
 
 ### 核对方式（人工，半小时内可完成）
 
@@ -47,7 +47,7 @@
 | 密码工具 | 字符集随机 + 长度 | 口令短语、强度评估、PIN | 深挖 | 二期 |
 | 日期间隔 | 只到「天」，无时间点差值 | 时间点差值、自定义时区 | 深挖 | 二期 |
 | 个税 | 五类预扣估算 | 年终奖、年度汇算、社保预设 | 深挖 | 二期 |
-| 系统入口 | 无 | 服务卡片、快捷方式、分享接收 | 新增 | 三期；快捷方式**配置与接线已就位但端到端未复现**（需先核对官方 want 键名），服务卡片需新 ability |
+| 系统入口 | 长按快捷方式 4 项 + **桌面服务卡片「常用工具」**（2×2 / 2×4 / 4×4，收藏优先、点格直达工具） | 服务卡片、快捷方式、分享接收 | 新增 | **三期进行中**；服务卡片与快捷方式已落地（服务卡片真机「添加至桌面/点格」待验收），分享接收与系统搜索未做 |
 | 文档扫描取字 | 仅 JPG/PDF | OCR 提取文字 | 深挖 | 三期；**API 26 SDK 无 Core Vision Kit / textRecognition 声明，暂不可行**（2026-10-19 核查） |
 | 权威离线数据 | 节假日随包 | 世界时钟/时区、节气黄历 | 深挖 | **时区换算已完成**（18 个常用时区，偏移含夏令时）；节气黄历未做 |
 | 新工具（贷款/复利、科学计算器、BMI、设备信息、指南针、颜色工具…） | 无 | 同类均有一批 | 新增 | **贷款、颜色、健康、科学计算器已完成（14→18）；设备信息已进设置页；指南针纯逻辑已完成、页面未做** |
@@ -146,6 +146,7 @@
 
 ## 10. 变更记录
 
+- 2026-10-20（桌面服务卡片）：新增「常用工具」服务卡片（ArkTS 卡片）——`module.json5` 新增 `type: "form"` 的 `extensionAbilities` + `resources/base/profile/form_config.json` 登记 `quick_tools`（2×2 / 2×4 / 4×4，默认 2×2，`updateDuration` 30 分钟）；显示规则在纯逻辑 `model/WidgetCards.ets`（收藏优先 → 默认四个 → `TOOL_IDS` 补齐、去重、尺寸→格子数/列数），数据装配在 `services/WidgetData.ets`（`onAddForm` 同步返回，故 `LocalData` 新增 `openSync`/`getStringSync`/`getFavoritesSync`），卡片页 `ets/widget/pages/QuickToolsCard.ets` 只用卡片白名单组件（`Column/Row/Text`）做成文字色块，点击经 `postCardAction(router, params:{tool})` 复用既有 `StartupIntent` 直达工具页；应用内改收藏/切语言后调 `formProvider.getPublishedRunningFormInfos()` + `updateForm` 主动刷新（取不到 formId，失败静默）。**不新增权限、不联网、工具数不变（19）**。单测新增 30+ 条、`assembleHap` 通过；模拟器复验卡片中心入口与 2×2 预览渲染（截图 `docs/screenshots/emulator/widget-quick-tools-picker-zh.jpeg`），「添加至桌面 + 点格子」与主动刷新 API 需真机确认（模拟器点击浮层不生效、`getPublishedFormInfos` 返回 16500100）。同步 `README.md`、`AGENTS.md`、`docs/STORE_LISTING.md`、`docs/PRIVACY.md`、`docs/RELEASE_CHECKLIST.md`、`docs/DEVICE_ACCEPTANCE.md`（第 22 节）。
 - 2026-10-19（指南针纯逻辑）：新增 `model/CompassMath.ets`（方位归一化、十六方位中英命名、**最短弧**平滑、最短夹角、不可用文案；359.96° 显示 `0.0°`）。50+ 条单测。**传感器订阅页与真机验收未做**（模拟器无磁力计）。同步 `docs/RELEASE_CHECKLIST.md`、`docs/COMPETITIVE_ANALYSIS.md`。
 - 2026-10-19（快捷方式接线）：新增 `resources/base/profile/shortcuts_config.json`（4 个快捷方式）+ `module.json5` 的 `ohos.ability.shortcuts` 元数据 + 中英 `$string:shortcut_*` 标签 + `EntryAbility.onCreate` 读 want（三个候选键名兜底）+ `Index.aboutToAppear` 一次性消费并直达。`assembleHap` 通过、单测全绿；**但模拟器用 `aa start --ps ohos.extra.param.key.shortcutId science` 未复现直达（停在工具页）**，故该功能标记为「未验收通过」，待核对官方 want 键名与真机启动器验证。同步 `docs/RELEASE_CHECKLIST.md`、`docs/DEVICE_ACCEPTANCE.md`（第 20 节）、`AGENTS.md`。
 - 2026-10-19（系统入口与 OCR 核查）：新增纯逻辑 `model/StartupIntent.ets`（系统入口带上来的目标工具，`TOOL_IDS` 白名单 + 一次性消费，10+ 条单测）；**核查结论**：API 26 SDK 中检索不到 Core Vision Kit / `textRecognition` 声明，故文档扫描 OCR 暂不可行；快捷方式所需的 want 参数键名也未在 SDK 声明里找到，接线前需核对华为文档。同步 `docs/RELEASE_CHECKLIST.md`、`AGENTS.md`、`docs/COMPETITIVE_ANALYSIS.md`。
