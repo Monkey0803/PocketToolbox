@@ -1968,7 +1968,7 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 
 | 条目 | 结果 | 证据 / 现象 |
 |---|---|---|
-| 常用键不截断 | 通过 | 修复前每格按整行均分只有约 44 vp，`sqrt(`/`ln(`/`mod` 被系统显示成「…」；改为 `Flex` + `FlexWrap.Wrap` 按内容宽度排布（登记表 `ScientificCalc.QUICK_KEYS`）后标签完整：折叠态 345 vp 换行为 5 + 1（`pi e sqrt( ln( ^` / `mod`），展开态 707 vp 一行 6 个（[science-quickkeys-folded-after-fix.jpeg](screenshots/emulator/science-quickkeys-folded-after-fix.jpeg)） |
+| 常用键不截断（2026-10-20，**该版键区已被 2026-10-21 的 `PAD_KEYS` 真键盘取代，仅作历史记录**） | 通过 | 修复前每格按整行均分只有约 44 vp，`sqrt(`/`ln(`/`mod` 被系统显示成「…」；改为 `Flex` + `FlexWrap.Wrap` 按内容宽度排布（当时的登记表 `ScientificCalc.QUICK_KEYS`）后标签完整：折叠态 345 vp 换行为 5 + 1（`pi e sqrt( ln( ^` / `mod`），展开态 707 vp 一行 6 个（[science-quickkeys-folded-after-fix.jpeg](screenshots/emulator/science-quickkeys-folded-after-fix.jpeg)） |
 | 插入与求值 | 通过 | 折叠态点 `pi` → 输入框变 `pi`、结果区从「等待输入」变为 **3.141592654** |
 
 ### 语法扩展与结果回填（2026-10-20，Mate X7 模拟器实测）
@@ -1989,11 +1989,13 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 折叠态首屏一屏放得下（2026-10-21） | 通过 | 语法说明默认收起成一行摘要 + 「完整语法说明」整行入口后，折叠态（1080×2444 @480）实测：摘要 y 359–455、入口 499–554、输入框、角度/精度两行、常用键 1236–1881、**结果卡 1974–2173**、页脚 2266–2314 —— 结果卡无需滚动即可见（改动前那 6–8 行说明把键区与结果卡整体推到首屏之外，用户截图即为此项）。截图 [science-folded-collapsed-zh.jpeg](screenshots/emulator/science-folded-collapsed-zh.jpeg) |
 | 语法说明可展开/收起 | 通过 | 点「完整语法说明」→ 标题变「收起语法说明」、完整说明就地展开（折叠态 4 行，y 693–981），chevron 由 `chevron_down` 换 `chevron_up`；再点收起、恢复一行摘要。截图 [science-folded-expanded-zh.jpeg](screenshots/emulator/science-folded-expanded-zh.jpeg) |
 | 常用键高度 44 vp | 通过 | 键高由 40 vp 提到 44 vp：折叠态 `dumpLayout` 键高 125 px → **138 px**（@480 约 46 vp 边界，含描边），与「可点击区域至少 44 vp」的口径一致 |
-| Ans / 退格 / 内存行渲染（2026-10-21） | 通过 | 折叠态 `dumpLayout`：运算符行第二行为 `mod` `Ans`（+ 紧随其后的退格图标键，y 1399–1537 = 138 px）；函数行下方是内存行 `M+` `M−` `MR` `MC`（y 1924–2062）；展开态 `mod`/`Ans` 与运算符 5 项同处一行（y 1188–1326）、内存行一行 4 个（y 1551–1689）。截图 [science-new-keys-folded-zh.jpeg](screenshots/emulator/science-new-keys-folded-zh.jpeg)、[science-new-keys-wide-zh.jpeg](screenshots/emulator/science-new-keys-wide-zh.jpeg) |
-| Ans 插入上次结果 | 通过 | 点 `pi` → 结果 `3.141592654`；点 `Ans` → 输入框变成 `pi*3.141592654`（**补了乘号**，不会粘成 `pi3.141592654`）；点结果卡「清空」后再点 `Ans` → 输入框直接变 `97.40909104`（清空表达式后上次结果仍可用，且空表达式时不补乘号） |
-| 退格整词优先 | 通过 | `pi*3.141592654*9.86960440` 点一次退格 → `pi*3.141592654*9.86960440` 少一个字符；点 `sqrt(` 后再点退格 → 整个 `sqrt(` 一次删掉；输入框只剩 `^` 时退格 → 回到空态（「等待输入」+ 引导句） |
-| 内存四项 | 通过 | 点 `M+` → 内存行出现「内存 3.141592654」（y 2105–2153，截图 [science-memory-folded-zh.jpeg](screenshots/emulator/science-memory-folded-zh.jpeg)）；点 `MR` → 输入框 `pi*3.141592654`、结果 `9.869604402`；点 `MC` → 内存行消失；内存为空时点 `MR` → toast「内存是空的」且输入框不变（不静默、也不存 0） |
-| 结果卡空态引导 | 通过 | 表达式为空时结果卡显示「等待输入」+「试试 2^10、sin(30) 或 ncr(5,2)」（冷启动与点「清空」后都验证过），与输入占位符不是同一句 |
+| 真计算器键盘（2026-10-21 重做） | 通过 | `dumpLayout` 折叠态：**显示区在键盘上方**（表达式卡 + 大字结果 y 609–805），6 行 × 5 列等宽键盘 y 937–1936 全在首屏内，`sin cos tan ln log` / `( ) ^ ! mod` / `7 8 9 ÷ ⌫` / `4 5 6 × C` / `1 2 3 − π` / `0 . Ans + =` 逐格可读；设置与「更多函数与内存」入口在键盘**之后**（y 2066 / 2253）。截图 [science-keypad-folded-zh.jpeg](screenshots/emulator/science-keypad-folded-zh.jpeg)、[science-keypad-wide-zh.jpeg](screenshots/emulator/science-keypad-wide-zh.jpeg) |
+| 数字键与 `=` | 通过 | 折叠态依次点 `1` `+` `2` `×` `3` `=` → 显示区变成 `7`（表达式被结果替换，即 `1+2*3`）；点 `C` → 回到「等待输入」+ 引导句；点 `π` `÷` `2` `=` → `1.570796327`（`÷` 键插的是解析器认的 `/`） |
+| 更多函数与内存面板 | 通过 | 点「更多函数与内存」→ 展开 25 个函数键（5 列，`sqrt(` `cbrt(` … `npr(`）与内存行 `M+` `M−` `MR` `MC`；点 `sqrt(` `9` `)` `=` → 结果随当前表达式求值正确（实测 `1.57079632*sqrt(9)` = `4.71238896`）；点 `M+` → 面板下出现「内存 4.71238896」。截图 [science-keypad-more-folded-zh.jpeg](screenshots/emulator/science-keypad-more-folded-zh.jpeg) |
+| Ans 插入上次结果 | 通过 | 点 `pi` → 结果 `3.141592654`；点 `Ans` → 输入框变成 `pi*3.141592654`（**补了乘号**，不会粘成 `pi3.141592654`）；结果卡「清空」后再点 `Ans` → 输入框直接变 `97.40909104`（清空表达式后上次结果仍可用，空表达式时不补乘号） |
+| 退格整词优先 | 通过 | `1.570796327` 点一次 `⌫` → `1.57079632`（退一个字符）；接 `sqrt(` 后再点 `⌫` → 整个 `sqrt(` 一次删掉；只剩 `^` 时 `⌫` → 回到空态 |
+| 内存四项 | 通过 | 点 `M+` → 出现「内存 4.71238896」；点 `MR` → 值作为因子插入；点 `MC` → 内存行消失；内存为空时点 `MR` → toast「内存是空的」且输入框不变（不静默、也不存 0） |
+| 结果卡空态引导 | 通过 | 表达式为空时显示区显示「等待输入」+「试试 2^10、sin(30) 或 ncr(5,2)」（冷启动与点「清空」后都验证过），与输入占位符不是同一句 |
 
 **验收中发现并修掉一个格式化缺陷（2026-10-20）**：把精度切到 6 位时结果曾显示成 `1.2676500000000001e+30` —— `Units.formatValue` 原先一律走 `Number(value.toPrecision(digits)).toString()`，而 **ArkTS 的 `Number#toString` 在大数量级上不保证最短表示**（会把 6 位写成 17 位），「有效位数」选项因此失效。现改为「指数写法下尾数取自 `toPrecision(digits)` 并裁掉尾零、指数部分仍用 `toString()`」，单测新增 `1.2676506e30` 的三档位断言与 `1e±101` 断言；该函数被单位换算与科学计算器共用，两处一并受益。
 

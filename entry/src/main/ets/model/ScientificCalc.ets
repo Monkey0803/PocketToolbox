@@ -115,8 +115,7 @@ export const CONSTANTS: string[] = ['pi', 'e'];
 
 /**
  * 常用键（登记表）：`id` 就是要追加到表达式里的文本，`zh`/`en` 是随语言切换的无障碍名称。
- * 页面用 `Flex` + `FlexWrap.Wrap` 按内容宽度排布（放不下自动换行），不按整行均分，窄屏因此不会截断标签。
- * 运算符/结构一行（`QUICK_KEYS`）、函数一行（`FUNCTION_KEYS`）。
+ * 用于「更多函数」面板（主键盘放不下的那些函数，见 `PAD_KEYS`）。
  */
 export class QuickKey {
   readonly id: string;
@@ -130,25 +129,118 @@ export class QuickKey {
   }
 }
 
-export const QUICK_KEYS: QuickKey[] = [
-  new QuickKey('(', '插入左括号', 'Insert left parenthesis'),
-  new QuickKey(')', '插入右括号', 'Insert right parenthesis'),
-  new QuickKey('^', '插入幂运算符', 'Insert power operator'),
-  new QuickKey('!', '插入阶乘', 'Insert factorial'),
-  new QuickKey('pi', '插入 pi', 'Insert pi'),
-  new QuickKey('e', '插入 e', 'Insert e'),
-  new QuickKey('mod', '插入取模', 'Insert modulo')
+/**
+ * 主键盘的一格（真实计算器键位）。
+ *
+ * `label` 是键面文字（现在与 `insert` 分开：`÷` 键面写除号、插进表达式的是解析器认的 `/`），
+ * `action` 决定按下去做什么：`insert` 追加 `insert`、`backspace` 退格、`clear` 清空、
+ * `equals` 用结果替换表达式、`ans` 插入上次结果；`zh`/`en` 是随语言切换的无障碍名称。
+ */
+export class PadKey {
+  readonly id: string;
+  readonly label: string;
+  readonly insert: string;
+  readonly action: string;
+  readonly zh: string;
+  readonly en: string;
+
+  constructor(id: string, label: string, insert: string, action: string, zh: string, en: string) {
+    this.id = id;
+    this.label = label;
+    this.insert = insert;
+    this.action = action;
+    this.zh = zh;
+    this.en = en;
+  }
+}
+
+function insertKey(id: string, label: string, insert: string, zh: string, en: string): PadKey {
+  return new PadKey(id, label, insert, 'insert', zh, en);
+}
+
+/** 主键盘列数（窄屏 5 列：345 vp 宽时每格约 62 vp，`sin`/`Ans`/`mod` 都放得下）。 */
+export const PAD_COLUMNS: number = 5;
+
+/**
+ * 主键盘 30 格（5 列 × 6 行，行序即键位顺序）。
+ *
+ * 布局照真实科学计算器：上两行是函数与结构键，中间三行是数字 + 四则运算 + `⌫`/`C`，
+ * 末行是 `0` `.` `Ans` `+` `=`。**数字键是从「只能靠系统软键盘输入」补上的能力**——
+ * 有了它，普通算式完全不必拉起软键盘。其余 25 个函数在 `MORE_FUNCTION_KEYS`（「更多函数」入口）。
+ */
+export const PAD_KEYS: PadKey[] = [
+  insertKey('sin', 'sin', 'sin(', '插入正弦', 'Insert sine'),
+  insertKey('cos', 'cos', 'cos(', '插入余弦', 'Insert cosine'),
+  insertKey('tan', 'tan', 'tan(', '插入正切', 'Insert tangent'),
+  insertKey('ln', 'ln', 'ln(', '插入自然对数', 'Insert natural log'),
+  insertKey('log', 'log', 'log(', '插入以 10 为底的对数', 'Insert base-10 logarithm'),
+  insertKey('(', '(', '(', '插入左括号', 'Insert left parenthesis'),
+  insertKey(')', ')', ')', '插入右括号', 'Insert right parenthesis'),
+  insertKey('^', '^', '^', '插入幂运算符', 'Insert power operator'),
+  insertKey('!', '!', '!', '插入阶乘', 'Insert factorial'),
+  insertKey('mod', 'mod', 'mod', '插入取模', 'Insert modulo'),
+  insertKey('7', '7', '7', '输入 7', 'Enter 7'),
+  insertKey('8', '8', '8', '输入 8', 'Enter 8'),
+  insertKey('9', '9', '9', '输入 9', 'Enter 9'),
+  insertKey('div', '÷', '/', '输入除号', 'Divide'),
+  new PadKey('backspace', '', '', 'backspace', '退格', 'Backspace'),
+  insertKey('4', '4', '4', '输入 4', 'Enter 4'),
+  insertKey('5', '5', '5', '输入 5', 'Enter 5'),
+  insertKey('6', '6', '6', '输入 6', 'Enter 6'),
+  insertKey('mul', '×', '*', '输入乘号', 'Multiply'),
+  new PadKey('clear', 'C', '', 'clear', '清空表达式', 'Clear the expression'),
+  insertKey('1', '1', '1', '输入 1', 'Enter 1'),
+  insertKey('2', '2', '2', '输入 2', 'Enter 2'),
+  insertKey('3', '3', '3', '输入 3', 'Enter 3'),
+  insertKey('sub', '−', '-', '输入减号', 'Subtract'),
+  insertKey('pi', 'π', 'pi', '插入 pi', 'Insert pi'),
+  insertKey('0', '0', '0', '输入 0', 'Enter 0'),
+  insertKey('dot', '.', '.', '输入小数点', 'Decimal point'),
+  new PadKey('ans', 'Ans', '', 'ans', '插入上次结果', 'Insert the previous result'),
+  insertKey('add', '+', '+', '输入加号', 'Add'),
+  new PadKey('equals', '=', '', 'equals', '计算结果并用结果替换表达式', 'Evaluate and replace the expression')
 ];
 
-export const FUNCTION_KEYS: QuickKey[] = [
+/** 主键盘行数（6 行 × 5 列 = 30 格）。 */
+export const PAD_ROWS: number = Math.ceil(PAD_KEYS.length / PAD_COLUMNS);
+
+/** 取主键盘的第 `row` 行（0 基）；越界返回空数组，页面据此不渲染多余的行。 */
+export function padRowKeys(row: number): PadKey[] {
+  const start: number = row * PAD_COLUMNS;
+  if (row < 0 || start >= PAD_KEYS.length) { return []; }
+  return PAD_KEYS.slice(start, start + PAD_COLUMNS);
+}
+
+/**
+ * 「更多函数」面板：主键盘放不下的 25 个函数（与 `PAD_KEYS` 里的 5 个函数合起来正好是 `FUNCTION_DEFS` 的 30 项）。
+ * 面板里还有内存键 `MEMORY_KEYS`。
+ */
+export const MORE_FUNCTION_KEYS: QuickKey[] = [
   new QuickKey('sqrt(', '插入平方根', 'Insert square root'),
   new QuickKey('cbrt(', '插入立方根', 'Insert cube root'),
-  new QuickKey('ln(', '插入自然对数', 'Insert natural log'),
-  new QuickKey('log(', '插入对数', 'Insert logarithm'),
-  new QuickKey('sin(', '插入正弦', 'Insert sine'),
-  new QuickKey('cos(', '插入余弦', 'Insert cosine'),
-  new QuickKey('tan(', '插入正切', 'Insert tangent'),
-  new QuickKey('ncr(', '插入组合数', 'Insert combinations')
+  new QuickKey('exp(', '插入 e 的幂', 'Insert e raised to a power'),
+  new QuickKey('log2(', '插入以 2 为底的对数', 'Insert base-2 logarithm'),
+  new QuickKey('abs(', '插入绝对值', 'Insert absolute value'),
+  new QuickKey('asin(', '插入反正弦', 'Insert arcsine'),
+  new QuickKey('acos(', '插入反余弦', 'Insert arccosine'),
+  new QuickKey('atan(', '插入反正切', 'Insert arctangent'),
+  new QuickKey('sinh(', '插入双曲正弦', 'Insert hyperbolic sine'),
+  new QuickKey('cosh(', '插入双曲余弦', 'Insert hyperbolic cosine'),
+  new QuickKey('tanh(', '插入双曲正切', 'Insert hyperbolic tangent'),
+  new QuickKey('asinh(', '插入反双曲正弦', 'Insert inverse hyperbolic sine'),
+  new QuickKey('acosh(', '插入反双曲余弦', 'Insert inverse hyperbolic cosine'),
+  new QuickKey('atanh(', '插入反双曲正切', 'Insert inverse hyperbolic tangent'),
+  new QuickKey('floor(', '插入向下取整', 'Insert floor'),
+  new QuickKey('ceil(', '插入向上取整', 'Insert ceiling'),
+  new QuickKey('round(', '插入四舍五入', 'Insert rounding'),
+  new QuickKey('sign(', '插入符号函数', 'Insert sign'),
+  new QuickKey('hypot(', '插入直角三角形斜边', 'Insert hypotenuse'),
+  new QuickKey('gcd(', '插入最大公约数', 'Insert greatest common divisor'),
+  new QuickKey('lcm(', '插入最小公倍数', 'Insert least common multiple'),
+  new QuickKey('min(', '插入最小值', 'Insert minimum'),
+  new QuickKey('max(', '插入最大值', 'Insert maximum'),
+  new QuickKey('ncr(', '插入组合数', 'Insert combinations'),
+  new QuickKey('npr(', '插入排列数', 'Insert permutations')
 ];
 
 /**
@@ -164,6 +256,18 @@ export function appendQuickKey(expression: string, keyId: string): string {
   const needsLeadingSpace: boolean = expression.length > 0 && !expression.endsWith(' ');
   return expression + (needsLeadingSpace ? ' mod ' : 'mod ');
 }
+
+/**
+ * 按 `=` 的结果：有效时返回结果的文本（页面用它替换表达式），无效/为空返回空串（页面据此提示而不是清空）。
+ * 与结果卡的「用结果替换表达式」同一口径——本计算器是**实时求值**，`=` 只是把结果落成新的表达式起点。
+ */
+export function equalsExpression(expression: string, angle: AngleUnit, significant: number): string {
+  if (expression.trim().length === 0) { return ''; }
+  const computed: CalcResult = evaluate(expression, angle);
+  if (computed.error.length > 0) { return ''; }
+  return formatResult(computed.value, significant);
+}
+
 
 export class CalcResult {
   readonly value: number;
@@ -673,11 +777,11 @@ export function backspaceExpression(expression: string): string {
   while (text.length > 0 && text.charAt(text.length - 1) === ' ') { text = text.substring(0, text.length - 1); }
   if (text.length === 0) { return ''; }
   const tokens: string[] = [];
-  for (const key of FUNCTION_KEYS) {
+  for (const key of MORE_FUNCTION_KEYS) {
     if (key.id.length > 1) { tokens.push(key.id); }
   }
-  for (const key of QUICK_KEYS) {
-    if (key.id.length > 1) { tokens.push(key.id); }
+  for (const key of PAD_KEYS) {
+    if (key.action === 'insert' && key.insert.length > 1) { tokens.push(key.insert); }
   }
   let longest: string = '';
   for (const token of tokens) {

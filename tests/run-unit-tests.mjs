@@ -3920,8 +3920,10 @@ assert.equal(science.appendQuickKey('2', 'pi'), '2pi');
 assert.equal(science.appendQuickKey('5', '!'), '5!');
 assert.equal(science.appendQuickKey('', 'sqrt('), 'sqrt(');
 assert.equal(science.appendQuickKey('(1+2', ')'), '(1+2)');
-for (const key of [...science.QUICK_KEYS, ...science.FUNCTION_KEYS]) {
-  if (key.id === 'mod') { continue; }
+for (const key of science.PAD_KEYS.filter((item) => item.action === 'insert' && item.insert !== 'mod')) {
+  assert.equal(science.appendQuickKey('1+2', key.insert), '1+2' + key.insert, `${key.insert} 的拼接不能被改动`);
+}
+for (const key of science.MORE_FUNCTION_KEYS) {
   assert.equal(science.appendQuickKey('1+2', key.id), '1+2' + key.id, `${key.id} 的拼接不能被改动`);
 }
 // 通用护栏：`mod` 键插在**两个操作数之间**时必须产出可解析的表达式（任意左操作数都成立）
@@ -4086,21 +4088,66 @@ assert.equal(new Set(science.FUNCTIONS).size, 30);
 assert.deepEqual(science.FUNCTIONS, science.FUNCTION_DEFS.map((def) => def.id));
 assert.ok(science.FUNCTIONS.includes('log') && science.FUNCTIONS.includes('ncr'));
 assert.ok(science.CONSTANTS.includes('pi') && science.CONSTANTS.includes('e'));
-// 常用键登记表：运算符 7 项 + 函数 8 项、各自 id 唯一、双语名称非空，且能插进表达式求值
-assert.deepEqual(science.QUICK_KEYS.map((key) => key.id), ['(', ')', '^', '!', 'pi', 'e', 'mod']);
-assert.deepEqual(science.FUNCTION_KEYS.map((key) => key.id),
-  ['sqrt(', 'cbrt(', 'ln(', 'log(', 'sin(', 'cos(', 'tan(', 'ncr(']);
-assert.equal(new Set(science.QUICK_KEYS.map((key) => key.id)).size, 7);
-assert.equal(new Set(science.FUNCTION_KEYS.map((key) => key.id)).size, 8);
-for (const key of science.QUICK_KEYS.concat(science.FUNCTION_KEYS)) {
-  assert.ok(key.zh.length > 0 && key.en.length > 0, `missing quick key label ${key.id}`);
+// 主键盘登记表（5 列 × 6 行 = 30 格）：id 唯一、键面/双语文案齐全、每格动作合法
+assert.equal(science.PAD_COLUMNS, 5);
+assert.equal(science.PAD_KEYS.length, 30);
+assert.equal(science.PAD_ROWS, 6);
+assert.equal(new Set(science.PAD_KEYS.map((key) => key.id)).size, 30, '主键盘 id 不能重复');
+for (const key of science.PAD_KEYS) {
+  assert.ok(key.zh.length > 0 && key.en.length > 0, `主键盘 ${key.id} 缺少无障碍名称`);
+  assert.ok(['insert', 'backspace', 'clear', 'equals', 'ans'].includes(key.action), `未知动作 ${key.action}`);
+  assert.ok(key.action === 'backspace' || key.label.length > 0, `主键盘 ${key.id} 缺少键面文字`);
+  if (key.action === 'insert') { assert.ok(key.insert.length > 0, `主键盘 ${key.id} 缺少插入文本`); }
 }
+// 数字与四则运算必须都能按（这页的标志性能力：不必依赖系统软键盘）
+for (const digit of ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+  const key = science.PAD_KEYS.find((item) => item.id === digit);
+  assert.ok(key !== undefined && key.insert === digit, `主键盘缺少数字键 ${digit}`);
+}
+assert.ok(science.PAD_KEYS.some((key) => key.action === 'insert' && key.insert === '.'), '主键盘缺少小数点键');
+assert.deepEqual(['add', 'sub', 'mul', 'div'].map((id) => science.PAD_KEYS.find((key) => key.id === id).insert),
+  ['+', '-', '*', '/']);
+assert.ok(science.PAD_KEYS.some((key) => key.action === 'equals'), '主键盘必须有 = 键');
+assert.ok(science.PAD_KEYS.some((key) => key.action === 'backspace'), '主键盘必须有退格键');
+assert.ok(science.PAD_KEYS.some((key) => key.action === 'clear'), '主键盘必须有清空键');
+assert.ok(science.PAD_KEYS.some((key) => key.action === 'ans'), '主键盘必须有 Ans 键');
+// 行切片：每行都是 5 格，越界返回空数组（页面据此不渲染多余的行）
+for (let row = 0; row < science.PAD_ROWS; row++) {
+  assert.equal(science.padRowKeys(row).length, 5, `第 ${row} 行应有 5 格`);
+}
+assert.deepEqual(science.padRowKeys(-1), []);
+assert.deepEqual(science.padRowKeys(science.PAD_ROWS), []);
+// 「更多函数」登记表：25 项，与主键盘上的 5 个函数合起来正好覆盖 FUNCTION_DEFS 的 30 项
+assert.equal(science.MORE_FUNCTION_KEYS.length, 25);
+assert.equal(new Set(science.MORE_FUNCTION_KEYS.map((key) => key.id)).size, 25);
+for (const key of science.MORE_FUNCTION_KEYS) {
+  assert.ok(key.zh.length > 0 && key.en.length > 0, `更多函数 ${key.id} 缺少无障碍名称`);
+  assert.ok(key.id.endsWith('('), `更多函数 ${key.id} 应当是函数名 + 左括号`);
+}
+const padFunctionNames = science.PAD_KEYS
+  .filter((key) => key.action === 'insert' && key.insert.length > 1 && key.insert.endsWith('('))
+  .map((key) => key.insert.slice(0, -1));
+const moreFunctionNames = science.MORE_FUNCTION_KEYS.map((key) => key.id.slice(0, -1));
+assert.deepEqual([...padFunctionNames, ...moreFunctionNames].sort(), [...science.FUNCTIONS].sort(),
+  '主键盘函数键 + 更多函数必须刚好等于全部 30 个函数（既不能漏，也不能有按不出来的键）');
 assert.equal(science.evaluate('pi', 'deg').error, '');
 assert.equal(science.evaluate('e', 'deg').error, '');
-for (const key of science.FUNCTION_KEYS) {
-  const probe = key.id === 'ncr(' ? 'ncr(5,2)' : `${key.id}1)`;
-  assert.equal(science.evaluate(probe, 'deg').error, '', `function key ${key.id} -> ${probe}`);
+// 每个函数键都要能按出可求值的调用（`atanh` 要求 |x|<1、`acosh` 要求 x≥1，因此这几个用专门实参）
+const moreProbes = {
+  'ncr(': 'ncr(5,2)', 'npr(': 'npr(5,2)', 'hypot(': 'hypot(3,4)', 'gcd(': 'gcd(6,4)',
+  'lcm(': 'lcm(4,6)', 'min(': 'min(1,2)', 'max(': 'max(1,2)', 'log2(': 'log2(8)',
+  'atanh(': 'atanh(0.5)', 'acosh(': 'acosh(2)'
+};
+for (const key of science.MORE_FUNCTION_KEYS) {
+  const built = Object.prototype.hasOwnProperty.call(moreProbes, key.id) ? moreProbes[key.id] : `${key.id}1)`;
+  assert.equal(science.evaluate(built, 'deg').error, '', `函数键 ${key.id} -> ${built}`);
 }
+// `=` 的口径：有效时给结果文本、无效/空给空串（页面据此提示而不是清空）
+assert.equal(science.equalsExpression('', 'deg', 10), '');
+assert.equal(science.equalsExpression('1+', 'deg', 10), '');
+assert.equal(science.equalsExpression('1+2*3', 'deg', 10), '7');
+assert.equal(science.equalsExpression('sqrt(', 'deg', 10), '');
+assert.equal(science.evaluate(science.equalsExpression('2^10', 'deg', 6), 'deg').value, 1024);
 for (const code of ['empty', 'syntax', 'unknown', 'domain', 'divzero', 'overflow']) {
   assert.ok(science.calcErrorText(code, false).length > 0, `missing calc error ${code}`);
   assert.ok(science.calcErrorText(code, true).length > 0, `missing calc error ${code} en`);

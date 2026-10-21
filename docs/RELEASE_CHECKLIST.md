@@ -236,6 +236,15 @@
   - **模拟器复验（Mate X7 折叠态 1080×2444 @480 / 展开态 2210 px）**：折叠态运算符行第二行 `mod` `Ans` `⌫`、内存行四项、结果卡引导句都渲染正常（键高 138 px = 44 vp）；`pi` → `Ans` 得 `pi*3.141592654`、清空后 `Ans` 得 `97.40909104`；退格单字符与整词都实测；`M+` 显示「内存 3.141592654」、`MR` 插入成因子、`MC` 清掉、空内存 `MR` 弹「内存是空的」。截图 [science-new-keys-folded-zh.jpeg](screenshots/emulator/science-new-keys-folded-zh.jpeg)、[science-memory-folded-zh.jpeg](screenshots/emulator/science-memory-folded-zh.jpeg)、[science-new-keys-wide-zh.jpeg](screenshots/emulator/science-new-keys-wide-zh.jpeg)。
   - **真机待复核**：`sys.symbol.delete_left` 的机型显示与键位触控手感。**注意**：折叠态比上一轮多了一行内存键，页面底部（结果卡下沿与页脚）需要轻微滚动才完全可见——若你希望折叠态也一屏放完，可以把内存键折进「完整语法说明」那种二级入口，或把 `M+`/`M−` 合并成一个切换。
 
+
+- **科学计算器键区重做为真计算器键盘（2026-10-21，已完成单测、构建与折叠/展开双形态模拟器复验）**：不新增权限、不引入联网、工具数不变。
+  ① **`PAD_KEYS` 主键盘 30 格（5 列 × 6 行）**：`sin cos tan ln log` / `( ) ^ ! mod` / `7 8 9 ÷ ⌫` / `4 5 6 × C` / `1 2 3 − π` / `0 . Ans + =`，`label` 与 `insert` 分开（`÷ × −` 键面是运算符、插进去是解析器认的 `/ * -`；`π` 键面 `π`、插入 `pi`），动作只有 `insert`/`backspace`/`clear`/`equals`/`ans` 五种，行切片走纯逻辑 `padRowKeys(row)`。**数字键是这一版补上的能力**——此前普通算式也得先拉起系统软键盘。
+  ② **`=` 的口径**：走纯逻辑 `equalsExpression(expression, angle, precision)`——有效给结果文本并由页面替换表达式、无效/空给空串（页面提示而不是清空）；本页是实时求值，`=` 只是把结果落成新的表达式起点。
+  ③ **放不下的 25 个函数**收进 `MORE_FUNCTION_KEYS`（「更多函数与内存」折叠入口，5 列网格，面板里还有 `M+ M− MR MC` 与「内存 x」行）。单测断言「主键盘 5 个函数键 + 这 25 项」排序后**正好等于 `FUNCTION_DEFS` 的 30 项**——既不能漏，也不能出现按不出来的键（每个函数键都用专门实参数过一遍，`atanh` 用 0.5、`acosh` 用 2 这类定义域边界）。
+  ④ **页面顺序改为显示区在上、键盘紧接其下**，设置（角度/精度）、「更多函数与内存」、「完整语法说明」三个折叠入口一律放到键盘之后——折叠态首屏必须看全键盘（含 `=`）。实测：折叠态显示区 y 609–805、键盘 6 行 y 937–1936 全在首屏内（此前说明/设置挡在键盘之前，`=` 会被挤出屏幕）；展开态键盘 5 列铺满宽度。
+  - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增主键盘 30 格 id 唯一/文案齐全/动作合法、数字与四则运算键存在、`padRowKeys` 行切片与越界、`MORE_FUNCTION_KEYS` 25 项与「刚好覆盖 30 个函数」、`equalsExpression` 有效/无效/空、以及每个函数键的可求值探针）；`node tests/check-consistency.mjs` 14 项通过；`assembleHap` `BUILD SUCCESSFUL`。
+  - **模拟器复验（Mate X7 折叠态 1080×2444 @480 / 展开态 2210 px）**：点 `1` `+` `2` `×` `3` `=` → `7`；`C` 清空 → 「等待输入」；`π` `÷` `2` `=` → `1.570796327`；`⌫` 单字符与整词（`sqrt(`）都实测；「更多函数与内存」面板 25 个函数 + 内存行渲染正常，`sqrt(9)` 与 `M+` 都按预期工作。截图 [science-keypad-folded-zh.jpeg](screenshots/emulator/science-keypad-folded-zh.jpeg)、[science-keypad-wide-zh.jpeg](screenshots/emulator/science-keypad-wide-zh.jpeg)、[science-keypad-more-folded-zh.jpeg](screenshots/emulator/science-keypad-more-folded-zh.jpeg)。
+  - **真机待复核**：`⌫`/`C` 的红色键面在深色模式下的对比度、5 列键位在真机上的触控手感（键高 48 vp、折叠态每格约 62 vp 宽）。
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
   ② **工具搜索支持关键词**：`model/ToolMeta.ets` 的 `ToolMeta` 增加可选 `keywords`（别名/缩写，只参与搜索不显示），`matchTools()` 一并匹配；已为二维码/条码/计算/个税/单位/计时/日期/时间戳/文本/随机/密码/贷款/颜色/健康/文档扫描/水平仪补齐关键词（如「健康计算」可用 `BMI`/`BMR`/`基础代谢` 搜到，`房贷` 命中贷款计算）。
