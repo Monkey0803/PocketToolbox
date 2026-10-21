@@ -1393,7 +1393,8 @@ struct Index {
             else if (name === 'science') {
               SciencePage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
-                onCopy: (value: string): void => { this.copy(value); } })
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'documents') {
               DocumentsPage({ english: this.english, scannerSupported: this.scannerSupported,

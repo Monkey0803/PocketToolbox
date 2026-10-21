@@ -3910,6 +3910,51 @@ for (const left of ['1', '10', '3.5', '(1+2)', '5!', '2^3']) {
 }
 assert.equal(err('1..2'), 'syntax');
 assert.equal(err('1,2'), 'syntax');
+// --- 科学计算器动作键：内存、上次结果、退格（2026-10-21） ---
+// 内存登记表：4 项、id 唯一、键面文字与双语文案齐全。
+assert.equal(science.MEMORY_KEYS.length, 4);
+assert.deepEqual(science.MEMORY_KEYS.map((key) => key.id), ['m+', 'm-', 'mr', 'mc']);
+assert.equal(new Set(science.MEMORY_KEYS.map((key) => key.id)).size, 4);
+for (const key of science.MEMORY_KEYS) {
+  assert.ok(key.label.length > 0 && key.zh.length > 0 && key.en.length > 0, `内存键 ${key.id} 文案不完整`);
+}
+// M+：没存过就是当前结果；存过就累加。M− 对称，且「没存过」等于当前结果的相反数（不是 0 减）。
+assert.equal(science.memoryAfterAdd(false, 0, 12.5), 12.5);
+assert.equal(science.memoryAfterAdd(true, 12.5, 7.5), 20);
+assert.equal(science.memoryAfterSubtract(false, 0, 12.5), -12.5);
+assert.equal(science.memoryAfterSubtract(true, 12.5, 2.5), 10);
+assert.equal(science.memoryAfterAdd(true, 12.5, Number.NaN), 12.5, '非法结果不能污染内存');
+assert.equal(science.memoryAfterSubtract(true, 12.5, Number.POSITIVE_INFINITY), 12.5);
+// 内存显示：没存过 / 非有限值都给空串（界面据此不显示这一行，也不显示 0）。
+assert.equal(science.memoryDisplayText(false, 0, 10), '');
+assert.equal(science.memoryDisplayText(true, Number.NaN, 10), '');
+assert.equal(science.memoryDisplayText(true, 12.5, 10), science.formatResult(12.5, 10));
+// 退格：整词优先（函数键与多字符键整块删），否则退一个字符；末尾空格一起吃掉。
+assert.equal(science.backspaceExpression(''), '');
+assert.equal(science.backspaceExpression('1+2'), '1+');
+assert.equal(science.backspaceExpression('sqrt('), '');
+assert.equal(science.backspaceExpression('1+sqrt('), '1+');
+assert.equal(science.backspaceExpression('sin(30)'), 'sin(30');
+assert.equal(science.backspaceExpression('2pi'), '2');
+assert.equal(science.backspaceExpression('7 mod '), '7');
+assert.equal(science.backspaceExpression('7 mod'), '7');
+assert.equal(science.backspaceExpression('   '), '');
+// 插入值作为因子：完整的值结尾要补乘号，运算符/左括号结尾直接拼（与隐式乘法口径一致）。
+assert.equal(science.insertValueAsFactor('', '1024'), '1024');
+assert.equal(science.insertValueAsFactor('2+', '1024'), '2+1024');
+assert.equal(science.insertValueAsFactor('2+3', '1024'), '2+3*1024');
+assert.equal(science.insertValueAsFactor('(1+2)', '1024'), '(1+2)*1024');
+assert.equal(science.insertValueAsFactor('5!', '1024'), '5!*1024');
+assert.equal(science.insertValueAsFactor('2pi', '1024'), '2pi*1024');
+assert.equal(science.insertValueAsFactor('sqrt(', '1024'), 'sqrt(1024');
+assert.equal(science.insertValueAsFactor('sqrt(9)+', '1024'), 'sqrt(9)+1024');
+assert.equal(science.insertValueAsFactor('2+3', ''), '2+3', '空值不动表达式');
+// 插入结果必须仍可求值（回读闭环：`Ans` 插进去的东西解析器要认）
+assert.equal(science.evaluate(science.insertValueAsFactor('2+3', science.formatResult(1024, 10)), 'deg').value, 3074);
+assert.equal(science.evaluate(science.insertValueAsFactor('sqrt(', science.formatResult(1.2676506e30, 10)) + ')', 'deg').error, '');
+// 空态引导文案：中英都要有内容、且不能与输入占位符同一句。
+assert.ok(science.calcEmptyHintText(false).length > 0 && science.calcEmptyHintText(true).length > 0);
+assert.notEqual(science.calcEmptyHintText(false), science.calcHintText(false));
 
 // 科学计数法字面量：只有 e/E 后面确实跟着指数数字时才并入数字，否则 e 仍是自然常数
 assert.equal(val('1e3'), 1000);

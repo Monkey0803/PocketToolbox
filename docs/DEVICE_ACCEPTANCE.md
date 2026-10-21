@@ -1989,6 +1989,11 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 折叠态首屏一屏放得下（2026-10-21） | 通过 | 语法说明默认收起成一行摘要 + 「完整语法说明」整行入口后，折叠态（1080×2444 @480）实测：摘要 y 359–455、入口 499–554、输入框、角度/精度两行、常用键 1236–1881、**结果卡 1974–2173**、页脚 2266–2314 —— 结果卡无需滚动即可见（改动前那 6–8 行说明把键区与结果卡整体推到首屏之外，用户截图即为此项）。截图 [science-folded-collapsed-zh.jpeg](screenshots/emulator/science-folded-collapsed-zh.jpeg) |
 | 语法说明可展开/收起 | 通过 | 点「完整语法说明」→ 标题变「收起语法说明」、完整说明就地展开（折叠态 4 行，y 693–981），chevron 由 `chevron_down` 换 `chevron_up`；再点收起、恢复一行摘要。截图 [science-folded-expanded-zh.jpeg](screenshots/emulator/science-folded-expanded-zh.jpeg) |
 | 常用键高度 44 vp | 通过 | 键高由 40 vp 提到 44 vp：折叠态 `dumpLayout` 键高 125 px → **138 px**（@480 约 46 vp 边界，含描边），与「可点击区域至少 44 vp」的口径一致 |
+| Ans / 退格 / 内存行渲染（2026-10-21） | 通过 | 折叠态 `dumpLayout`：运算符行第二行为 `mod` `Ans`（+ 紧随其后的退格图标键，y 1399–1537 = 138 px）；函数行下方是内存行 `M+` `M−` `MR` `MC`（y 1924–2062）；展开态 `mod`/`Ans` 与运算符 5 项同处一行（y 1188–1326）、内存行一行 4 个（y 1551–1689）。截图 [science-new-keys-folded-zh.jpeg](screenshots/emulator/science-new-keys-folded-zh.jpeg)、[science-new-keys-wide-zh.jpeg](screenshots/emulator/science-new-keys-wide-zh.jpeg) |
+| Ans 插入上次结果 | 通过 | 点 `pi` → 结果 `3.141592654`；点 `Ans` → 输入框变成 `pi*3.141592654`（**补了乘号**，不会粘成 `pi3.141592654`）；点结果卡「清空」后再点 `Ans` → 输入框直接变 `97.40909104`（清空表达式后上次结果仍可用，且空表达式时不补乘号） |
+| 退格整词优先 | 通过 | `pi*3.141592654*9.86960440` 点一次退格 → `pi*3.141592654*9.86960440` 少一个字符；点 `sqrt(` 后再点退格 → 整个 `sqrt(` 一次删掉；输入框只剩 `^` 时退格 → 回到空态（「等待输入」+ 引导句） |
+| 内存四项 | 通过 | 点 `M+` → 内存行出现「内存 3.141592654」（y 2105–2153，截图 [science-memory-folded-zh.jpeg](screenshots/emulator/science-memory-folded-zh.jpeg)）；点 `MR` → 输入框 `pi*3.141592654`、结果 `9.869604402`；点 `MC` → 内存行消失；内存为空时点 `MR` → toast「内存是空的」且输入框不变（不静默、也不存 0） |
+| 结果卡空态引导 | 通过 | 表达式为空时结果卡显示「等待输入」+「试试 2^10、sin(30) 或 ncr(5,2)」（冷启动与点「清空」后都验证过），与输入占位符不是同一句 |
 
 **验收中发现并修掉一个格式化缺陷（2026-10-20）**：把精度切到 6 位时结果曾显示成 `1.2676500000000001e+30` —— `Units.formatValue` 原先一律走 `Number(value.toPrecision(digits)).toString()`，而 **ArkTS 的 `Number#toString` 在大数量级上不保证最短表示**（会把 6 位写成 17 位），「有效位数」选项因此失效。现改为「指数写法下尾数取自 `toPrecision(digits)` 并裁掉尾零、指数部分仍用 `toString()`」，单测新增 `1.2676506e30` 的三档位断言与 `1e±101` 断言；该函数被单位换算与科学计算器共用，两处一并受益。
 

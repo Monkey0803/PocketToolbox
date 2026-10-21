@@ -609,3 +609,100 @@ export function calcHintText(english: boolean): string {
     ? 'e.g. (1+2)*3, 2pi, 1e3, 5!, sin(30), ln(e), sqrt(2), ncr(5,2), 7 mod 3'
     : '例如 (1+2)*3、2pi、1e3、5!、sin(30)、ln(e)、sqrt(2)、ncr(5,2)、7 mod 3';
 }
+
+/** 结果卡在「还没输入」时的引导文案（与占位符分开：占位符给写法，这里给可上手的例子）。 */
+export function calcEmptyHintText(english: boolean): string {
+  return english ? 'Try 2^10, sin(30) or ncr(5,2)' : '试试 2^10、sin(30) 或 ncr(5,2)';
+}
+
+/** 内存键登记项：`label` 是键面文字（与语言无关），`zh`/`en` 是随语言切换的无障碍名称。 */
+export class MemoryKey {
+  readonly id: string;
+  readonly label: string;
+  readonly zh: string;
+  readonly en: string;
+
+  constructor(id: string, label: string, zh: string, en: string) {
+    this.id = id;
+    this.label = label;
+    this.zh = zh;
+    this.en = en;
+  }
+}
+
+/**
+ * 内存键四项（`M+` 累加 / `M−` 累减 / `MR` 读出 / `MC` 清空）。
+ *
+ * 每次动作都新建随机源那类约定与这里无关：内存只是页面上的一个数字，不落盘。
+ */
+export const MEMORY_KEYS: MemoryKey[] = [
+  new MemoryKey('m+', 'M+', '把当前结果累加到内存', 'Add the current result to memory'),
+  new MemoryKey('m-', 'M−', '从内存里减去当前结果', 'Subtract the current result from memory'),
+  new MemoryKey('mr', 'MR', '把内存的值插入表达式', 'Insert the memory value'),
+  new MemoryKey('mc', 'MC', '清空内存', 'Clear memory')
+];
+
+/** 内存为空时的读出/清空动作不需要走纯函数；这里只管「有值」的累加口径。 */
+export function memoryAfterAdd(hasMemory: boolean, memory: number, value: number): number {
+  if (!Number.isFinite(value)) { return memory; }
+  return hasMemory && Number.isFinite(memory) ? memory + value : value;
+}
+
+/** `M−`：内存没有值时等于存入当前结果的相反数（与主流计算器一致，不是 0 减）。 */
+export function memoryAfterSubtract(hasMemory: boolean, memory: number, value: number): number {
+  if (!Number.isFinite(value)) { return memory; }
+  return hasMemory && Number.isFinite(memory) ? memory - value : -value;
+}
+
+/** 内存显示文案：没存过（或存了非有限值）返回空串，界面据此决定要不要显示这一行。 */
+export function memoryDisplayText(hasMemory: boolean, memory: number, significant: number): string {
+  if (!hasMemory || !Number.isFinite(memory)) { return ''; }
+  return formatResult(memory, significant);
+}
+
+/**
+ * 退格：整词优先删除。
+ *
+ * 逐字符退格在 `sqrt(`/`ncr(` 这类多字符键上很烦（要按 5 次），因此先看表达式末尾是否正好是
+ * 某个键的完整文本（函数键与多字符的运算符/常量键），是就整块删掉，否则退一个字符。
+ */
+export function backspaceExpression(expression: string): string {
+  if (expression.length === 0) { return ''; }
+  // 先吃掉末尾空格（`mod` 键写出来的是 `7 mod `），再按「整词 → 单字符」退格。
+  let text: string = expression;
+  while (text.length > 0 && text.charAt(text.length - 1) === ' ') { text = text.substring(0, text.length - 1); }
+  if (text.length === 0) { return ''; }
+  const tokens: string[] = [];
+  for (const key of FUNCTION_KEYS) {
+    if (key.id.length > 1) { tokens.push(key.id); }
+  }
+  for (const key of QUICK_KEYS) {
+    if (key.id.length > 1) { tokens.push(key.id); }
+  }
+  let longest: string = '';
+  for (const token of tokens) {
+    if (token.length > longest.length && text.endsWith(token)) { longest = token; }
+  }
+  // 末尾正好是 `mod` 且前面还有分隔空格时，连空格一起带走（`7 mod` → `7`）。
+  if (longest === 'mod' && text.length > longest.length && text.endsWith(' mod')) {
+    return text.substring(0, text.length - longest.length - 1);
+  }
+  if (longest.length > 0) { return text.substring(0, text.length - longest.length); }
+  return text.substring(0, text.length - 1);
+}
+
+/**
+ * 把「一个值」（`Ans`/`MR` 的数字文本）作为**因子**插入表达式。
+ *
+ * 直接拼接会和前面的数字粘成一个字面量（`2+3` + `1024` 变成 `2+31024`），因此当前面是一个
+ * 完整的值结尾（数字、`.`、`)`、`!` 或标识符字母）时补一个乘号——与「可省写乘号」的口径一致：
+ * 补出来的是显式 `*`，不依赖隐式乘法，回读更稳。
+ */
+export function insertValueAsFactor(expression: string, valueText: string): string {
+  if (valueText.length === 0) { return expression; }
+  if (expression.length === 0) { return valueText; }
+  const last: string = expression.charAt(expression.length - 1);
+  const valueEnding: boolean = (last >= '0' && last <= '9') || last === '.' || last === ')' || last === '!'
+    || (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z');
+  return expression + (valueEnding ? '*' : '') + valueText;
+}

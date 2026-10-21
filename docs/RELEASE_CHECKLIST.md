@@ -225,6 +225,16 @@
   ② **常用键高度 40 → 44 vp**：文字按钮也满足「可点击区域至少 44 vp」（折叠态 `dumpLayout` 键高 125 px → 138 px）。同一形状的另外两处**一并统一**：计时页「常用时长」预设（折叠态 125 px → 138 px，仍 4 + 2 两行、宽屏一行 6 个）与亲戚称呼十个步骤按钮（折叠态 4 个一行、宽屏 9 + 1，宽度不变所以换行位置与改动前一致）。
   - **验证**：`assembleHap` `BUILD SUCCESSFUL`、单测全绿（本轮无模型改动）；截图 [science-folded-collapsed-zh.jpeg](screenshots/emulator/science-folded-collapsed-zh.jpeg)、[science-folded-expanded-zh.jpeg](screenshots/emulator/science-folded-expanded-zh.jpeg)；回执见 `docs/DEVICE_ACCEPTANCE.md` 第 18 节。
 
+- **科学计算器动作键：Ans / 退格 / 内存 / 空态引导（2026-10-21，已完成单测、构建与折叠+展开双形态模拟器复验）**：不新增权限、不引入联网、工具数不变。
+  ① **Ans（上次结果）**：值来自 `@Monitor('expression')` 记录的**上一次有效结果**（清空表达式后仍可用；失败/空表达式不覆盖上一次好值）。插入走纯逻辑 `insertValueAsFactor()`——前面是完整值结尾（数字/`.`/`)`/`!`/字母）就补 `*`，于是 `2+3` + `Ans(1024)` 得 `2+3*1024`，而空表达式时直接得到 `1024`；没有结果时走 `onStatus` 提示「先算出一个结果，再用 Ans」。
+  ② **退格键**：纯逻辑 `backspaceExpression()`，**整词优先**（末尾正好是 `sqrt(`/`ncr(`/`pi`/`mod` 这类多字符键就整块删），否则退一个字符，末尾空格一并吃掉——逐字符退格在 `sqrt(` 上要按 5 次，实测已消除。退格键是**带底色的键位**（与文字键同款），不是独立图标操作，因此不走 `IconActionButton`。
+  ③ **内存键**：`MEMORY_KEYS` 登记表（`M+` `M−` `MR` `MC`，`label` 键面文字 + `zh`/`en` 无障碍名称）；`memoryAfterAdd()`/`memoryAfterSubtract()` 口径是**没存过时 `M+` 等于当前结果、`M−` 等于当前结果的相反数**（不是 0 减），非法结果不污染内存；`memoryDisplayText()` 在没存过时返回空串，界面据此**不渲染内存行、也不用 0 顶替**；`MR` 与 `Ans` 同走因子插入。内存与 `Ans` 都是页面状态、**不落盘**。无效动作（结果无效时 `M+`/`M−`、内存为空时 `MR`/`MC`）一律 toast 说明原因。
+  ④ **空态引导**：结果卡在表达式为空时补一句 `calcEmptyHintText()`（「试试 2^10、sin(30) 或 ncr(5,2)」），与输入占位符 `calcHintText()` 分工不同（占位符讲写法、这里讲先试什么）。
+  ⑤ **接线**：`SciencePage` 新增 `@Event onStatus`，由 `Index` 接到系统 toast（与其它页面同一口径）。
+  - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增内存登记表 4 项完整性、`memoryAfterAdd`/`memoryAfterSubtract` 含未存过与 NaN 用例、`memoryDisplayText` 空串语义、`backspaceExpression` 8 条（空串/单字符/`sqrt(`/`sin(30`/`2pi`/`7 mod ` 等）、`insertValueAsFactor` 9 条与两条「插入后仍可求值」的闭环断言、空态文案中英非空且不等于占位符）；`assembleHap` `BUILD SUCCESSFUL`。
+  - **模拟器复验（Mate X7 折叠态 1080×2444 @480 / 展开态 2210 px）**：折叠态运算符行第二行 `mod` `Ans` `⌫`、内存行四项、结果卡引导句都渲染正常（键高 138 px = 44 vp）；`pi` → `Ans` 得 `pi*3.141592654`、清空后 `Ans` 得 `97.40909104`；退格单字符与整词都实测；`M+` 显示「内存 3.141592654」、`MR` 插入成因子、`MC` 清掉、空内存 `MR` 弹「内存是空的」。截图 [science-new-keys-folded-zh.jpeg](screenshots/emulator/science-new-keys-folded-zh.jpeg)、[science-memory-folded-zh.jpeg](screenshots/emulator/science-memory-folded-zh.jpeg)、[science-new-keys-wide-zh.jpeg](screenshots/emulator/science-new-keys-wide-zh.jpeg)。
+  - **真机待复核**：`sys.symbol.delete_left` 的机型显示与键位触控手感。**注意**：折叠态比上一轮多了一行内存键，页面底部（结果卡下沿与页脚）需要轻微滚动才完全可见——若你希望折叠态也一屏放完，可以把内存键折进「完整语法说明」那种二级入口，或把 `M+`/`M−` 合并成一个切换。
+
 
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
