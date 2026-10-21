@@ -512,10 +512,10 @@ export struct TimersPage {
         .width('100%')
       // 一行放不下时自动换行：按内容宽度排布，不再用 layoutWeight 均分整行——
       // 345 vp 的折叠态每格只有约 44 vp，6 个预设会被系统截断成「…」（2026-10-20 折叠态实测，
-      // 与科学计算器常用键、亲戚称呼步骤条同一套写法）。
+      // 与科学计算器常用键、亲戚称呼步骤条同一套写法）。键高 44 vp（此前 40 vp，2026-10-21 统一）。
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
         ForEach(DURATION_PRESETS_MINUTES, (minutes: number) => {
-          Button(this.tr(minutes + '分', minutes + 'm')).fontSize(14).height(40)
+          Button(this.tr(minutes + '分', minutes + 'm')).fontSize(14).height(44)
             .padding({ left: 16, right: 16 })
             .backgroundColor(ToolPalette.tintBlue).fontColor(ToolPalette.primaryDeep)
             .onClick(() => this.applyPreset(minutes))
@@ -588,8 +588,6 @@ export struct TimersPage {
               icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
               a11yText: this.tr('重置计时器', 'Reset timer'), onTap: () => this.resetTimer(timer)
             })
-          }.width('100%').justifyContent(this.actionAlign)
-          Row({ space: 6 }) {
             IconActionButton({
               icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
               a11yText: this.tr('编辑计时器', 'Edit timer'), onTap: () => this.editTimer(timer)

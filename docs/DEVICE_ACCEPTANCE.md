@@ -1986,6 +1986,9 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 指数结果回读 | 通过 | 输入 `2^100` → 结果 `1.2676506e+30`；点「用结果替换表达式」→ 输入框变 `1.2676506e+30`、结果不变（修复前解析器不认指数写法，这里会显示「表达式无法解析」） |
 | 精度切换 | 通过 | 精度选 6 位后结果变 `1.26765e+30`、替换后输入框同步为 `1.26765e+30`（[science-result-replace-folded-zh.jpeg](screenshots/emulator/science-result-replace-folded-zh.jpeg)） |
 | 结果卡图标 | 通过 | 三个纯图标按钮（替换 `sys.symbol.arrow_down_to_line` = 蓝、复制 = 灰、清空 = 红）渲染正常，可点区域由 `IconActionButton` 保证 44 vp 以上（命中树 `Button` 为 150×150 px ≈ 50 vp） |
+| 折叠态首屏一屏放得下（2026-10-21） | 通过 | 语法说明默认收起成一行摘要 + 「完整语法说明」整行入口后，折叠态（1080×2444 @480）实测：摘要 y 359–455、入口 499–554、输入框、角度/精度两行、常用键 1236–1881、**结果卡 1974–2173**、页脚 2266–2314 —— 结果卡无需滚动即可见（改动前那 6–8 行说明把键区与结果卡整体推到首屏之外，用户截图即为此项）。截图 [science-folded-collapsed-zh.jpeg](screenshots/emulator/science-folded-collapsed-zh.jpeg) |
+| 语法说明可展开/收起 | 通过 | 点「完整语法说明」→ 标题变「收起语法说明」、完整说明就地展开（折叠态 4 行，y 693–981），chevron 由 `chevron_down` 换 `chevron_up`；再点收起、恢复一行摘要。截图 [science-folded-expanded-zh.jpeg](screenshots/emulator/science-folded-expanded-zh.jpeg) |
+| 常用键高度 44 vp | 通过 | 键高由 40 vp 提到 44 vp：折叠态 `dumpLayout` 键高 125 px → **138 px**（@480 约 46 vp 边界，含描边），与「可点击区域至少 44 vp」的口径一致 |
 
 **验收中发现并修掉一个格式化缺陷（2026-10-20）**：把精度切到 6 位时结果曾显示成 `1.2676500000000001e+30` —— `Units.formatValue` 原先一律走 `Number(value.toPrecision(digits)).toString()`，而 **ArkTS 的 `Number#toString` 在大数量级上不保证最短表示**（会把 6 位写成 17 位），「有效位数」选项因此失效。现改为「指数写法下尾数取自 `toPrecision(digits)` 并裁掉尾零、指数部分仍用 `toString()`」，单测新增 `1.2676506e30` 的三档位断言与 `1e±101` 断言；该函数被单位换算与科学计算器共用，两处一并受益。
 
@@ -2204,6 +2207,7 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 未收录回退 | 通过 | `老婆的哥哥的老婆` → 称谓显示关系链描述 + 「这是关系描述，暂未收录成单一称谓。」，关系链 `老婆 → 哥哥 → 老婆`、辈分「同辈」、性别「女」 |
 | 英文界面 | 通过 | 设置页切 English 后：标题 `Kinship calculator`、`Me / Male`、`Relationship`、`Build step by step`、步骤按钮 `father / older brother / …`；点选出 `father's older brother` → `Address`、`Relationship father → older brother`、`Generation one generation above me`、`Gender Male`（截图 `kinship-page-en.jpeg`，该次为深色模式，同批验证深色资源） |
 | 单位断言 | 通过 | `node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增约 60 条） |
+| 步骤按钮键高 44 vp（2026-10-21） | 通过 | 与科学计算器常用键、计时页预设统一：折叠态（1080×2444 @480）`dumpLayout` 键高 125 px → **138 px**（`爸爸` y 1255–1393），仍是 4 个一行；展开态 9 + 1（`爸爸`…`儿子` 一行、`女儿` 换行），换行位置与改动前一致（宽度未变），截图 [kinship-steps-folded-44vp-zh.jpeg](screenshots/emulator/kinship-steps-folded-44vp-zh.jpeg) |
 | 构建 | 通过 | `hvigorw assembleHap --mode module -p product=default --no-daemon` → `BUILD SUCCESSFUL` |
 
 - [ ] 真机复核（模拟器无法覆盖的部分）：`sys.symbol.family` 与 `sys.symbol.delete_left` 在真机的实际字形、浅色/深色下的图标对比度、英文步骤按钮折成两行时结果卡能否顺畅滚入视口。
@@ -2286,6 +2290,7 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 秒表面板渲染 | 通过 | 切「秒表」后只显示「秒表」标题 + 读数 + 三个操作图标：点开始读数递增（`00:00:03`→`00:00:54`，截图 `timers-c-stopwatch-running-zh.jpeg`）；点计次两次出现 `计次记录` 卡（`最快 00:00:02 · 最慢 00:01:14`、`#1 00:01:14 / 00:01:14`、`#2 00:00:02 / 00:01:16`，截图 `timers-d-stopwatch-laps-zh.jpeg`）；点暂停后两次 dump 读数都停在 `00:01:18`；点重置回到 `00:00:00` |
 | **时长选择器不带日期** | 通过 | 时长卡改用系统 `TextPickerDialog` 三列（时 / 分 / 秒）：`dumpLayout` 里对话框只剩三列数字与「取消 / 确定」，**全文没有任何 `星期`/`年`/`月`/`日` 文本**（`date-ish lines: 0`，截图 `timers-duration-picker-nodate-zh.jpeg`）；点「23」再点「确定」后时长卡变为 `23:05:00`，回落正确。改动前的 `showTimePickerDialog` 顶部固定多一行 `2026年10月20日星期二 [773,747][1438,820]`（用户截图即为此项） |
 | **折叠态（窄窗）「常用时长」不再截断** | 通过 | 原先是 `Row` + `layoutWeight(1)` 均分整行，折叠态（Mate X7 折叠 1080 px = 约 345 vp）6 个预设每格只剩约 44 vp，**全部显示成「…」**（用户截图）；改成 `Flex({ wrap: FlexWrap.Wrap })` + `padding({ left: 16, right: 16 })` 后，`dumpLayout` 读到两行完整文案 `1分 / 5分 / 10分 / 15分`（y 1209–1334）与 `25分 / 30分`（y 1359–1484），截图 `timers-presets-folded-wrap-zh.jpeg`；展开态（2210 px）仍是一行 6 个（`1分`…`30分` x 75→1320） |
+| 预设键高 44 vp（2026-10-21） | 通过 | 与科学计算器常用键、亲戚称呼步骤按钮统一：折叠态 `dumpLayout` 键高 125 px → **138 px**（y 1209–1347），换行位置不变（仍 4 + 2）；展开态仍是一行 6 个（y 1209–1347） |
 | **口径 A：切走继续跑（双向）** | 通过 | ① 倒计时跑到 `00:00:56` 时切到秒表，约 56 秒后切回，卡片显示 `00:00:00`（那一分钟内它一直在跑，直到结束）；② 秒表在 `00:00:03` 时切到倒计时，约 51 秒后切回，读数 `00:00:54`——即**两块互不干扰、都不暂停** |
 | 英文界面 | 通过 | 设置页切 English 后：标题 `Timers`、`Method`、`Countdown`（截图 `timers-e-menu-en.jpeg` 为下拉展开态，两项 `Countdown` / `Stopwatch`）；切到 `Stopwatch` 后标题与读数行均为英文（截图 `timers-f-stopwatch-en.jpeg`） |
 | 单位断言 | 通过 | `node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（本轮新增 `TIMER_MODES` 条数/顺序/id 唯一/文案非空断言；首跑时被另一会话在 `RandomTools.ets` 的在途重构挡过一次，对方改完复跑即全绿） |

@@ -113,9 +113,10 @@ export struct KinshipPage {
     Text(this.tr('逐段拼接', 'Build step by step')).fontSize(14)
       .fontColor(ToolPalette.textSecondary).width('100%')
     // 一行放不下时自动换行（窄屏 3–4 个一行、宽屏一行放下）：点一下接在关系链末尾。
+    // 键高 44 vp：文字按钮也满足最小可点区域（此前 40 vp，2026-10-21 与科学计算器常用键、计时页预设统一）。
     Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
       ForEach(KIN_QUICK_STEPS, (step: KinStep) => {
-        Button(this.tr(step.zh, step.en)).height(40)
+        Button(this.tr(step.zh, step.en)).height(44)
           .fontSize(15).fontColor(ToolPalette.primaryDeep)
           .backgroundColor(ToolPalette.borderSoft)
           .accessibilityText(this.tr('添加「' + step.zh + '」', 'Add “' + step.en + '”'))

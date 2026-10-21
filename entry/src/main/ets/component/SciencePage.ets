@@ -24,8 +24,22 @@ export struct SciencePage {
   @Local expression: string = '';
   @Local angle: AngleUnit = DEFAULT_ANGLE;
   @Local precision: number = DEFAULT_PRECISION;
+  /** 完整语法说明默认收起：折叠态整段说明要占 6–8 行，会把常用键与结果卡挤出首屏（2026-10-21 折叠态实测）。 */
+  @Local showSyntax: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  /** 收起状态下的一行摘要（完整说明见 `syntaxFull()`）。 */
+  private syntaxSummary(): string {
+    return this.tr('支持 + − × ÷、括号、^ 幂、! 阶乘、mod 取模与常用函数，可省写乘号。',
+      'Supports + − × ÷, parentheses, ^ power, ! factorial, mod and common functions; the multiplication sign may be omitted.');
+  }
+
+  /** 展开后的完整语法说明（点「完整语法说明」才显示）。 */
+  private syntaxFull(): string {
+    return this.tr('支持 + − × ÷、括号、^ 幂、! 阶乘、mod 取模，sin/cos/tan/asin/acos/atan/双曲函数、ln/log/log2/exp/sqrt/cbrt/abs/取整，以及 hypot/gcd/lcm/min/max/ncr/npr 与常量 pi/e；可省写乘号（2pi、2(3+4)），支持 1e3 这类科学计数法，^ 右结合，三角函数按所选角度单位解释。',
+      'Supports + − × ÷, parentheses, ^ power, ! factorial, mod, sin/cos/tan/asin/acos/atan and hyperbolic functions, ln/log/log2/exp/sqrt/cbrt/abs/rounding, plus hypot/gcd/lcm/min/max/ncr/npr and the constants pi/e; the multiplication sign may be omitted (2pi, 2(3+4)) and scientific notation such as 1e3 is accepted; ^ is right-associative and trigonometry follows the selected angle unit.');
+  }
 
   /**
    * 表达式求值结果（**只算一次**，`expression`/`angle` 变了才重算）。
@@ -90,11 +104,12 @@ export struct SciencePage {
   /**
    * 常用键两行（运算符/结构 与 函数）。一行放不下时自动换行：按内容宽度排布，不再用 layoutWeight 均分整行——
    * 345 vp 的折叠态每格只有约 44 vp，标签会被系统截断成「…」（2026-10-20 模拟器实测）。
+   * 键高 44 vp：文字按钮也要满足最小可点区域（此前 40 vp，2026-10-21 与计时页预设一并统一）。
    */
   @Builder private quickKeyRow(kind: string) {
     Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
       ForEach(kind === 'functions' ? FUNCTION_KEYS : QUICK_KEYS, (key: QuickKey) => {
-        Button(key.id).height(40)
+        Button(key.id).height(44)
           .fontSize(15).fontColor(ToolPalette.primaryDeep)
           .backgroundColor(ToolPalette.borderSoft)
           .accessibilityText(this.tr(key.zh, key.en))
@@ -134,9 +149,22 @@ export struct SciencePage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('支持 + − × ÷、括号、^ 幂、! 阶乘、mod 取模，sin/cos/tan/asin/acos/atan/双曲函数、ln/log/log2/exp/sqrt/cbrt/abs/取整，以及 hypot/gcd/lcm/min/max/ncr/npr 与常量 pi/e；可省写乘号（2pi、2(3+4)），支持 1e3 这类科学计数法，^ 右结合，三角函数按所选角度单位解释。',
-        'Supports + − × ÷, parentheses, ^ power, ! factorial, mod, sin/cos/tan/asin/acos/atan and hyperbolic functions, ln/log/log2/exp/sqrt/cbrt/abs/rounding, plus hypot/gcd/lcm/min/max/ncr/npr and the constants pi/e; the multiplication sign may be omitted (2pi, 2(3+4)) and scientific notation such as 1e3 is accepted; ^ is right-associative and trigonometry follows the selected angle unit.'))
-        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      Text(this.syntaxSummary()).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      Button() {
+        Row({ space: 8 }) {
+          Text(this.showSyntax ? this.tr('收起语法说明', 'Hide syntax help') : this.tr('完整语法说明', 'Full syntax help'))
+            .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary).layoutWeight(1)
+          SymbolGlyph(this.showSyntax ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+            .fontSize(20).fontColor([ToolPalette.primaryDeep])
+        }.width('100%')
+      }
+      .width('100%').height(48).padding({ left: 16, right: 16 })
+      .backgroundColor(ToolPalette.surface).borderRadius(12)
+      .accessibilityText(this.tr('展开或收起完整语法说明', 'Show or hide the full syntax help'))
+      .onClick(() => { this.showSyntax = !this.showSyntax; })
+      if (this.showSyntax) {
+        Text(this.syntaxFull()).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      }
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
         corner: 16, interactive: true
