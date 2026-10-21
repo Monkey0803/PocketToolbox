@@ -1,6 +1,7 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
+import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { TextStats, TEXT_INPUT_MAX, textInputTooLong, textStats, trimLines, collapseSpaces, removeBlankLines,
   joinLines, uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase } from '../model/TextTools';
@@ -38,13 +39,12 @@ export struct TextPage {
   @Local textCjk: number = 0;
   @Local textParagraphs: number = 0;
   /**
-   * 当前打开的分组菜单 id（空串＝都关着）。
-   *
-   * 用来把入口右侧的指示箭头做成「未展开 ▶ / 展开 ▼」：`bindMenu` 的 `MenuOptions` 有
-   * `onAppear`/`onDisappear`（`ContextMenuOptions`），这是系统 `Select` 没有的能力
-   * （`Select` 只回调 `onSelect`，无法知道菜单何时开合）。
+   * 动作下拉的「复位」计数：系统 `Select` 在用户选中某项后会把**那一项的文字**显示出来（即使我们一直传
+   * `value` 占位文案），只有 `value` 本身发生变化时才会重新以它为准。执行动作后把它 +1，
+   * `menuPlaceholderText()` 因此每隔一次多一个零宽空格——肉眼与读屏都无差别，但足以让 `Select` 复位
+   * （2026-10-21 实测：输入变化也会顺带复位，但「输入为空被拒绝」这条路径没有任何状态变化，必须主动复位）。
    */
-  @Local openTextMenu: string = '';
+  @Local menuResetTick: number = 0;
 
   aboutToAppear(): void {
     if (this.initialValue.length > 0) {
@@ -72,37 +72,39 @@ export struct TextPage {
   }
 
   /**
-   * 一个分组的菜单入口：整行（与工具卡片同底色）都挂系统 `bindMenu`，点开就是这一组的动作。
+   * 一个分组的动作入口：**用全应用统一的下拉控件 `OptionSelect`**（内部是系统 `Select`），
+   * 左列是分组名、右侧下拉列出这一组的动作，选中即执行。
    *
-   * 只收**常量**分组 id，标题与菜单条目都在构建函数体内经 `this.menuTitle(id)`/`this.menuItems(id)`
-   * 现取——`@Builder` 按值传参不随状态刷新，传字符串会让切换语言后菜单标题停在中/英旧值。
+   * 与其它页面的下拉同一套 UI/行为，因此不再自绘箭头、也不再需要记住菜单开合状态
+   * （2026-10-21 按用户要求从自绘 `bindMenu` 按钮改过来）：`Select` 只回调 `onSelect(index)`，
+   * 刚好够驱动「选一个动作执行」。
+   *
+   * 只收**常量**分组 id，分组名与选项都在构建函数体内现取——`@Builder` 按值传参不随状态刷新。
    */
   @Builder private menuEntry(id: string) {
-    Button() {
-      Row({ space: 8 }) {
-        Text(this.menuTitle(id)).fontSize(16).fontWeight(FontWeight.Medium)
-          .fontColor(ToolPalette.textPrimary).layoutWeight(1)
-        // 指示箭头：未打开 ▶（`chevron_right`）、打开 ▼（`chevron_down`）——与科学计算器、个税、贷款
-        // 的折叠入口同一套「收起朝右、展开朝下」约定（2026-10-21）。
-        SymbolGlyph(this.openTextMenu === id ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
-          .fontSize(20).fontColor([ToolPalette.primaryDeep])
-      }.width('100%')
-    }
-    .width('100%').height(48).padding({ left: 16, right: 16 })
-    .backgroundColor(ToolPalette.surface).borderRadius(12)
-    // 菜单开合要能反查到这一行：`onDisappear` 时只有仍是自己才清空，避免连点两行时状态串台。
-    .bindMenu(this.menuItems(id), {
-      onAppear: () => { this.openTextMenu = id; },
-      onDisappear: () => { if (this.openTextMenu === id) { this.openTextMenu = ''; } }
+    OptionSelect({
+      label: this.menuTitle(id),
+      options: this.menuOptions(id),
+      // 这是**动作菜单**（选完就执行），不保留「已选中」状态：下拉按钮始终显示占位文案。
+      selectedIndex: -1,
+      selectedText: this.menuPlaceholderText(),
+      a11yText: this.menuAccessibility(id),
+      onSelected: (index: number): void => { this.runMenuChoice(id, index); }
     })
-    .accessibilityText(this.menuAccessibility(id))
   }
 
+  /**
+   * 分组名（也是下拉左侧的标签）。
+   *
+   * 注意 `OptionSelect` 的标签列固定 72 vp（14 fp），**中英都要压到放得下**：中文 ≤5 字（约 70 vp）、
+   * 英文 ≤6 字符（约 42 vp），因此这里用的是「去重排序」「编码摘要」/`Dedup`、`Encode` 这类短名
+   * （原来的「去重与排序」「Deduplicate and sort」在 72 vp 里会折行）。
+   */
   private menuTitle(id: string): string {
-    if (id === 'clean') { return this.tr('整理', 'Clean up'); }
-    if (id === 'sort') { return this.tr('去重与排序', 'Deduplicate and sort'); }
-    if (id === 'case') { return this.tr('大小写', 'Letter case'); }
-    return this.tr('编码与摘要', 'Encoding and digests');
+    if (id === 'clean') { return this.tr('整理', 'Clean'); }
+    if (id === 'sort') { return this.tr('去重排序', 'Dedup'); }
+    if (id === 'case') { return this.tr('大小写', 'Case'); }
+    return this.tr('编码摘要', 'Encode');
   }
 
   private menuAccessibility(id: string): string {
@@ -149,6 +151,39 @@ export struct TextPage {
       this.runMenuItem('摩尔斯编码', 'Morse encode', (): void => { this.runMorseEncode(); }),
       this.runMenuItem('摩尔斯解码', 'Morse decode', (): void => { this.runMorseDecode(); })
     ];
+  }
+
+  /** 下拉按钮的占位文案；隔一次带一个零宽空格，用来把 `Select` 从「显示上次选中项」拨回占位（见 `menuResetTick`）。 */
+  private menuPlaceholderText(): string {
+    const text: string = this.tr('选择操作', 'Choose an action');
+    return this.menuResetTick % 2 === 0 ? text : text + '\u200B';
+  }
+
+  /** 分组 id → 下拉选项（只取文案；动作与可用性仍由上面 `menuItems()` 那一份定义驱动，避免两处各写一份）。 */
+  private menuOptions(id: string): SelectOption[] {
+    return this.menuItems(id).map((item: MenuElement): SelectOption => {
+      const option: SelectOption = { value: item.value };
+      return option;
+    });
+  }
+
+  /**
+   * 执行这一组的第 `index` 个动作。
+   *
+   * 系统 `Select` 的**选项不支持单独置灰**（`SelectOption` 只有 `value`/`icon`），所以「输入为空时不能执行」
+   * 这条守则由这里兜住：给一次性提示，而不是静默什么都不做（原来的 `bindMenu` 版本是直接把该项置灰）。
+   */
+  private runMenuChoice(id: string, index: number): void {
+    // 先复位下拉显示（无论这次能不能执行，都不该把动作名留在按钮上当成「已选中」）。
+    this.menuResetTick += 1;
+    const items: MenuElement[] = this.menuItems(id);
+    if (index < 0 || index >= items.length) { return; }
+    const item: MenuElement = items[index];
+    if (item.enabled === false) {
+      this.onStatus(this.tr('请先输入文本', 'Enter some text first'));
+      return;
+    }
+    if (item.action !== undefined) { item.action(); }
   }
 
   private textMenuItem(zh: string, en: string, apply: (value: string) => string): MenuElement {
