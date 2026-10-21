@@ -61,6 +61,38 @@ export const NARROW_SINGLE_COLUMN_MAX_VP: number = 360;
 const FALLBACK_WIDTH_VP: number = 390;
 const FALLBACK_HEIGHT_VP: number = 844;
 
+/**
+ * 智感握姿：动作按钮该靠向哪一侧。
+ *
+ * 入参是两个系统信号——**操作手**（正在滑动/点击的那只手，`motion.OperatingHandStatus`）与
+ * **持握手**（握住手机的那只手，`motion.HoldingHandStatus`），各映射成 `-1` 左 / `0` 未知 / `1` 右。
+ *
+ * 规则（与界面代码原先内联的判定一致，抽出来是为了可单测）：
+ * ① 操作手优先于持握手（用户滑屏的手才是要够到按钮的那只手）；
+ * ② **宽窗口（MD 及以上）恒返回 0**：平板/展开态双手操作，控件跟着握姿跳来跳去反而更差；
+ * ③ 两个信号都未知返回 0，调用方据此保持原布局（不能自己猜左右）；
+ * ④ **`holdingFreezes`（系统明确报了「双手持握」或「未持握」）恒返回 0**——见下面那段理由。
+ *
+ * 为什么双手持握要「冻结」而不是跟随操作手：双手持握（或设备平放在桌上）时**两侧一样好够**，
+ * 跟随操作手没有任何够不着的收益，却会带来两个真实损失——用户交替用左右拇指时动作行左右横跳
+ * （点完一下按钮就跑到另一边，破坏肌肉记忆），以及「按钮位置随我换手变来变去」的不确定感。
+ * 注意它与「持握手未知（`holdingFreezes=false` 且 `holdingSide=0`）」是**两件事**：后者是设备没给
+ * 握姿信息，这时仍要用操作手兜底（否则老设备/不支持的机型整个功能都失效）。
+ */
+export function actionHandSide(operatingSide: number, holdingSide: number, widthBand: number,
+  holdingFreezes: boolean = false): number {
+  if (widthBand >= WIDTH_MD) { return 0; }
+  if (holdingFreezes) { return 0; }
+  const side: number = sideOf(operatingSide);
+  return side !== 0 ? side : sideOf(holdingSide);
+}
+
+/** 把任意外部数值收敛成 -1 / 0 / 1（非有限值、越界值一律按「未知」处理）。 */
+function sideOf(value: number): number {
+  if (!Number.isFinite(value) || value === 0) { return 0; }
+  return value < 0 ? -1 : 1;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;
 }

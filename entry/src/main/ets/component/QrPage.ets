@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
@@ -264,6 +265,8 @@ export struct QrPage {
         corner: 16, interactive: true
       }) {
         TextInput({ text: this.fieldValue(id), placeholder: this.fieldPlaceholder(id) })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .onChange((input: string) => this.setFieldValue(id, input)).height(52)
       }

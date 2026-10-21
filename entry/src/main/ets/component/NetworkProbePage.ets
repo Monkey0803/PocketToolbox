@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -378,6 +379,8 @@ export struct NetworkProbePage {
       interactive: true
     }) {
       TextInput({ text: this.dnsHost, placeholder: 'example.com' })
+        // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+        .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
         .backgroundColor(Color.Transparent)
         .type(InputType.Normal)
         .height(52)
@@ -435,6 +438,8 @@ export struct NetworkProbePage {
           interactive: true
         }) {
           TextInput({ text: this.portHost, placeholder: 'example.com' })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .type(InputType.Normal)
             .height(52)
@@ -453,6 +458,8 @@ export struct NetworkProbePage {
           interactive: true
         }) {
           TextInput({ text: this.portText, placeholder: DEFAULT_HTTPS_PORT.toString() })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .type(InputType.Number)
             .height(52)
@@ -504,6 +511,8 @@ export struct NetworkProbePage {
       interactive: true
     }) {
       TextInput({ text: this.httpUrl, placeholder: 'https://example.com' })
+        // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+        .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
         .backgroundColor(Color.Transparent)
         .type(InputType.Normal)
         .height(52)
@@ -601,6 +610,8 @@ export struct NetworkProbePage {
       interactive: true
     }) {
       TextInput({ text: this.urlInput, placeholder: 'https://example.com/path?a=1#top' })
+        // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+        .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
         .backgroundColor(Color.Transparent)
         .type(InputType.Normal)
         .height(52)

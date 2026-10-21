@@ -1,3 +1,5 @@
+import { integerOptionLabels } from './NumberOptions';
+
 /**
  * 健康计算（纯逻辑，可参与单元测试）：BMI、标准体重范围、基础代谢 BMR 与每日消耗 TDEE。
  *
@@ -253,6 +255,16 @@ export const HEALTH_WEIGHT_MIN_KG: number = 1;
 export const HEALTH_WEIGHT_MAX_KG: number = 500;
 export const HEALTH_AGE_MIN_YEARS: number = 1;
 export const HEALTH_AGE_MAX_YEARS: number = 120;
+
+/**
+ * 年龄滚轮的选项列（1–120 的十进制文案）。
+ *
+ * 与 `healthFieldValid('age', …)` 共用同一组边界常量：滚轮能选到的每个值都必然判为合法
+ * （2026-10-21 输入框增强一）。身高/体重是连续量、量级也大，**不挂滚轮**，仍由用户手输。
+ */
+export function ageOptions(): string[] {
+  return integerOptionLabels(HEALTH_AGE_MIN_YEARS, HEALTH_AGE_MAX_YEARS);
+}
 
 /**
  * 字段值是否落在可计算范围内；未填或不可解析（undefined）一律视为不合法。

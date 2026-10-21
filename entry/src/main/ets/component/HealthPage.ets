@@ -1,12 +1,16 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
+import { WheelPickerButton } from './WheelPickerButton';
 import { ToolPalette } from '../model/ToolPalette';
+import { optionIndex } from '../model/NumberOptions';
 import { HealthGender, GenderEntry, GENDERS, ActivityEntry, ACTIVITY_LEVELS, BmiResult, RangeKg,
   DEFAULT_GENDER, DEFAULT_ACTIVITY, genderIndex, genderLabel, activityIndex, activityLabel,
   healthNumber, bmi, bmiCategoryText, normalWeightRange, bmr, tdee, healthErrorText,
-  healthFieldValid, healthContextText } from '../model/HealthMath';
+  healthFieldValid, healthContextText, HEALTH_AGE_MIN_YEARS, HEALTH_AGE_MAX_YEARS,
+  ageOptions } from '../model/HealthMath';
 
 /**
  * 健康计算页：BMI（含分类与中国标准下的正常体重范围）、基础代谢 BMR、每日消耗 TDEE。
@@ -23,6 +27,9 @@ export struct HealthPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：「复制结果摘要 / 清空输入」与「检查输入」动作行靠向正在操作的手；
+  // 取不到握姿时保持原样（贴左）。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
@@ -30,6 +37,8 @@ export struct HealthPage {
   @Local heightCm: string = '';
   @Local weightKg: string = '';
   @Local ageYears: string = '';
+  // 年龄滚轮的选项列：纯数字、与语言无关，构造时算一次（身高/体重是连续量，不挂滚轮）。
+  private agePickOptions: string[] = ageOptions();
   @Local activity: string = DEFAULT_ACTIVITY;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
@@ -115,17 +124,38 @@ export struct HealthPage {
     this.onCopy(context.length > 0 ? context + ' · ' + parts.join(' · ') : parts.join(' · '));
   }
 
-  @Builder private inputField(id: string, zh: string, en: string, placeholder: string) {
+  /**
+   * 输入行只收**常量** `id` 与 `pickable`（`@Builder` 按值传参不刷新）：文本与滚轮下标都在构建函数体内
+   * 按 `id` 现取。`pickable` 只有年龄行为 true——身高/体重是连续量，滚轮列会很长且没有意义。
+   */
+  @Builder private inputField(id: string, zh: string, en: string, placeholder: string, pickable: boolean) {
     Column({ space: 6 }) {
       Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
         corner: 16, interactive: true
       }) {
-        TextInput({ text: this.fieldText(id), placeholder: placeholder })
-          .backgroundColor(Color.Transparent)
-          .type(InputType.NUMBER_DECIMAL)
-          .onChange((value: string) => this.setFieldText(id, value)).height(52)
+        Row({ space: 0 }) {
+          TextInput({ text: this.fieldText(id), placeholder: placeholder })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+            .backgroundColor(Color.Transparent)
+            .type(InputType.NUMBER_DECIMAL)
+            .layoutWeight(1)
+            .onChange((value: string) => this.setFieldText(id, value)).height(52)
+          if (pickable) {
+            WheelPickerButton({
+              english: this.english,
+              options: this.agePickOptions,
+              selectedIndex: optionIndex(this.agePickOptions, this.ageYears),
+              immersiveSupported: this.immersiveSupported,
+              materialLevel: this.materialLevel,
+              a11yText: this.tr('从列表选择年龄', 'Pick the age from a list'),
+              onPicked: (value: string): void => this.setFieldText('age', value),
+              onStatus: (message: string): void => this.onStatus(message)
+            })
+          }
+        }.width('100%')
       }
     }.width('100%')
   }
@@ -188,7 +218,7 @@ export struct HealthPage {
             a11yText: this.tr('清空输入', 'Clear inputs'),
             onTap: () => { this.heightCm = ''; this.weightKg = ''; this.ageYears = ''; }
           })
-        }.width('100%')
+        }.width('100%').justifyContent(this.actionAlign)
       }
     }.padding(16).width('100%')
   }
@@ -227,9 +257,10 @@ export struct HealthPage {
           if (index >= 0 && index < GENDERS.length) { this.gender = GENDERS[index].id; }
         }
       })
-      this.inputField('height', '身高（cm）', 'Height (cm)', '如 175')
-      this.inputField('weight', '体重（kg）', 'Weight (kg)', '如 70')
-      this.inputField('age', '年龄（岁）', 'Age', '如 30')
+      this.inputField('height', '身高（cm）', 'Height (cm)', '如 175', false)
+      this.inputField('weight', '体重（kg）', 'Weight (kg)', '如 70', false)
+      this.inputField('age', '年龄（' + HEALTH_AGE_MIN_YEARS + '–' + HEALTH_AGE_MAX_YEARS + ' 岁）',
+        'Age (' + HEALTH_AGE_MIN_YEARS + '–' + HEALTH_AGE_MAX_YEARS + ')', '如 30', true)
       OptionSelect({
         label: this.tr('活动量', 'Activity'),
         options: this.activityOptions(),
@@ -245,7 +276,7 @@ export struct HealthPage {
           icon: $r('sys.symbol.heart'), tintColor: ToolPalette.primary,
           a11yText: this.tr('检查输入', 'Validate inputs'), onTap: () => this.validateInputs()
         })
-      }.width('100%')
+      }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
         lightEffect: true

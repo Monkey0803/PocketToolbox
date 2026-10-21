@@ -17,6 +17,10 @@ export struct DiffPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：操作手侧（-1 左手 / 0 未知·宽屏 / 1 右手）。
+  // 本页两行动作的原位不同——「对比」居中、底部「复制差异 / 清空」贴左——所以传的是**侧**而不是
+  // 单个 `FlexAlign`，各行动作各用 `handAlign(原位)` 取自己的靠向（2026-10-21）。
+  @Param handSide: number = 0;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
@@ -36,6 +40,15 @@ export struct DiffPage {
   @Local compared: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  /**
+   * 智感握姿：动作行靠向操作手；`fallback` 是该行在取不到握姿（或宽屏）时的**原位**——
+   * 每行可能不同（「对比」居中、底部动作行贴左），所以按行传，不要用一个全局值代替。
+   */
+  private handAlign(fallback: FlexAlign): FlexAlign {
+    if (this.handSide === 0) { return fallback; }
+    return this.handSide < 0 ? FlexAlign.Start : FlexAlign.End;
+  }
 
   private runCompare(): void {
     const outcome: DiffResult = diffLines(this.leftText, this.rightText);
@@ -59,15 +72,63 @@ export struct DiffPage {
   }
 
   private clearAll(): void {
-    this.leftText = '';
-    this.rightText = '';
+    this.clearSide('left');
+    this.clearSide('right');
+  }
+
+  /**
+   * 清空**单侧**输入：对比结果一并失效。
+   *
+   * 结果不能留着：清空一侧后旧差异已经与输入框内容不符，继续显示会让人以为「刚清空的那侧还有内容」
+   * （多行 `TextArea` 没有系统取消按钮，2026-10-21 输入框增强一给每个多行框补了一枚自绘 ✕）。
+   */
+  private clearSide(id: string): void {
+    if (id === 'left') { this.leftText = ''; } else { this.rightText = ''; }
     this.result = new DiffResult();
     this.diffLines = [];
+    this.expandedRows = new Set<number>();
     this.addedCount = 0;
     this.removedCount = 0;
     this.unchangedCount = 0;
     this.errorCode = '';
     this.compared = false;
+  }
+
+  private fieldText(id: string): string {
+    return id === 'left' ? this.leftText : this.rightText;
+  }
+
+  private setFieldText(id: string, value: string): void {
+    if (id === 'left') { this.leftText = value; } else { this.rightText = value; }
+  }
+
+  /**
+   * 多行输入框 + 一键清除：`TextArea` 没有 `cancelButton`（系统只给单行 `TextInput` 提供），
+   * 因此右上角自绘一枚 ✕，空内容时不可点。只收常量 `id`，文本在构建函数体内现取。
+   */
+  @Builder private textAreaField(id: string, zh: string, en: string) {
+    MaterialSurface({
+      supported: this.immersiveSupported,
+      level: this.materialLevel,
+      fallback: ToolPalette.surface,
+      corner: 16,
+      interactive: true
+    }) {
+      Row({ space: 4 }) {
+        TextArea({ text: this.fieldText(id), placeholder: this.tr(zh, en) })
+          .backgroundColor(Color.Transparent)
+          .layoutWeight(1)
+          .height(150)
+          .onChange((value: string) => this.setFieldText(id, value))
+        IconActionButton({
+          icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+          usable: this.fieldText(id).length > 0,
+          a11yText: id === 'left' ? this.tr('清空原文本', 'Clear the original text') :
+            this.tr('清空新文本', 'Clear the new text'),
+          onTap: () => this.clearSide(id)
+        })
+      }.width('100%').alignItems(VerticalAlign.Top)
+    }
   }
 
   private statisticsText(): string {
@@ -143,30 +204,8 @@ export struct DiffPage {
   build() {
     Column({ space: 12 }) {
       // 输入类组件由 MaterialSurface 提供单层材质与退化底色，自身必须透明（否则四角会露出外层的白）。
-      MaterialSurface({
-        supported: this.immersiveSupported,
-        level: this.materialLevel,
-        fallback: ToolPalette.surface,
-        corner: 16,
-        interactive: true
-      }) {
-        TextArea({ text: this.leftText, placeholder: this.tr('原文本', 'Original') })
-          .backgroundColor(Color.Transparent)
-          .height(150)
-          .onChange((value: string) => { this.leftText = value; })
-      }
-      MaterialSurface({
-        supported: this.immersiveSupported,
-        level: this.materialLevel,
-        fallback: ToolPalette.surface,
-        corner: 16,
-        interactive: true
-      }) {
-        TextArea({ text: this.rightText, placeholder: this.tr('新文本', 'New') })
-          .backgroundColor(Color.Transparent)
-          .height(150)
-          .onChange((value: string) => { this.rightText = value; })
-      }
+      this.textAreaField('left', '原文本', 'Original')
+      this.textAreaField('right', '新文本', 'New')
 
       // 文字动作按钮：整行居中、品牌底色 + 白字（不带底色那条只适用于纯图标按钮）。
       Row() {
@@ -174,7 +213,7 @@ export struct DiffPage {
           .backgroundColor(ToolPalette.primary).fontColor(Color.White).fontWeight(FontWeight.Medium)
           .fontSize(16).borderRadius(24)
           .onClick(() => this.runCompare())
-      }.width('100%').justifyContent(FlexAlign.Center)
+      }.width('100%').justifyContent(this.handAlign(FlexAlign.Center))
 
       Text(this.statisticsText()).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
 
@@ -225,7 +264,7 @@ export struct DiffPage {
           usable: this.leftText.length > 0 || this.rightText.length > 0 || this.diffLines.length > 0,
           onTap: () => this.clearAll()
         })
-      }.width('100%')
+      }.width('100%').justifyContent(this.handAlign(FlexAlign.Start))
     }.width('100%')
   }
 }

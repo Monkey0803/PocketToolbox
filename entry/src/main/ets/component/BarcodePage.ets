@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
@@ -158,6 +159,8 @@ export struct BarcodePage {
         interactive: true
       }) {
         TextInput({ text: this.barcodeText, placeholder: this.tr('条形码内容', 'Barcode content') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .onChange((value: string) => { this.barcodeText = value; this.barcodePixel = undefined; this.barcodeResult = ''; })
           .type(barcodeNumeric(this.barcodeKind) ? InputType.Number : InputType.Normal)

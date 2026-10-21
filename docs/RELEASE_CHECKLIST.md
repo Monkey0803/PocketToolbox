@@ -236,7 +236,6 @@
   - **模拟器复验（Mate X7 折叠态 1080×2444 @480 / 展开态 2210 px）**：折叠态运算符行第二行 `mod` `Ans` `⌫`、内存行四项、结果卡引导句都渲染正常（键高 138 px = 44 vp）；`pi` → `Ans` 得 `pi*3.141592654`、清空后 `Ans` 得 `97.40909104`；退格单字符与整词都实测；`M+` 显示「内存 3.141592654」、`MR` 插入成因子、`MC` 清掉、空内存 `MR` 弹「内存是空的」。截图 [science-new-keys-folded-zh.jpeg](screenshots/emulator/science-new-keys-folded-zh.jpeg)、[science-memory-folded-zh.jpeg](screenshots/emulator/science-memory-folded-zh.jpeg)、[science-new-keys-wide-zh.jpeg](screenshots/emulator/science-new-keys-wide-zh.jpeg)。
   - **真机待复核**：`sys.symbol.delete_left` 的机型显示与键位触控手感。**注意**：折叠态比上一轮多了一行内存键，页面底部（结果卡下沿与页脚）需要轻微滚动才完全可见——若你希望折叠态也一屏放完，可以把内存键折进「完整语法说明」那种二级入口，或把 `M+`/`M−` 合并成一个切换。
 
-
 - **科学计算器键区重做为真计算器键盘（2026-10-21，已完成单测、构建与折叠/展开双形态模拟器复验）**：不新增权限、不引入联网、工具数不变。
   ① **`PAD_KEYS` 主键盘 30 格（5 列 × 6 行）**：`sin cos tan ln log` / `( ) ^ ! mod` / `7 8 9 ÷ ⌫` / `4 5 6 × C` / `1 2 3 − π` / `0 . Ans + =`，`label` 与 `insert` 分开（`÷ × −` 键面是运算符、插进去是解析器认的 `/ * -`；`π` 键面 `π`、插入 `pi`），动作只有 `insert`/`backspace`/`clear`/`equals`/`ans` 五种，行切片走纯逻辑 `padRowKeys(row)`。**数字键是这一版补上的能力**——此前普通算式也得先拉起系统软键盘。
   ② **`=` 的口径**：走纯逻辑 `equalsExpression(expression, angle, precision)`——有效给结果文本并由页面替换表达式、无效/空给空串（页面提示而不是清空）；本页是实时求值，`=` 只是把结果落成新的表达式起点。
@@ -260,6 +259,7 @@
 - **修复折叠式入口的标题会随展开状态翻转（2026-10-21）**：科学计算器三个整行入口（「更多函数与内存」「角度 DEG · 10 位有效数字」「完整语法说明」）原来在展开后会把可见标题换成「收起更多函数」/「收起设置」/「收起语法说明」——同一入口在两个状态下成了两个话题（「更多函数与内存」展开后还漏了「与内存」），**设置行一展开就看不见当前的角度与精度口径**。改为：**可见标题只描述「这一行是什么」，展开与否只由 chevron 与 `accessibilityText`（`展开…`/`收起…`）表达**，与 `LoanPage`「还款计划表」的既有做法一致；标题同时补成「更多函数与内存键」（面板里确实有 4 个内存键）。
   - **验证**：折叠态 `dumpLayout` 展开前后标题文本逐字相同（`更多函数与内存键` 始终在同一行），chevron 由下变上；`assembleHap` `BUILD SUCCESSFUL`、一致性检查 14 项、单测全绿。截图 [science-entries-collapsed-zh.jpeg](screenshots/emulator/science-entries-collapsed-zh.jpeg)、[science-more-entry-expanded-zh.jpeg](screenshots/emulator/science-more-entry-expanded-zh.jpeg)。
   - **同类已一并统一**：`TaxPage` 的「展开扣除与累计数据」↔「收起扣除与累计数据」改成固定标题「扣除与累计数据」+ chevron（可见文案里不再出现「展开/收起」，全部收进 `accessibilityText`）。实测折叠态：点开后标题仍是 `扣除与累计数据 [112,1480][880,1535]`（位置不变），下方出现「本期专项附加扣除」区。截图 [tax-advanced-entry-collapsed-zh.jpeg](screenshots/emulator/tax-advanced-entry-collapsed-zh.jpeg)、[tax-advanced-entry-expanded-zh.jpeg](screenshots/emulator/tax-advanced-entry-expanded-zh.jpeg)。全仓扫描确认：`tr('展开…')`/`tr('收起…')` 现在只出现在 `accessibilityText`/`a11yText` 里。
+
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
   ② **工具搜索支持关键词**：`model/ToolMeta.ets` 的 `ToolMeta` 增加可选 `keywords`（别名/缩写，只参与搜索不显示），`matchTools()` 一并匹配；已为二维码/条码/计算/个税/单位/计时/日期/时间戳/文本/随机/密码/贷款/颜色/健康/文档扫描/水平仪补齐关键词（如「健康计算」可用 `BMI`/`BMR`/`基础代谢` 搜到，`房贷` 命中贷款计算）。

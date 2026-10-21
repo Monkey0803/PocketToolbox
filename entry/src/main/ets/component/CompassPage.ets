@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { common } from '@kit.AbilityKit';
 import { sensor } from '@kit.SensorServiceKit';
 import { uiMaterial } from '@kit.ArkUI';
@@ -52,6 +53,8 @@ export struct CompassPage {
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param data: LocalData | undefined = undefined;
+  // 智感握姿：「锁定方位 / 复制方位」动作行靠向正在操作的手；取不到握姿时保持原样（居中）。
+  @Param actionAlign: FlexAlign = FlexAlign.Center;
   @Event onCopy: (value: string) => void = () => {};
 
   @Local heading: number = Number.NaN;
@@ -349,7 +352,7 @@ export struct CompassPage {
           boxSize: 44, iconSize: 22, usable: this.ready,
           onTap: (): void => { this.copyReading(); }
         })
-      }.justifyContent(FlexAlign.Center).width('100%')
+      }.justifyContent(this.actionAlign).width('100%')
       // 磁偏角手输：零权限的真北校正（不联网、不读定位），输入非法时如实提示而不是当 0 用。
       Text(this.tr('磁偏角（可选，手输）', 'Declination (optional, manual)')).fontSize(15)
         .fontColor(ToolPalette.textSecondary).width('100%')
@@ -361,6 +364,8 @@ export struct CompassPage {
           text: this.declinationInput,
           placeholder: this.tr('如 7.5E / 7.5W / 东偏 7.5，留空表示用磁北', 'e.g. 7.5E, 7.5W or -7.5; empty = magnetic north')
         })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent).height(48)
           .onChange((value: string) => {
             this.declinationInput = value;

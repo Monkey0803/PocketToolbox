@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { ToolPalette } from '../model/ToolPalette';
@@ -499,6 +500,8 @@ export struct TorchPage {
           text: this.morseInput,
           placeholder: this.tr('字母或数字，例如 SOS 123', 'Letters or digits, for example SOS 123')
         })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .height(52)
           .onChange((value: string): void => { this.morseInput = value; })

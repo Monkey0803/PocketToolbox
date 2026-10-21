@@ -12,6 +12,7 @@ import { netErrorText } from '../model/NetworkTools';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_OPTIONS, LanguageOption, languagePreferenceAt,
   languagePreferenceIndex, languagePreferenceLabel } from '../model/LanguagePreference';
 import { InfoRow, appVersionText, deviceInfoRows } from '../services/DeviceInfo';
+import { handPostureA11yText, handPostureNoteText, handPostureTitleEn, handPostureTitleZh } from '../model/HandPosture';
 import { loadHolidayTable, readCachedIcs } from '../services/HolidayData';
 import { HolidayUpdateOutcome, updateHolidayData } from '../services/HolidayUpdate';
 
@@ -29,6 +30,13 @@ export struct SettingsPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：开关状态与「本机是否提供握姿识别」都由父组件给（后者由 `motion` 查询是否抛 801 决定）。
+  @Param handPosture: boolean = true;
+  @Param handPostureSupported: boolean = false;
+  @Event onHandPostureChange: (enabled: boolean) => void = () => {};
+  // 智感握姿：「清空历史 / 清除本机数据 / 导出 / 导入」数据动作行靠向正在操作的手；
+  // 取不到握姿时保持原样（贴左）。顺序不变，「清除本机数据」仍有系统确认框。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Param activeIconName: string = '';
   @Param iconReady: boolean = false;
   @Param iconBusy: boolean = false;
@@ -307,6 +315,43 @@ export struct SettingsPage {
     }.width('100%')
   }
 
+  /**
+   * 「操作方式」区：智感握姿开关。
+   *
+   * 只摆控件与派发事件——值的落盘与内存复位在 `Index.setHandPosture()`（先改内存 → 落盘 → 失败回滚）。
+   *
+   * 开关本身**不跟随握姿**：它是「表单行」（左侧标签 + 右侧控件），跟随会让标签与控制换边、
+   * 与其它设置行不一致；而且关掉它以后布局还必须立刻稳定下来。
+   *
+   * 文案必须如实区分「开」「关」「本机不支持」三种状态（`handPostureNoteText()`），
+   * 不支持时禁用开关（`enabled(false)`）——不能让人以为是开关没生效。
+   */
+  @Builder private interactionSection() {
+    Column({ space: 10 }) {
+      Text(this.tr('操作方式', 'Interaction')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel,
+        fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
+      }) {
+        Column({ space: 8 }) {
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text(this.tr(handPostureTitleZh(), handPostureTitleEn()))
+                .fontSize(16).fontColor(ToolPalette.textPrimary).width('100%')
+              Text(handPostureNoteText(this.handPosture, this.handPostureSupported, this.english))
+                .fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.handPosture })
+              .enabled(this.handPostureSupported)
+              .accessibilityText(handPostureA11yText(this.handPosture, this.english))
+              .onChange((value: boolean) => this.onHandPostureChange(value))
+          }.width('100%')
+        }.padding(16).width('100%')
+      }
+    }.width('100%')
+  }
+
   @Builder private deviceSection() {
     Column({ space: 10 }) {
       Text(this.tr('设备信息', 'Device info')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
@@ -422,13 +467,14 @@ export struct SettingsPage {
         this.iconChoice('toolbox_drawers', $r('app.media.toolbox_drawers_icon'), '工具抽屉', 'Toolbox drawers')
         this.iconChoice('toolbox_grid', $r('app.media.toolbox_grid_icon'), '工具网格', 'Toolbox grid')
       }.width('100%')
+      this.interactionSection()
       this.deviceSection()
       this.holidaySection()
       Text(this.tr('隐私', 'Privacy')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 这段必须与 `docs/PRIVACY.md` 同步：它曾停留在「3 项权限、无联网」的旧版本，漏了纪念日清单、
       // 汇率缓存与指南针/水平仪的上次单位（2026-10-20 审计 P0）。
-      Text(this.tr('历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、工具收藏及其顺序、语言偏好、单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；文档扫描结果只在本次运行保留，由你主动导出。应用申请 5 项权限（代理提醒、握姿、加速度传感器、网络、网络信息），联网只有三处且全部由你点击触发：网络工具探测、单位换算「更新汇率」、设置页「检查更新」；启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
-        'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), timers and stopwatch laps, favourites and their order, language preference, the converter’s last category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; document scans stay in memory until you export them. The app requests five permissions (reminder agent, gesture, accelerometer, internet, network info). Network access happens in exactly three places, each triggered by your tap: Network tools probes, the converter’s Update rates, and Settings’ Check for updates; app start-up, the background and the home-screen widget never go online. Tax is computed on-device and official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
+      Text(this.tr('历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、工具收藏及其顺序、语言偏好、智感握姿开关、单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；文档扫描结果只在本次运行保留，由你主动导出。应用申请 5 项权限（代理提醒、握姿、加速度传感器、网络、网络信息），联网只有三处且全部由你点击触发：网络工具探测、单位换算「更新汇率」、设置页「检查更新」；启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
+        'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), timers and stopwatch laps, favourites and their order, language preference, the adaptive hand posture switch, the converter’s last category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; document scans stay in memory until you export them. The app requests five permissions (reminder agent, gesture, accelerometer, internet, network info). Network access happens in exactly three places, each triggered by your tap: Network tools probes, the converter’s Update rates, and Settings’ Check for updates; app start-up, the background and the home-screen widget never go online. Tax is computed on-device and official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       Row({ space: 8 }) {
         IconActionButton({
@@ -455,7 +501,7 @@ export struct SettingsPage {
           a11yText: this.tr('导入本机数据', 'Import on-device data'), usable: this.dataReady,
           onTap: () => this.confirmImportData()
         })
-      }.width('100%')
+      }.width('100%').justifyContent(this.actionAlign)
       this.aboutSection()
       Text(this.versionFooterText())
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')

@@ -1,12 +1,16 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
+import { WheelPickerButton } from './WheelPickerButton';
 import { ToolPalette } from '../model/ToolPalette';
+import { optionIndex } from '../model/NumberOptions';
 import { formatMoney } from '../model/QuickCalculators';
 import { LoanMethod, LoanMethodEntry, LoanResult, LOAN_METHODS, DEFAULT_LOAN_METHOD,
   loanMethodIndex, loanMethodLabel, loanMonths, loanCents, loanRatePercent, calculateLoan,
-  loanErrorText, loanSchedule, LoanScheduleRow, MAX_LOAN_MONTHS, loanTermText } from '../model/LoanMath';
+  loanErrorText, loanSchedule, LoanScheduleRow, MAX_LOAN_MONTHS, loanTermText,
+  loanTermYearOptions, loanExtraMonthOptions } from '../model/LoanMath';
 
 /** 计划表最多渲染多少期（30 年期是 360 期，全渲染会拖慢页面；汇总值不受影响）。 */
 const SCHEDULE_VIEW_MAX: number = 120;
@@ -23,6 +27,8 @@ export struct LoanPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：「计算 / 清空输入」动作行靠向正在操作的手；取不到握姿时保持原样（贴左）。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
@@ -30,6 +36,12 @@ export struct LoanPage {
   @Local annualRate: string = '';
   @Local years: string = '';
   @Local extraMonths: string = '';
+  /**
+   * 期限两框的滚轮列：**按另一框的当前值收窄**，保证 `12 × 年 + 月 ≤ MAX_LOAN_MONTHS`
+   * （否则用户能选到必然被 `calculateLoan()` 拒绝的组合）。在两个框唯一的写入口 `setFieldText()` 里重算。
+   */
+  @Local yearPickOptions: string[] = loanTermYearOptions('0');
+  @Local monthPickOptions: string[] = loanExtraMonthOptions('0');
   @Local method: LoanMethod = DEFAULT_LOAN_METHOD;
   @Local result: LoanResult | undefined = undefined;
   // 计划表是否展开（默认收起：360 期铺开太长）。
@@ -114,20 +126,47 @@ export struct LoanPage {
       this.tr('总还款', 'Total payment') + ' ' + formatMoney(computed.totalPaymentCents);
   }
 
+  /**
+   * 输入行只收**常量** `id` 与 `pickable`：文本、滚轮选项与下标都在构建函数体内按 `id` 现取。
+   * 本金与年利率是连续量，`pickable` 传 false；期限的「年」「月」两行挂滚轮（选项按另一框收窄）。
+   */
   @Builder private inputField(id: string, zh: string, en: string, placeholderZh: string,
-    placeholderEn: string) {
+    placeholderEn: string, pickable: boolean) {
     Column({ space: 6 }) {
       Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
         corner: 16, interactive: true
       }) {
-        TextInput({ text: this.fieldText(id), placeholder: this.tr(placeholderZh, placeholderEn) })
-          .backgroundColor(Color.Transparent)
-          .type(InputType.NUMBER_DECIMAL)
-          .onChange((value: string) => this.setFieldText(id, value)).height(52)
+        Row({ space: 0 }) {
+          TextInput({ text: this.fieldText(id), placeholder: this.tr(placeholderZh, placeholderEn) })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+            .backgroundColor(Color.Transparent)
+            .type(InputType.NUMBER_DECIMAL)
+            .layoutWeight(1)
+            .onChange((value: string) => this.setFieldText(id, value)).height(52)
+          if (pickable) {
+            WheelPickerButton({
+              english: this.english,
+              options: this.pickOptions(id),
+              selectedIndex: optionIndex(this.pickOptions(id), this.fieldText(id)),
+              immersiveSupported: this.immersiveSupported,
+              materialLevel: this.materialLevel,
+              a11yText: id === 'years' ? this.tr('从列表选择期限年数', 'Pick the term in years') :
+                this.tr('从列表选择期限月数', 'Pick the extra months'),
+              onPicked: (value: string): void => this.setFieldText(id, value),
+              onStatus: (message: string): void => this.onStatus(message)
+            })
+          }
+        }.width('100%')
       }
     }.width('100%')
+  }
+
+  /** 期限两框的滚轮列（按常量 `id` 现取，`@Builder` 不接算好的数组）。 */
+  private pickOptions(id: string): string[] {
+    return id === 'years' ? this.yearPickOptions : this.monthPickOptions;
   }
 
   private fieldText(id: string): string {
@@ -142,6 +181,9 @@ export struct LoanPage {
     else if (id === 'rate') { this.annualRate = value; }
     else if (id === 'years') { this.years = value; }
     else { this.extraMonths = value; }
+    // 期限两框互相约束：任一框变化后，另一框的滚轮列都要按新值重算（别让用户选到超上限的组合）。
+    this.yearPickOptions = loanTermYearOptions(this.extraMonths);
+    this.monthPickOptions = loanExtraMonthOptions(this.years);
     // 输入变化后结果先失效，避免界面上留着上一次的旧数字。
     this.result = undefined;
   }
@@ -260,12 +302,12 @@ export struct LoanPage {
       Text(this.tr('等额本息每月还款额相同；等额本金每月本金相同、利息递减，前期压力更大但总利息更少。结果为估算值，实际以银行为准。',
         'Equal installment keeps the monthly payment flat; equal principal keeps the principal flat with falling interest — higher early payments, less total interest. Figures are estimates; your bank’s rounding may differ.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-      this.inputField('principal', '贷款金额（元）', 'Loan amount', '如 1000000', 'e.g. 1000000')
-      this.inputField('rate', '年利率（%）', 'Annual rate (%)', '如 4.9', 'e.g. 4.9')
-      this.inputField('years', '期限（年）', 'Term (years)', '如 30', 'e.g. 30')
+      this.inputField('principal', '贷款金额（元）', 'Loan amount', '如 1000000', 'e.g. 1000000', false)
+      this.inputField('rate', '年利率（%）', 'Annual rate (%)', '如 4.9', 'e.g. 4.9', false)
+      this.inputField('years', '期限（年）', 'Term (years)', '如 30', 'e.g. 30', true)
       // 两框是**相加**关系，文案必须写清（此前写「不足一年时填这里」，会让人以为填了月就不看年）。
       this.inputField('extraMonths', '期限（月，与年数相加）', 'Term (months, added to years)',
-        '如 6，表示 6 个月', 'e.g. 6 for six months')
+        '如 6，表示 6 个月', 'e.g. 6 for six months', true)
       if (this.termText().length > 0) {
         Text(this.termText()).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
       }
@@ -295,7 +337,7 @@ export struct LoanPage {
             this.result = undefined;
           }
         })
-      }.width('100%')
+      }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
         lightEffect: true

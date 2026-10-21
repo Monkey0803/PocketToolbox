@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -24,6 +25,9 @@ export struct KinshipPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：「删除最后一个关系词」独立动作行靠向正在操作的手；取不到握姿时保持原样（贴左）。
+  // **关系词拼接条不跟随**（逐段拼接的语义顺序不可镜像）。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Event onCopy: (value: string) => void = () => {};
 
   @Local chain: string = '';
@@ -190,6 +194,8 @@ export struct KinshipPage {
           corner: 16, interactive: true
         }) {
           TextInput({ text: this.chain, placeholder: this.tr('如「爸爸的哥哥」', 'e.g. father’s older brother') })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .height(52)
             .accessibilityText(this.tr('亲属关系链', 'Relationship chain'))
@@ -203,11 +209,9 @@ export struct KinshipPage {
           a11yText: this.tr('删除最后一个关系词', 'Delete the last step'),
           onTap: () => { this.chain = removeLastKinStep(this.chain); }
         })
-        IconActionButton({
-          icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-          a11yText: this.tr('清空输入', 'Clear the input'), onTap: () => { this.chain = ''; }
-        })
-      }.width('100%')
+        // 原来这里还有一枚「清空输入」垃圾桶：它做的正是输入框内那枚 ✕ 的事（都只清 `chain`），
+        // 单行输入框接上系统 `cancelButton` 后属于重复入口，已删除（2026-10-21 输入框增强一）。
+      }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
         lightEffect: true

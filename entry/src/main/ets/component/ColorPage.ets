@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { HdsColorPicker } from '@kit.UIDesignKit';
 import { IconActionButton } from './IconActionButton';
@@ -126,6 +127,8 @@ export struct ColorPage {
             corner: 16, interactive: true
           }) {
             TextInput({ text: this.fieldText(id), placeholder: placeholder })
+              // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+              .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
               .backgroundColor(Color.Transparent)
               .onChange((value: string) => this.setFieldText(id, value)).height(52)
           }

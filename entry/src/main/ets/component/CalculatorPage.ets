@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -213,6 +214,8 @@ export struct CalculatorPage {
         interactive: true
       }) {
         TextInput({ text: this.inputText(kind), placeholder: placeholder })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .type(numeric ? InputType.Number : InputType.Normal)
           .onChange((value: string) => this.setInput(kind, value)).height(52)

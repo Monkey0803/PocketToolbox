@@ -1,13 +1,17 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
+import { WheelPickerButton } from './WheelPickerButton';
 import { ToolPalette } from '../model/ToolPalette';
+import { optionIndex } from '../model/NumberOptions';
 import { parseIntegerInput } from '../model/Units';
 import {
   PasswordMode, PasswordOptions, PASSWORD_MODES, PIN_LENGTHS, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH,
   PASSWORD_CUSTOM_MAX, passwordModeIndex, pinLengthIndex, entropyBits, pinEntropyBits, strengthLevel,
-  strengthText, entropyNoteText, passwordLengthErrorText, customCharsetErrorText, validPasswordOptions
+  strengthText, entropyNoteText, passwordLengthErrorText, customCharsetErrorText, validPasswordOptions,
+  passwordLengthOptions
 } from '../model/PasswordTools';
 import { createPassword, createPin } from '../services/PasswordGenerator';
 
@@ -31,6 +35,8 @@ export struct PasswordPage {
 
   @Local passwordMode: string = 'password';
   @Local passwordLength: string = '16';
+  // 长度滚轮的选项列：纯数字、与语言无关，构造时算一次（不要每帧重建数组）。
+  private lengthPickOptions: string[] = passwordLengthOptions();
   @Local passwordUpper: boolean = true;
   @Local passwordLower: boolean = true;
   @Local passwordDigits: boolean = true;
@@ -190,9 +196,24 @@ export struct PasswordPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.passwordLength, placeholder: '16' })
-          .backgroundColor(Color.Transparent).type(InputType.Number)
-          .onChange((value: string) => { this.passwordLength = value; this.invalidatePassword(); }).height(52)
+        // 长度是 8–128 的有限取值：手输之外再给一个滚轮入口（`WheelPickerButton`）。
+        Row({ space: 0 }) {
+          TextInput({ text: this.passwordLength, placeholder: '16' })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+            .backgroundColor(Color.Transparent).type(InputType.Number).layoutWeight(1)
+            .onChange((value: string) => { this.passwordLength = value; this.invalidatePassword(); }).height(52)
+          WheelPickerButton({
+            english: this.english,
+            options: this.lengthPickOptions,
+            selectedIndex: optionIndex(this.lengthPickOptions, this.passwordLength),
+            immersiveSupported: this.immersiveSupported,
+            materialLevel: this.materialLevel,
+            a11yText: this.tr('从列表选择密码长度', 'Pick the password length from a list'),
+            onPicked: (value: string): void => { this.passwordLength = value; this.invalidatePassword(); },
+            onStatus: (message: string): void => this.onStatus(message)
+          })
+        }.width('100%')
       }
       // 长度即时校验（§3.23⑤）：不等按下「生成」才被拒绝。
       if (passwordLengthErrorText(this.passwordLengthValue(), this.english).length > 0) {
@@ -218,6 +239,8 @@ export struct PasswordPage {
         interactive: true
       }) {
         TextInput({ text: this.passwordCustom, placeholder: this.tr('填了就只用这些字符', 'If set, only these are used') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent).type(InputType.Normal)
           .onChange((value: string) => { this.passwordCustom = value; this.invalidatePassword(); }).height(52)
       }

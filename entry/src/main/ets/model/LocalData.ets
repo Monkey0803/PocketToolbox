@@ -33,7 +33,10 @@ export const LOCAL_KEYS: string[] = [
   'compass_unit',
   'compass_declination',
   'level_unit',
-  'level_tolerance'
+  'level_tolerance',
+  // 智感握姿开关（`model/HandPosture.ets` 的 `on`/`off`）。放进来才会被「清除本机数据」与
+  // 导出/导入信封一起覆盖——设置类偏好漏登记过一次就会在清除后留下残留（见 AGENTS）。
+  'hand_posture'
 ];
 
 /** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */

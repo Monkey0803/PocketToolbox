@@ -29,6 +29,9 @@ export struct SciencePage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：结果卡内的「用结果替换表达式 / 复制 / 清空」动作行靠向正在操作的手；
+  // 取不到握姿时保持原样（贴左）。**键盘与常用键网格不跟随**（键序不可镜像）。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
@@ -349,7 +352,7 @@ export struct SciencePage {
               a11yText: this.tr('清空表达式', 'Clear the expression'),
               onTap: () => { this.expression = ''; }
             })
-          }.width('100%')
+          }.width('100%').justifyContent(this.actionAlign)
         } else if (this.expression.trim().length === 0) {
           // 空态给可上手的例子（占位符讲「怎么写」，这里给「先试什么」）。
           Text(calcEmptyHintText(this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')

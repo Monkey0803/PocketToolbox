@@ -75,6 +75,7 @@ const fxTools = await loadEts('../entry/src/main/ets/model/FxTools.ets');
 const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.ets');
 const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
 const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
+const handPosture = await loadEts('../entry/src/main/ets/model/HandPosture.ets');
 const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets');
 const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
 const aboutInfo = await loadEts('../entry/src/main/ets/model/AboutInfo.ets');
@@ -974,7 +975,7 @@ assert.equal(epoch.unit, 'seconds');
 assert.equal(epoch.millis, 0);
 assert.equal(epoch.seconds, 0);
 assert.equal(epoch.utcText, '1970-01-01 00:00:00Z');
-assert.equal(epoch.isoUtcText, '1970-01-01T00:00:00.000Z');
+assert.equal(epoch.isoUtcText, '1970-01-01 00:00:00.000 Z');
 const secondsStamp = timeTools.parseStampInput('1750000000');
 assert.equal(secondsStamp.millis, 1750000000000);
 assert.equal(secondsStamp.seconds, 1750000000);
@@ -986,12 +987,23 @@ assert.equal(millisStamp.millis, 1750000000123);
 assert.equal(millisStamp.seconds, 1750000000);
 assert.equal(millisStamp.fromTimestamp, true);
 assert.equal(millisStamp.unit, 'milliseconds');
-// 毫秒精度必须可见：ISO 输出保留 .123，且两种 ISO 写法都能解析回同一瞬间
-assert.equal(millisStamp.isoUtcText, '2025-06-15T15:06:40.123Z');
+// 毫秒精度必须可见：ISO 输出保留 .123，日期/时间/时区之间各留一个空格，且两种 ISO 写法都能解析回同一瞬间
+assert.equal(millisStamp.isoUtcText, '2025-06-15 15:06:40.123 Z');
 assert.equal(timeTools.parseStampInput(millisStamp.isoUtcText).millis, 1750000000123);
 assert.equal(timeTools.parseStampInput(millisStamp.isoLocalText).millis, 1750000000123);
-assert.ok(millisStamp.isoLocalText.endsWith('.123' + timeTools.parseStampInput('0').isoLocalText.slice(-6)),
-  'local ISO must keep milliseconds and a numeric offset');
+// 旧写法（`T` 分隔、时区紧贴）仍必须能解析：用户可能从别处粘来这种串
+assert.equal(timeTools.parseStampInput('2025-06-15T15:06:40.123Z').millis, 1750000000123);
+assert.equal(timeTools.parseStampInput('2025-06-15T15:06:40.123 +08:00').millis, 1750000000123 - 8 * 3600000,
+  '带空格的偏移写法必须按「该偏移下的时刻」解释（15:06+08:00 = 07:06Z）');
+assert.ok(millisStamp.isoLocalText.endsWith('.123 ' + timeTools.parseStampInput('0').isoLocalText.slice(-6)),
+  'local ISO must keep milliseconds and a numeric offset (space-separated)');
+assert.equal(millisStamp.isoUtcText.split(' ').length, 3, 'ISO 输出应为「日期 时间 时区」三段');
+assert.equal(millisStamp.isoLocalText.split(' ').length, 3);
+// 换行只属于**窄窗排版**（页面 `lineDisplayText()`）：模型输出必须是单行，复制出去不能带换行
+assert.equal(millisStamp.isoUtcText.includes('\n'), false, 'ISO 输出不得含换行');
+assert.equal(millisStamp.isoLocalText.includes('\n'), false);
+assert.equal(timeTools.parseStampInput(millisStamp.isoUtcText.replace(' ', '\n')).error, 'format',
+  '带换行的串不是合法输入（排版不该被当成格式）');
 const negativeStamp = timeTools.parseStampInput('-86400');
 assert.equal(negativeStamp.seconds, -86400);
 assert.equal(negativeStamp.millis, -86400000);
@@ -4961,6 +4973,73 @@ assert.equal(layout.layoutMetrics(359, 800).narrow, true);
 assert.equal(layout.layoutMetrics(360, 800).narrow, false);
 assert.equal(layout.layoutMetrics(366, 809).narrow, false);  // 常规手机
 assert.equal(layout.layoutMetrics(440, 744).narrow, false);  // 阔直板
+
+// 智感握姿：操作手优先于持握手、宽屏恒 0、未知恒 0（界面据此保持原布局）
+assert.equal(layout.actionHandSide(-1, 1, layout.WIDTH_SM), -1, '操作手优先于持握手');
+assert.equal(layout.actionHandSide(1, -1, layout.WIDTH_SM), 1);
+assert.equal(layout.actionHandSide(0, -1, layout.WIDTH_SM), -1, '操作手未知时退回持握手');
+assert.equal(layout.actionHandSide(0, 1, layout.WIDTH_SM), 1);
+assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM), 0, '都未知 → 0（不要自己猜左右）');
+assert.equal(layout.actionHandSide(-1, 1, layout.WIDTH_MD), 0, '宽屏不跟随握姿');
+assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_LG), 0);
+assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_XL), 0);
+// 外部数值收敛：非有限值（NaN/±Infinity）一律按「未知」处理，越界有限值只取符号
+assert.equal(layout.actionHandSide(Number.NaN, Number.POSITIVE_INFINITY, layout.WIDTH_SM), 0,
+  '非有限值不是可信的握姿信号，必须当未知');
+assert.equal(layout.actionHandSide(Number.POSITIVE_INFINITY, Number.NaN, layout.WIDTH_SM), 0);
+assert.equal(layout.actionHandSide(0, Number.NaN, layout.WIDTH_SM), 0);
+assert.equal(layout.actionHandSide(7, 0, layout.WIDTH_SM), 1, '越界正数按右手');
+assert.equal(layout.actionHandSide(-7, 0, layout.WIDTH_SM), -1, '越界负数按左手');
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_MD), 0);
+
+// 双手持握 / 未持握（系统明确报出来的状态）→ 保持默认版式，**连操作手也不跟**：
+// 两侧一样好够，跟随只会让按钮在交替用拇指时左右横跳
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM, true), 0, '双手持握时不跟操作手');
+assert.equal(layout.actionHandSide(1, 1, layout.WIDTH_SM, true), 0);
+assert.equal(layout.actionHandSide(-1, -1, layout.WIDTH_SM, true), 0);
+assert.equal(layout.actionHandSide(0, 1, layout.WIDTH_SM, true), 0);
+// 不冻结时行为不变（默认参数 = false，向后兼容）
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM), -1, '不冻结时仍跟操作手');
+assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_SM, false), 1);
+assert.equal(layout.actionHandSide(0, -1, layout.WIDTH_SM, false), -1);
+// 「冻结」与「持握手未知」是两件事：后者要用操作手兜底（否则不支持握姿的机型整个功能失效）
+assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_SM, false), 1, '持握手未知时用操作手兜底');
+assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM, false), 0);
+
+// 智感握姿开关（model/HandPosture.ets）：默认开启、只认 on/off、未知值回退默认
+assert.equal(handPosture.DEFAULT_HAND_POSTURE, true, '默认开启');
+assert.equal(handPosture.HAND_POSTURE_ON, 'on');
+assert.equal(handPosture.HAND_POSTURE_OFF, 'off');
+assert.equal(handPosture.parseHandPosture(''), true, '没写过 → 默认开启');
+assert.equal(handPosture.parseHandPosture('on'), true);
+assert.equal(handPosture.parseHandPosture('off'), false);
+assert.equal(handPosture.parseHandPosture(' OFF '), false, '大小写与空白不敏感');
+assert.equal(handPosture.parseHandPosture('yes'), true, '未知值回退默认（不是当关闭）');
+assert.equal(handPosture.parseHandPosture(undefined), true, '旧数据缺键 → 默认');
+assert.equal(handPosture.serializeHandPosture(true), 'on');
+assert.equal(handPosture.serializeHandPosture(false), 'off');
+// 往返：写入什么读回什么
+assert.equal(handPosture.parseHandPosture(handPosture.serializeHandPosture(false)), false);
+assert.equal(handPosture.parseHandPosture(handPosture.serializeHandPosture(true)), true);
+// 文案：三种状态必须区分开（开 / 关 / 本机不支持），英文也要有
+const postureOnZh = handPosture.handPostureNoteText(true, true, false);
+const postureOffZh = handPosture.handPostureNoteText(false, true, false);
+const postureUnsupportedZh = handPosture.handPostureNoteText(true, false, false);
+assert.ok(postureOnZh.length > 0 && postureOffZh.length > 0 && postureUnsupportedZh.length > 0);
+assert.notEqual(postureOnZh, postureOffZh, '开/关说明不能同一句');
+assert.notEqual(postureOnZh, postureUnsupportedZh, '不支持时要单独说明');
+assert.ok(postureUnsupportedZh.indexOf('不') >= 0, '不支持的说明要写清「开关暂时不生效」');
+assert.ok(postureOnZh.indexOf('双手') >= 0, '打开的说明要写清双手持握时保持默认版式');
+assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('both hands') >= 0,
+  '英文说明同样要写清双手持握');
+assert.ok(handPosture.handPostureNoteText(false, false, true).length > 0);
+assert.ok(handPosture.handPostureNoteText(true, true, true) !== postureOnZh, '英文与中文说明不同');
+assert.equal(handPosture.handPostureTitleZh().length > 0, true);
+assert.equal(handPosture.handPostureTitleEn().length > 0, true);
+assert.ok(handPosture.handPostureA11yText(true, false).indexOf('已开启') >= 0);
+assert.ok(handPosture.handPostureA11yText(false, false).indexOf('已关闭') >= 0);
+assert.ok(handPosture.handPostureA11yText(true, true).indexOf('on') >= 0);
+assert.ok(handPosture.handPostureA11yText(false, true).indexOf('off') >= 0);
 
 // 阔直板 Pura X View 440×744：SM 档、2 列、不收紧（仍是竖长形态）
 const wideBar = layout.layoutMetrics(440, 744);

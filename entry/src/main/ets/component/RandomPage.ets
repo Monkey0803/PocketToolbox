@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -29,6 +30,8 @@ export struct RandomPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：「生成随机数」按钮靠向正在操作的手；取不到握姿时保持原样（居中）。
+  @Param actionAlign: FlexAlign = FlexAlign.Center;
   @Event onCopy: (value: string) => void = () => {};
   @Event onRecord: (kind: string, content: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
@@ -230,6 +233,18 @@ export struct RandomPage {
     if (sizes.length > 0) {
       this.groupSize = nearestChoice(sizes, this.groupSize, sizes[0]);
     }
+  }
+
+  /**
+   * 清空候选名单（多行框右上角那枚 ✕）：副作用必须与 `onChange` 一致——结果清掉、分组选择按新的
+   * 候选数收窄（空名单时收窄回默认），否则会留下一份与输入不匹配的抽取结果
+   * （2026-10-21 输入框增强一）。
+   */
+  private clearCandidates(): void {
+    this.randomItems = '';
+    this.listResult = '';
+    this.listResultLabel = '';
+    this.clampGroupChoices();
   }
 
   private numberButtonText(): string {
@@ -488,6 +503,8 @@ export struct RandomPage {
           interactive: true
         }) {
           TextInput({ text: this.randomMin, placeholder: this.tr('最小值', 'Minimum') })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .type(InputType.Normal).onChange((value: string) => {
               this.randomMin = value; this.randomNumberResult = '';
@@ -504,6 +521,8 @@ export struct RandomPage {
           interactive: true
         }) {
           TextInput({ text: this.randomMax, placeholder: this.tr('最大值', 'Maximum') })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .type(InputType.Normal).onChange((value: string) => {
               this.randomMax = value; this.randomNumberResult = '';
@@ -522,9 +541,13 @@ export struct RandomPage {
         this.randomNumberResult = '';
       }
     })
-    Button(this.numberButtonText()).height(48)
-      .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
-      .onClick(() => this.drawNumbers())
+    // 生成按钮原来直接放在 Column 里（靠 Column 的 alignItems 居中），加一个 100% 宽的 Row
+    // 才谈得上「靠向操作手」——单个 Button 自带宽度但无法在行内定位（2026-10-21 智感握姿）。
+    Row() {
+      Button(this.numberButtonText()).height(48)
+        .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
+        .onClick(() => this.drawNumbers())
+    }.width('100%').justifyContent(this.actionAlign)
     if (this.randomNumberResult) {
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
@@ -555,6 +578,8 @@ export struct RandomPage {
           interactive: true
         }) {
           TextInput({ text: this.diceNotation, placeholder: '2d6+3' })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .type(InputType.Normal).height(52)
             .onChange((value: string) => { this.diceNotation = value; })
@@ -592,6 +617,8 @@ export struct RandomPage {
           interactive: true
         }) {
           TextInput({ text: this.diceModifier, placeholder: '0' })
+            // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .type(InputType.Normal).onChange((value: string) => {
               this.diceModifier = value; this.diceResult = '';
@@ -657,13 +684,24 @@ export struct RandomPage {
       corner: 16,
       interactive: true
     }) {
-      TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
-        .backgroundColor(Color.Transparent)
-        .onChange((value: string) => {
-          this.randomItems = value; this.listResult = ''; this.listResultLabel = '';
-        // 候选数变了，分组组数/人数要跟着收窄，否则选中的值会落在下拉列表之外（§3.24⑥）。
-        this.clampGroupChoices();
-        }).height(150)
+      Row({ space: 4 }) {
+        TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
+          .backgroundColor(Color.Transparent)
+          .layoutWeight(1)
+          .onChange((value: string) => {
+            this.randomItems = value; this.listResult = ''; this.listResultLabel = '';
+          // 候选数变了，分组组数/人数要跟着收窄，否则选中的值会落在下拉列表之外（§3.24⑥）。
+          this.clampGroupChoices();
+          }).height(150)
+        // 多行 `TextArea` 没有系统取消按钮（系统只给单行 `TextInput` 提供 `cancelButton`），
+        // 右上角自绘 ✕；清空走 `clearCandidates()`，与 `onChange` 同一套副作用（结果与分组收窄一起更新）。
+        IconActionButton({
+          icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+          usable: this.randomItems.length > 0,
+          a11yText: this.tr('清空候选名单', 'Clear the choices'),
+          onTap: () => this.clearCandidates()
+        })
+      }.width('100%').alignItems(VerticalAlign.Top)
     }
     OptionSelect({
       label: this.tr('抽取方式', 'Draw by'),
@@ -809,6 +847,8 @@ export struct RandomPage {
         interactive: true
       }) {
         TextInput({ text: this.seedText, placeholder: this.tr('种子（任意文字，空则用默认）', 'Seed (any text)') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent).height(48)
           .onChange((value: string) => { this.seedText = value; })
       }

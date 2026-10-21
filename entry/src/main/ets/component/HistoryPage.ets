@@ -22,6 +22,9 @@ export struct HistoryPage {
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param items: HistoryItem[] = [];
+  // 智感握姿：每条记录的「复制 / 删除」动作行靠向正在操作的手（左手靠左、右手靠右）。
+  // 默认 `FlexAlign.Start` 就是**改动前的观感**——取不到握姿或宽屏时保持原样，不会平白换位。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Event onCopy: (value: string) => void = () => {};
   @Event onDelete: (id: string) => void = () => {};
   @Event onDeleteMany: (ids: string[]) => void = () => {};
@@ -150,7 +153,7 @@ export struct HistoryPage {
               icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
               a11yText: this.tr('删除记录', 'Delete history item'), onTap: () => this.onDelete(item.id)
             })
-          }.width('100%')
+          }.width('100%').justifyContent(this.actionAlign)
         }.padding(16).width('100%')
       }
     }.width('100%').bindContextMenu(this.pinMenu(item.id), ResponseType.LongPress)

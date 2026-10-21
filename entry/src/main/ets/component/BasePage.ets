@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -21,7 +22,10 @@ export struct BasePage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
-  @Param actionAlign: FlexAlign = FlexAlign.Center;
+  // 本页**没有动作行**：进制换算与位运算都是实时计算，唯一的按钮是各结果行尾部的「复制」（属于
+  // 「逐值复制」，按智感握姿的既有口径不跟随——它锚在它自己的值后面）。所以**不声明 `actionAlign`**：
+  // 此前声明了却从没用过，父组件还在传，属于「看起来支持、实际没有任何行在跟随」的死参数
+  // （2026-10-21 智感握姿排查）。
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
@@ -225,6 +229,8 @@ export struct BasePage {
         corner: 16, interactive: true
       }) {
         TextInput({ text: kind === 'a' ? this.operandA : this.operandB, placeholder: this.operandPlaceholder() })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .accessibilityText(this.operandAccessibility(kind))
           .onChange((value: string) => {
@@ -256,6 +262,8 @@ export struct BasePage {
         corner: 16, interactive: true
       }) {
         TextInput({ text: this.input, placeholder: this.tr('输入数字', 'Enter a number') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .onChange((value: string) => { this.input = value; }).height(52)
       }

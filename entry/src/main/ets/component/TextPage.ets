@@ -19,6 +19,8 @@ export struct TextPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：「复制 / 用作输入 / 清空」结果动作行靠向正在操作的手；取不到握姿时保持原样（贴左）。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
   // 复制处理结果时同时记入本机历史（`kind = 'text'`），由父组件持久化。
@@ -237,10 +239,21 @@ export struct TextPage {
         corner: 16,
         interactive: true
       }) {
-        TextArea({ text: this.textInput, placeholder: this.tr('输入或粘贴文本', 'Type or paste text') })
-          .backgroundColor(Color.Transparent)
-          .onChange((value: string) => this.updateTextInput(value, true))
-          .height(180)
+        // 多行 `TextArea` 没有系统取消按钮（系统只给单行 `TextInput` 提供 `cancelButton`），
+        // 因此右上角自绘一枚 ✕；清空走 `clearAll()`，与 `onChange` 同一套副作用（结果一并清掉）。
+        Row({ space: 4 }) {
+          TextArea({ text: this.textInput, placeholder: this.tr('输入或粘贴文本', 'Type or paste text') })
+            .backgroundColor(Color.Transparent)
+            .layoutWeight(1)
+            .onChange((value: string) => this.updateTextInput(value, true))
+            .height(180)
+          IconActionButton({
+            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+            usable: this.textInput.length > 0,
+            a11yText: this.tr('清空输入与结果', 'Clear input and result'),
+            onTap: () => this.clearAll()
+          })
+        }.width('100%').alignItems(VerticalAlign.Top)
       }
       Text(this.tr('字符 ' + this.textCharacters + ' · 非空白字符 ' + this.textNonSpace + ' · 行数 ' + this.textLines,
         'Characters ' + this.textCharacters + ' · Non-space ' + this.textNonSpace + ' · Lines ' + this.textLines))
@@ -281,7 +294,7 @@ export struct TextPage {
           usable: this.textInput.length > 0 || this.textOutput.length > 0,
           onTap: () => this.clearAll()
         })
-      }.width('100%')
+      }.width('100%').justifyContent(this.actionAlign)
     }.width('100%')
   }
 

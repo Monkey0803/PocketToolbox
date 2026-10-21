@@ -10,7 +10,8 @@ import { motion } from '@kit.MultimodalAwarenessKit';
 import lazy { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
 import { matchTools, promoteFavorite, moveFavorite, allowedFavorites } from '../model/ToolMeta';
-import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, WIDTH_MD } from '../model/LayoutAdaptive';
+import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, WIDTH_MD, actionHandSide } from '../model/LayoutAdaptive';
+import { DEFAULT_HAND_POSTURE, parseHandPosture, serializeHandPosture } from '../model/HandPosture';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, LOCAL_KEYS } from '../model/LocalData';
 import { RecentEntry, allowedRecents, parseRecents, pushRecent, serializeRecents } from '../model/RecentTools';
@@ -132,7 +133,13 @@ struct Index {
   @Local documentPdf: boolean = false;
   @Local documentSaving: boolean = false;
   @Local holdingSide: number = 0;
+  // 系统明确报了「双手持握 / 未持握」：动作行保持默认版式（不跟随操作手，理由见 `actionHandSide()`）。
+  @Local holdingFreezes: boolean = false;
   @Local operatingSide: number = 0;
+  // 智感握姿开关（设置页可关）。关闭时不订阅系统握姿事件、所有动作行保持原位（见 `actionSide()`）。
+  @Local handPosture: boolean = DEFAULT_HAND_POSTURE;
+  // 本机是否真的提供了握姿识别（`motion` 的查询/订阅没抛 801）。设置页据此如实说明开关是否生效。
+  @Local handPostureSupported: boolean = false;
   @Local immersiveSupported: boolean = false;
   @Local materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Local appActive: boolean = true;
@@ -160,7 +167,17 @@ struct Index {
   // 仅在进入文档扫描页时创建，避免在不支持 DocScan 的设备上加载 VisionKit。
   private scanConfig: DocumentScannerConfig | undefined = undefined;
   private readonly scannerSupported: boolean = canIUse('SystemCapability.AI.Component.DocScan');
+  /**
+   * 持握手状态 → 是否「冻结布局」。
+   *
+   * 系统把 `BOTH_HANDS_HELD`（双手持握）与 `NOT_HELD`（没握住，例如平放在桌上用手指点）**明确报出来**，
+   * 这两种情况都返回 0（保持默认版式）：两侧一样好够，跟随操作手只会让按钮在交替用拇指时左右横跳。
+   * 其余值（`LEFT_HAND_HELD`/`RIGHT_HAND_HELD`/`UNKNOWN_STATUS`）都不冻结——`UNKNOWN_STATUS` 表示
+   * 设备没给握姿信息，这时仍要用操作手兜底。
+   */
   private holdingCallback: (status: motion.HoldingHandStatus) => void = (status: motion.HoldingHandStatus): void => {
+    this.holdingFreezes = status === motion.HoldingHandStatus.BOTH_HANDS_HELD ||
+      status === motion.HoldingHandStatus.NOT_HELD;
     this.holdingSide = status === motion.HoldingHandStatus.LEFT_HAND_HELD ? -1 :
       status === motion.HoldingHandStatus.RIGHT_HAND_HELD ? 1 : 0;
   };
@@ -301,11 +318,54 @@ struct Index {
         operating === motion.OperatingHandStatus.RIGHT_HAND_OPERATED ? 1 : 0;
       motion.on('operatingHandChanged', this.operatingCallback);
       this.operatingSubscribed = true;
-    } catch (_) { this.operatingSide = 0; }
+      // 查询与订阅都没抛 801（Capability not supported）→ 本机确实提供握姿识别，
+      // 设置页的开关才有意义（否则如实说明「本机未提供该能力」）。
+      this.handPostureSupported = true;
+    } catch (_) { this.operatingSide = 0; this.handPostureSupported = false; }
     try {
       motion.on('holdingHandChanged', this.holdingCallback);
       this.holdingSubscribed = true;
     } catch (_) { this.holdingSide = 0; }
+    // 开关状态要等 `load()` 读完偏好才知道，这里按「当前值」先同步一次（默认开启时无变化）。
+    this.syncHandPostureSubscription();
+  }
+
+  /**
+   * 按开关同步握姿订阅：**关掉后不再收系统回调**（也不必留着两个回调），重新打开再补订。
+   *
+   * 订阅失败（本机不支持）静默——界面本来就取不到握姿信号，只会保持原位，不需要打断用户。
+   */
+  private syncHandPostureSubscription(): void {
+    if (this.handPosture) {
+      if (!this.operatingSubscribed) {
+        try {
+          motion.on('operatingHandChanged', this.operatingCallback);
+          this.operatingSubscribed = true;
+          this.handPostureSupported = true;
+        } catch (_) { this.handPostureSupported = false; }
+      }
+      if (!this.holdingSubscribed) {
+        try {
+          motion.on('holdingHandChanged', this.holdingCallback);
+          this.holdingSubscribed = true;
+        } catch (_) {}
+      }
+      return;
+    }
+    if (this.operatingSubscribed) {
+      try { motion.off('operatingHandChanged', this.operatingCallback); } catch (_) {}
+      this.operatingSubscribed = false;
+    }
+    if (this.holdingSubscribed) {
+      try { motion.off('holdingHandChanged', this.holdingCallback); } catch (_) {}
+      this.holdingSubscribed = false;
+    }
+    // 关掉后把已知的手位清成「未知」：重新打开时先保持原位，等系统给一次新的回调再移动。
+    this.operatingSide = 0;
+    this.holdingSide = 0;
+    // 「冻结」也一起清掉：重新打开时按「没有握姿信息」起步（宁可跟随操作手，也不要被上一次的
+    // 双手持握状态永久冻住——系统只在状态**变化**时回调，冻住可能一直等不到下一次回调）。
+    this.holdingFreezes = false;
   }
 
   /**
@@ -358,9 +418,22 @@ struct Index {
 
   // 智感握姿：把高频操作靠近正在使用的手。宽屏（MD 及以上）不按手机握姿移动控件，保持稳定布局。
   private actionAlignment(fallback: FlexAlign = FlexAlign.Center): FlexAlign {
-    if (this.metrics().widthBand >= WIDTH_MD) { return fallback; }
-    let side: number = this.operatingSide !== 0 ? this.operatingSide : this.holdingSide;
+    const side: number = this.actionSide();
     return side < 0 ? FlexAlign.Start : side > 0 ? FlexAlign.End : fallback;
+  }
+
+  /**
+   * 操作手在哪一侧：`-1` 左手、`1` 右手、`0` 未知（或宽屏——宽屏不按手机握姿移动控件）。
+   *
+   * 判定（操作手优先于持握手、宽屏恒 0）在纯逻辑 `LayoutAdaptive.actionHandSide()` 里，可被单测覆盖；
+   * 这里只做「读两个 @Local + 当前宽度档位」的取值。**设置页关掉智感握姿后恒返回 0**（保持原位）。
+   *
+   * 给「需要整行镜像」的地方用（列表行的行内动作要把按钮和留白一起换边，光靠 `justifyContent` 做不到）：
+   * 例如纪念日列表每行的「编辑 / 删除」按钮。
+   */
+  private actionSide(): number {
+    if (!this.handPosture) { return 0; }
+    return actionHandSide(this.operatingSide, this.holdingSide, this.metrics().widthBand, this.holdingFreezes);
   }
 
   private async load(): Promise<void> {
@@ -373,6 +446,10 @@ struct Index {
       // 「最近使用」同样只在这里读一次；按工具白名单（`allowedFavorites()` 的唯一数据源）过滤，
       // 升级后已删除的工具 id 不会再出现在快捷入口里。
       this.recents = this.filterRecents(await this.data.getString('recent_tools', '[]'));
+      // 智感握姿开关：偏好读完才知道要不要订阅（`setupAdaptiveUi()` 跑在读取之前，先默认开着订上）。
+      this.handPosture = parseHandPosture(
+        await this.data.getString('hand_posture', serializeHandPosture(DEFAULT_HAND_POSTURE)));
+      this.syncHandPostureSubscription();
     } catch (_) { this.fatalError = this.tr('无法读取本地数据', 'Could not load local data'); }
     this.refreshIcon();
   }
@@ -655,6 +732,33 @@ struct Index {
     this.refreshWidgets();
   }
 
+  /**
+   * 设置页切换「智感握姿」（先改内存 → 落盘 → 失败回滚 + toast，与收藏/历史同一套写入口口径）。
+   *
+   * 需要注意内存侧有两个状态：`handPosture`（开关本身）与**订阅**（关掉后退订，不再收系统回调）；
+   * 落盘失败时两者都要回滚，否则会出现「开关显示开着但布局不听握姿」的假象。
+   */
+  private async setHandPosture(enabled: boolean): Promise<void> {
+    const previous: boolean = this.handPosture;
+    if (previous === enabled) { return; }
+    this.handPosture = enabled;
+    this.syncHandPostureSubscription();
+    if (this.data) {
+      try {
+        await this.data.putString('hand_posture', serializeHandPosture(enabled));
+      } catch (_) {
+        this.handPosture = previous;
+        this.syncHandPostureSubscription();
+        this.status = this.tr('智感握姿偏好保存失败，已恢复原设置',
+          'Could not save the hand-posture preference; reverted');
+        return;
+      }
+    }
+    this.status = enabled
+      ? this.tr('智感握姿已开启', 'Adaptive hand posture on')
+      : this.tr('智感握姿已关闭', 'Adaptive hand posture off');
+  }
+
   private async clearHistory(): Promise<void> {
     const previous: HistoryItem[] = this.history;
     this.history = [];
@@ -693,6 +797,9 @@ struct Index {
     this.recents = [];
     // 语言偏好也回到默认（跟随系统），按与应用启动时相同的路径重算界面语言。
     this.applyLanguagePreference(DEFAULT_LANGUAGE_PREFERENCE);
+    // 智感握姿也回到默认（开启）并同步订阅——只删存储会让界面上仍显示「已关闭」（与「最近使用」同类缺陷）。
+    this.handPosture = DEFAULT_HAND_POSTURE;
+    this.syncHandPostureSubscription();
     this.refreshWidgets();
     this.status = this.tr('本机数据已清除', 'On-device data erased');
   }
@@ -1246,6 +1353,10 @@ struct Index {
       english: this.english, immersiveSupported: this.immersiveSupported, materialLevel: this.materialLevel,
       activeIconName: this.activeIconName, iconReady: this.iconReady, iconBusy: this.iconBusy,
       dataReady: this.data !== undefined,
+      handPosture: this.handPosture,
+      handPostureSupported: this.handPostureSupported,
+      onHandPostureChange: (enabled: boolean): void => { this.setHandPosture(enabled); },
+      actionAlign: this.actionAlignment(FlexAlign.Start),
       historyCount: this.history.length,
       languagePreference: this.languagePreference,
       onLanguagePreference: (preference: string): void => { this.setLanguagePreference(preference); },
@@ -1345,6 +1456,7 @@ struct Index {
             else if (name === 'timestamp') {
               TimestampPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                narrow: this.metrics().narrow,
                 onCopy: (value: string): void => { this.copy(value); },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
                 onStatus: (message: string): void => { this.status = message; },
@@ -1354,6 +1466,7 @@ struct Index {
             else if (name === 'text') {
               TextPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
                 initialValue: this.pendingInput,
@@ -1362,7 +1475,8 @@ struct Index {
             }
             else if (name === 'random') {
               RandomPage({ english: this.english, immersiveSupported: this.immersiveSupported,
-                materialLevel: this.materialLevel, onCopy: (value: string): void => { this.copy(value); },
+                materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Center),
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
@@ -1375,6 +1489,7 @@ struct Index {
             else if (name === 'loan') {
               LoanPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
@@ -1387,12 +1502,14 @@ struct Index {
             else if (name === 'health') {
               HealthPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'science') {
               SciencePage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
@@ -1406,33 +1523,38 @@ struct Index {
             }
             else if (name === 'level') {
               LevelPage({ english: this.english, materialLevel: this.materialLevel, active: this.appActive,
+                actionAlign: this.actionAlignment(FlexAlign.Center),
                 data: this.data, onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'compass') {
               CompassPage({ english: this.english, active: this.appActive, data: this.data,
                 immersiveSupported: this.immersiveSupported, materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Center),
                 onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'kinship') {
               KinshipPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'base') {
               BasePage({ english: this.english, immersiveSupported: this.immersiveSupported,
-                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                materialLevel: this.materialLevel,
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'diff') {
               DiffPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                handSide: this.actionSide(),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'anniversary') {
               AnniversaryPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, data: this.data,
+                handSide: this.actionSide(),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
@@ -1445,6 +1567,7 @@ struct Index {
             else if (name === 'history') {
               HistoryPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, items: this.history,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); },
                 onDelete: (id: string): void => { this.deleteHistoryItem(id); },
                 onDeleteMany: (ids: string[]): void => { this.deleteHistoryItems(ids); },

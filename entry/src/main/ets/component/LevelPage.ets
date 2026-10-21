@@ -38,6 +38,9 @@ export struct LevelPage {
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param active: boolean = true;
   @Param data: LocalData | undefined = undefined;
+  // 智感握姿：五枚校准键（置零/清基准/锁定/重置峰值/复制）整行靠向正在操作的手；
+  // 取不到握姿时保持原样（居中）。**五个键的顺序固定，不参与镜像**。
+  @Param actionAlign: FlexAlign = FlexAlign.Center;
   @Event onCopy: (value: string) => void = () => {};
 
   @Local raw: LevelReading = new LevelReading();
@@ -360,7 +363,7 @@ export struct LevelPage {
           boxSize: 44, iconSize: 22, usable: this.levelReady,
           onTap: (): void => { this.copyReading(); }
         })
-      }.justifyContent(FlexAlign.Center).width('100%')
+      }.justifyContent(this.actionAlign).width('100%')
     }.alignItems(HorizontalAlign.Center).width('100%')
   }
 }

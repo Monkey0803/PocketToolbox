@@ -5,7 +5,7 @@ import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, CountdownItem, StopwatchData } from '../model/LocalData';
-import { buildImmersiveMaterial } from '../model/Materials';
+import { buildImmersiveMaterial, clearButtonIcon } from '../model/Materials';
 import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES,
   DURATION_COLUMNS, durationIndices,
   lapDurations, lapRecordable, appendLap, reminderGuidanceText, finishedAlertText, fastestLapIndex,
@@ -486,6 +486,8 @@ export struct TimersPage {
         interactive: true
       }) {
         TextInput({ text: this.timerName, placeholder: this.tr('名称，可选', 'Name, optional') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .onChange((value: string) => this.timerName = value)
       }

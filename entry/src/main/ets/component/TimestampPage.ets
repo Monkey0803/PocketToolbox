@@ -25,6 +25,8 @@ export struct TimestampPage {
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param actionAlign: FlexAlign = FlexAlign.Center;
+  // 窄窗（折叠态/小屏）：ISO 两行结果拆成「日期」+「时间 时区」两段显示，宽屏保持一行（只影响排版）。
+  @Param narrow: boolean = false;
   @Event onCopy: (value: string) => void = () => {};
   // 复制转换结果时同时记入本机历史（`kind = 'timestamp'`），由父组件持久化。
   @Event onRecord: (kind: string, content: string) => void = () => {};
@@ -345,6 +347,19 @@ export struct TimestampPage {
     return '';
   }
 
+  /**
+   * 结果行的**显示**文本：窄窗下把 ISO 行拆成「日期」+「时间 时区」两段（换行），宽屏保持一行。
+   *
+   * 复制与历史仍用 `lineText(kind)` 的单行原文——换行只是排版（避免 `2026-10-21` 与
+   * `07:57:56.000 Z` 被系统折在任意字符处），不该被复制进剪贴板（2026-10-21）。
+   */
+  private lineDisplayText(kind: string): string {
+    const value: string = this.lineText(kind);
+    if (!this.narrow || (kind !== 'isoUtc' && kind !== 'isoLocal')) { return value; }
+    const space: number = value.indexOf(' ');
+    return space < 0 ? value : value.substring(0, space) + '\n' + value.substring(space + 1);
+  }
+
   /** 星期几 · 相对现在；两层信息合成一行，结果卡不额外占两行。 */
   private infoText(): string {
     const result: StampResult = this.result;
@@ -373,7 +388,7 @@ export struct TimestampPage {
       Column({ space: 4 }) {
         Text(this.tr(this.lineLabelZh(kind), this.lineLabelEn(kind)))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-        Text(this.lineText(kind))
+        Text(this.lineDisplayText(kind))
           .fontSize(kind === 'sec' || kind === 'ms' ? 18 : 20)
           .fontWeight(kind === 'sec' || kind === 'ms' ? FontWeight.Medium : FontWeight.Bold)
           .fontColor(ToolPalette.textPrimary).width('100%')
@@ -402,14 +417,22 @@ export struct TimestampPage {
         interactive: true
       }) {
         Row({ space: 8 }) {
-          SymbolGlyph(icon).fontSize(22).fontColor([ToolPalette.textSubtle])
+          SymbolGlyph(icon).fontSize(20).fontColor([ToolPalette.textSubtle])
+          // 折叠态窄窗（约 345 vp）下每张卡只有半屏宽：日期 `2026-10-21` 用 18 vp 会折成两行，把整行撑高
+          // （2026-10-21 模拟器实测：日期文本 132 px 两行，时间文本 66 px 一行，两张卡不一样高）。
+          // 解法是**自适应缩小字号**而不是整体调小：宽屏仍是 18 vp，窄窗由系统在 `minFontSize`…`maxFontSize`
+          // 之间收到刚好放下为止，配合 `maxLines(1)` 保证行高恒定；万一还放不下才走省略号（不会撑高）。
           Text(this.pickLabel(kind))
             .fontSize(18)
             .fontWeight(this.pickLabelMuted(kind) ? FontWeight.Normal : FontWeight.Bold)
             .fontColor(this.pickLabelMuted(kind) ? ToolPalette.textMuted : ToolPalette.textPrimary)
+            .maxLines(1)
+            .minFontSize(12)
+            .maxFontSize(18)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
             .layoutWeight(1)
         }
-        .width('100%').padding(14)
+        .width('100%').padding(12)
         .accessibilityText(this.tr(zh, en) + (this.english ? ', ' : '，') + this.pickLabel(kind))
         .onClick(() => this.openPicker(kind))
       }
@@ -485,10 +508,21 @@ export struct TimestampPage {
         interactive: true
       }) {
         // 多行输入：批量转换要求用户能把一整列时间戳粘进来（`TextInput` 是单行的）。
-        TextArea({ text: this.input, placeholder: this.tr('时间戳或日期时间；每行一条可批量转换',
-          'Timestamp or date and time; one per line to convert in bulk') })
-          .backgroundColor(Color.Transparent)
-          .onChange((value: string) => this.input = value).height(72)
+        Row({ space: 4 }) {
+          TextArea({ text: this.input, placeholder: this.tr('时间戳或日期时间；每行一条可批量转换',
+            'Timestamp or date and time; one per line to convert in bulk') })
+            .backgroundColor(Color.Transparent)
+            .layoutWeight(1)
+            .onChange((value: string) => this.input = value).height(72)
+          // 多行 `TextArea` 没有系统取消按钮（系统只给单行 `TextInput` 提供 `cancelButton`），
+          // 右上角自绘 ✕；结果全部由 `@Computed` 驱动，清空输入后自动重算。
+          IconActionButton({
+            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+            usable: this.input.length > 0,
+            a11yText: this.tr('清空时间戳输入', 'Clear the timestamp input'),
+            onTap: () => { this.input = ''; }
+          })
+        }.width('100%').alignItems(VerticalAlign.Top)
       }
       // 日期/时间选择卡只在单行模式显示：批量模式下它们不知道该往哪一行写。
       if (!this.isBatch) {

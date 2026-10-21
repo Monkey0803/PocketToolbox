@@ -1,3 +1,6 @@
+import { integerOptionLabels } from './NumberOptions';
+import { parseIntegerInput } from './Units';
+
 /**
  * 贷款计算（纯逻辑，可参与单元测试）：等额本息与等额本金。
  *
@@ -46,6 +49,43 @@ export function loanMethodLabel(id: string, english: boolean): string {
 
 /** 期限上限 50 年（600 期）：再长基本是输入错误，也避免逐月累计过大。 */
 export const MAX_LOAN_MONTHS: number = 600;
+/** 期限（年）这一框的取值上限：50 年（`MAX_LOAN_MONTHS / 12`，由上限推导而不是另写一份）。 */
+export const LOAN_TERM_MAX_YEARS: number = MAX_LOAN_MONTHS / 12;
+/** 「月」这一框的取值上限：11 个月（满 12 个月就该写进「年」那一框）。 */
+export const LOAN_EXTRA_MONTHS_MAX: number = 11;
+
+/**
+ * 另一框的文本折算成非负整数；空/非法/负数一律按 `0` 处理。
+ *
+ * 「按 0」= 给**最宽的安全区间**，而不是编造一个更窄的限制：用户把另一框写坏了时，
+ * 滚轮仍应能列出用户想选的值，最后由既有的 `loanErrorText()` 去解释那个坏输入。
+ */
+function extraPart(raw: string): number {
+  const parsed: number | undefined = parseIntegerInput(raw);
+  return parsed === undefined || parsed < 0 ? 0 : parsed;
+}
+
+/**
+ * 期限（年）滚轮的选项列：按「月」框当前值收窄，保证 `12 × 年 + 月 ≤ MAX_LOAN_MONTHS`。
+ *
+ * 为什么不直接列 1–50：填了 11 个月再选 50 年就是 611 期，点下去必然被 `calculateLoan()` 拒绝——
+ * 「选项与另一处输入互相约束」时要把选项收窄，别让用户选到必然失败的值
+ * （`RandomTools.groupCountChoices()` 同一口径，2026-10-20 §3.24⑥）。
+ */
+export function loanTermYearOptions(extraMonths: string): string[] {
+  let extra: number = extraPart(extraMonths);
+  if (extra > LOAN_EXTRA_MONTHS_MAX) { extra = LOAN_EXTRA_MONTHS_MAX; }
+  const maxYears: number = Math.floor((MAX_LOAN_MONTHS - extra) / 12);
+  return integerOptionLabels(1, maxYears > LOAN_TERM_MAX_YEARS ? LOAN_TERM_MAX_YEARS : maxYears);
+}
+
+/** 期限（月）滚轮的选项列：按「年」框当前值收窄，同样保证总期数不超 `MAX_LOAN_MONTHS`。 */
+export function loanExtraMonthOptions(years: string): string[] {
+  const wholeYears: number = extraPart(years);
+  const used: number = (wholeYears > LOAN_TERM_MAX_YEARS ? LOAN_TERM_MAX_YEARS : wholeYears) * 12;
+  const room: number = MAX_LOAN_MONTHS - used;
+  return integerOptionLabels(0, room > LOAN_EXTRA_MONTHS_MAX ? LOAN_EXTRA_MONTHS_MAX : room);
+}
 /** 本金上限 100 亿元，防止误输入把界面撑爆。 */
 const MAX_PRINCIPAL_CENTS: number = 100000000000;
 const MAX_RATE_PERCENT: number = 100;

@@ -1,3 +1,5 @@
+import { integerOptionLabels } from './NumberOptions';
+
 const UPPER: string = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const LOWER: string = 'abcdefghijkmnopqrstuvwxyz';
 const DIGITS: string = '23456789';
@@ -55,6 +57,16 @@ export function passwordGroups(options: PasswordOptions): string[] {
  */
 export const PASSWORD_MIN_LENGTH: number = 8;
 export const PASSWORD_MAX_LENGTH: number = 128;
+
+/**
+ * 密码长度滚轮的选项列（8–128 的十进制文案）。
+ *
+ * 与 `passwordLengthErrorText()` 的校验共用 `PASSWORD_MIN_LENGTH`/`PASSWORD_MAX_LENGTH`：
+ * 滚轮能选到的每一个值都必然通过校验（2026-10-21 输入框增强一）。
+ */
+export function passwordLengthOptions(): string[] {
+  return integerOptionLabels(PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH);
+}
 
 /** 自定义字符集的错误码：`too_many` / `too_few` / 空串（合法）。 */
 export function customCharsetError(options: PasswordOptions): string {

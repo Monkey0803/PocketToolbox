@@ -14,9 +14,10 @@
  */
 
 const STAMP_PATTERN: RegExp = new RegExp('^-?\\d{1,15}$');
-// 日期分隔符允许 `-` 与 `/`；秒后的 `.SSS` 为小数秒；末尾可选 `Z` 或 `±HH:MM`/`±HHMM` 偏移。
+// 日期分隔符允许 `-` 与 `/`；秒后的 `.SSS` 为小数秒；末尾可选 `Z` 或 `±HH:MM`/`±HHMM` 偏移，
+// 时区前允许一个空格（本应用的 ISO 输出把日期/时间/时区用空格分开，两处都接受以便复制回来后仍能解析）。
 const TEXT_PATTERN: RegExp =
-  new RegExp('^(\\d{4})[-/](\\d{2})[-/](\\d{2})(?:[T ](\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,3}))?)?)?(Z|[+-]\\d{2}:?\\d{2})?$');
+  new RegExp('^(\\d{4})[-/](\\d{2})[-/](\\d{2})(?:[T ](\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,3}))?)?)?[ ]?(Z|[+-]\\d{2}:?\\d{2})?$');
 // 10 位及以下按秒，11 位及以上按毫秒（13 位毫秒时间戳与 10 位秒级时间戳都能正确识别）。
 const MILLIS_THRESHOLD: number = 10000000000;
 // 允许的值域按 **UTC** 计算：MAX_SECONDS 是 9999-12-31T23:59:59Z，MIN_SECONDS 是 0001-01-01T00:00:00Z。
@@ -67,7 +68,10 @@ export class StampResult {
   seconds: number = 0;
   localText: string = '';
   utcText: string = '';
-  // ISO 8601 / RFC 3339（保留毫秒）：`2026-10-19T00:30:05.123Z` 与 `2026-10-19T08:30:05.123+08:00`
+  // ISO 8601 / RFC 3339（保留毫秒），日期、时间、时区之间各留一个空格便于阅读与换行：
+  // `2026-10-19 00:30:05.123 Z` 与 `2026-10-19 08:30:05.123 +08:00`
+  // （RFC 3339 §5.6 明确允许日期与时间之间用空格代替 `T`；时区前的空格是本应用的展示约定，
+  //  解析层 `TEXT_PATTERN` 两种写法都接受，因此复制出去的串还能粘回来——2026-10-21）
   isoUtcText: string = '';
   isoLocalText: string = '';
 }
@@ -124,15 +128,15 @@ function offsetSuffix(offsetMinutes: number): string {
 }
 
 function isoUtcTextOf(date: Date): string {
-  return pad4(date.getUTCFullYear()) + '-' + pad2(date.getUTCMonth() + 1) + '-' + pad2(date.getUTCDate()) + 'T' +
+  return pad4(date.getUTCFullYear()) + '-' + pad2(date.getUTCMonth() + 1) + '-' + pad2(date.getUTCDate()) + ' ' +
     pad2(date.getUTCHours()) + ':' + pad2(date.getUTCMinutes()) + ':' + pad2(date.getUTCSeconds()) + '.' +
-    pad3(date.getUTCMilliseconds()) + 'Z';
+    pad3(date.getUTCMilliseconds()) + ' Z';
 }
 
 function isoLocalTextOf(date: Date): string {
-  return pad4(date.getFullYear()) + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate()) + 'T' +
+  return pad4(date.getFullYear()) + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate()) + ' ' +
     pad2(date.getHours()) + ':' + pad2(date.getMinutes()) + ':' + pad2(date.getSeconds()) + '.' +
-    pad3(date.getMilliseconds()) + offsetSuffix(-date.getTimezoneOffset());
+    pad3(date.getMilliseconds()) + ' ' + offsetSuffix(-date.getTimezoneOffset());
 }
 
 function failure(code: string): StampResult {

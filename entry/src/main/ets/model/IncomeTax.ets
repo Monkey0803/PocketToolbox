@@ -1,3 +1,5 @@
+import { integerOptionLabels } from './NumberOptions';
+
 // Mainland China resident individual withholding estimates. All money values are integer fen.
 // Rules reviewed 2026-10-12 against the National Tax Administration:
 // https://fgk.chinatax.gov.cn/zcfgk/c100015/c5200946/content.html
@@ -36,6 +38,20 @@ export function taxKindIndex(id: string): number {
   return TAX_KINDS.findIndex((entry: TaxKindEntry) => entry.id === id);
 }
 
+/**
+ * 「本年任职受雇期数」的合法范围（1–12 期）。
+ *
+ * 2026-10-21 输入框增强一提成常量：此前 `wageTax()` 里写死 `1`/`12`，页面文案也各自写了一遍；
+ * 现在**校验、默认值、滚轮列**三处共用这一对常量，改范围不可能只改一处。
+ */
+export const TAX_PERIOD_MIN: number = 1;
+export const TAX_PERIOD_MAX: number = 12;
+
+/** 期数滚轮的选项列（1–12 的十进制文案），与 `wageTax()` 的校验同一组边界。 */
+export function taxPeriodOptions(): string[] {
+  return integerOptionLabels(TAX_PERIOD_MIN, TAX_PERIOD_MAX);
+}
+
 export class TaxResult {
   grossCents: number = 0;
   contributionCents: number = 0;
@@ -50,7 +66,7 @@ export class TaxResult {
 
 export class WageInput {
   grossCents: number = 0;
-  period: number = 1;
+  period: number = TAX_PERIOD_MIN;
   previousGrossCents: number = 0;
   previousContributionCents: number = 0;
   previousSpecialCents: number = 0;
@@ -137,7 +153,8 @@ export function wageTax(input: WageInput): TaxResult | undefined {
     input.previousSpecialCents, input.previousPensionCents, input.previousOtherCents, input.previousTaxCents,
     input.socialCents, input.housingCents, input.childcareCents, input.educationCents, input.continuingCents,
     input.mortgageCents, input.rentCents, input.elderCents, input.pensionCents, input.otherCents];
-  if (!validAmounts(amounts) || !Number.isInteger(input.period) || input.period < 1 || input.period > 12 ||
+  if (!validAmounts(amounts) || !Number.isInteger(input.period) || input.period < TAX_PERIOD_MIN ||
+    input.period > TAX_PERIOD_MAX ||
     input.previousPensionCents + input.pensionCents > 1200000 ||
     (input.mortgageCents > 0 && input.rentCents > 0)) { return undefined; }
   const result: TaxResult = new TaxResult();

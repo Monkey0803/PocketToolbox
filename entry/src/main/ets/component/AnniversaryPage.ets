@@ -3,7 +3,7 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData } from '../model/LocalData';
-import { buildImmersiveMaterial } from '../model/Materials';
+import { buildImmersiveMaterial, clearButtonIcon } from '../model/Materials';
 import { todayDate, pickerDate, pickerDateText, parseDate } from '../model/DateTools';
 import { Anniversary, ANNIVERSARY_MAX, newAnniversary, parseAnniversariesDetailed,
   AnniversaryParseResult, anniversaryOverflowNoteText, serializeAnniversaries,
@@ -16,6 +16,13 @@ import { Anniversary, ANNIVERSARY_MAX, newAnniversary, parseAnniversariesDetaile
 const LIST_ROW_HEIGHT: number = 88;
 const LIST_ROW_GAP: number = 10;
 const LIST_MAX_ROWS: number = 6;
+/**
+ * 每行给动作按钮预留的宽度：两枚 44 vp 图标 + 4 vp 间距 + 8 vp 内边距 = 100 vp。
+ *
+ * 这里原来写 64（只够一枚按钮），名称稍长就会滑到删除按钮底下；左手镜像后名字更长地压过来，
+ * 截图里直接看得到垃圾桶图标盖在文字上（2026-10-21 模拟器实测）。留白与按钮同侧切换，数值共用。
+ */
+const ITEM_ACTION_RESERVE: number = 100;
 
 /**
  * 纪念日页（倒数日）。
@@ -34,6 +41,9 @@ export struct AnniversaryPage {
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param data: LocalData | undefined = undefined;
+  // 智感握姿：`-1` 左手 / `1` 右手 / `0` 未知（或宽屏）。左手时每行的「编辑 / 删除」移到行首，
+  // 右手或未知时保持在行尾（未知 = 现状，不改默认观感）。
+  @Param handSide: number = 0;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
 
@@ -262,8 +272,12 @@ export struct AnniversaryPage {
     }) {
       // 删除按钮是「可点行」的**兄弟节点**而不是子节点：整行的 onClick 负责复制，删除按钮放在同一个
       // Stack 的顶层兄弟位置，点击是否还会冒泡到父节点就不再取决于手势竞争（与收藏卡片同一套写法）。
-      Stack({ alignContent: Alignment.TopEnd }) {
-        // 可点区域：名称 + 副标题；右侧给删除按钮的 48 vp 可点区域留白，文字不会被压到按钮下面。
+      //
+      // 智感握姿（2026-10-21）：左手持机时把两个动作按钮整体镜像到**行首**，右手/未知时留在行尾。
+      // 光靠 `justifyContent` 做不到——这里是 Stack 叠放，必须同时换 `alignContent` 与两侧留白，
+      // 否则按钮会压到文字上；留白始终留在「按钮那一侧」的对侧。
+      Stack({ alignContent: this.handSide < 0 ? Alignment.TopStart : Alignment.TopEnd }) {
+        // 可点区域：名称 + 副标题；按钮一侧留出 `ITEM_ACTION_RESERVE` 空白，文字不会被压到按钮下面。
         Row() {
           Column({ space: 4 }) {
             Text(this.itemTitle(index)).fontSize(18).fontWeight(FontWeight.Bold)
@@ -272,7 +286,12 @@ export struct AnniversaryPage {
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }
         .width('100%')
-        .padding({ left: 16, top: 16, bottom: 16, right: 64 })
+        .padding({
+          left: this.handSide < 0 ? ITEM_ACTION_RESERVE : 16,
+          top: 16,
+          bottom: 16,
+          right: this.handSide < 0 ? 16 : ITEM_ACTION_RESERVE
+        })
         .accessibilityText(this.itemCopyText(index))
         .onClick(() => this.onCopy(this.itemCopyText(index)))
 
@@ -288,7 +307,7 @@ export struct AnniversaryPage {
             a11yText: this.tr('删除纪念日', 'Delete anniversary'),
             onTap: () => this.deleteItemAt(index)
           })
-        }.padding({ right: 8, top: 8 })
+        }.padding(this.handSide < 0 ? { left: 8, top: 8 } : { right: 8, top: 8 })
       }.width('100%')
     }
   }
@@ -312,6 +331,8 @@ export struct AnniversaryPage {
         interactive: true
       }) {
         TextInput({ text: this.entryName, placeholder: this.tr('名称，例如 结婚纪念日', 'Name') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .onChange((value: string) => { this.entryName = value; })
           .height(52)

@@ -1033,6 +1033,64 @@
 - **本轮未能实测的两项**：① 超 20 条的溢出提示（要手工造 21 条，已由单测覆盖）；② HTTP 方式下 `http://` 的提示（模拟器上 HTTP 方式的探测入口不在可视区、页面也不滚动，只看到 `只看响应头`/`跟随重定向` 两个开关）。两者列入真机复核。
 - **待真机复核**：真机上造到 21 条纪念日 → 应出现溢出提示、且再次进入页面时那 21 条仍在（保存不会丢）；网络工具 HTTP 方式填 `http://example.com` → 应提示只支持 HTTPS。
 
+## 追加回执（2026-10-21：输入框增强一 —— 有界整数走「输入 + 系统滚轮」，所有输入框补「一键清除」）
+
+**改动范围**：① 合法取值本来就是有限个整数的字段，在手输之外补一个系统单列滚轮入口（`component/WheelPickerButton.ets` + `showTextPickerDialog`），取值范围一律来自各工具模型的 `*Options()`（新建 `model/NumberOptions.ets` 提供 `integerOptionLabels()` / `optionIndex()` 与失败文案）；② 所有单行 `TextInput` 挂系统 `.cancelButton({ style: CancelButtonStyle.INPUT })`（有内容才显示），4 个多行 `TextArea`（文本整理 / 文本对比左·右 / 随机候选 / 时间戳输入）用 `IconActionButton` + `xmark_circle_fill` 自绘 ✕（空内容时 `usable: false`）。
+
+**模拟器实测（API 26，`hdc install -r` 覆盖安装后 `aa force-stop` + `aa start`，设备 `127.0.0.1:5555`）**：
+
+| 项 | 结果 | 证据 |
+| --- | --- | --- |
+| 个税「本年任职受雇期数」滚轮 | 通过 | 点输入框右侧图标 → 对话框是**单列数字**（可见 11 / 12 / **[1]** / 2 / 3，循环），**没有任何「星期/年/月/日」文本**、不弹键盘；点 `3` → 确定 → 输入框变 `3`（`dumpLayout` 读回 `3`） |
+| 滚轮写回真的参与计算 | 通过 | 期数 = 3（滚轮选的）+ 税前收入 `20000` → 点「计算」→ **累计应税额 ¥5000.00**（= 20000 − 3 × 5000）、税率 3%、本期预扣个税 **¥150.00**、实得 **¥19850.00** |
+| 取消保持原值 | 通过 | 期数手输 `99` → 打开滚轮（停在**上限 12**，即越界输入夹到末项）→ 点「取消」→ 输入框仍是 `99` |
+| 越界值的落点 | 通过 | 同上：`99` 打开滚轮时选中项是 `12`（最后一项），确定后写回 `12` |
+| 打字路径不变 | 通过 | 期数框用 `uitest uiInput inputText` 打 `99`、金额框打 `20000` 均正常 ✅ |
+| 一键清除（单行） | 通过 | 期数框有内容时右侧出现清除按钮（`[1904,1468][1998,1518]` 可点，图标为 HMSymbol `xmark_circle_fill`）；点它后 **按钮消失、输入框变空（显示占位 1）、已算出的结果卡整块消失**（结果被作废） |
+| 一键清除（多行） | 通过 | 文本对比页左框经 `uiInput inputText` 写入 `abc` 后，右上角 ✕ 由 `enabled=false` 变 `enabled=true`；点它后内容清空、✕ 回到不可点；空框时两个 ✕ 都是 `enabled=false` |
+| 贷款期限年/月互相收窄 | 通过 | 月 = 11 → 年滚轮末项是 **49**（50 年是 611 期，不再可选）；年 = 50 → 月滚轮**只有 `0`**（重复显示是因为 `canLoop`）；月滚轮选 `11` → 确定 → 输入框 `11`、下方实时合计显示「**11 期（11 个月）**」 |
+| 系统取消按钮的显示时机 | 通过 | `InputType.Number`/`NUMBER_DECIMAL`/`Normal` 输入框在**有内容时**都显示 ✕（个税金额/社保/公积金、科学计算器表达式、贷款两项期限均已看到）；空内容时（清空后的期数框）不显示 |
+
+截图：`screenshots/emulator/tax-period-wheel-zh.jpeg`（期数滚轮 + 单列数字）、`clear-button-hmsymbol-zh.jpeg`（清除按钮已换成 HMSymbol `xmark_circle_fill`：输入框有内容时右侧一枚实心圆叉）、`loan-term-wheel-narrowed-zh.jpeg`（年=50 时月滚轮只有 0）、`textarea-clear-button-zh.jpeg`（多行框 ✕）。
+
+**清除按钮的图标口径（2026-10-21 追加）**：单行 `TextInput` 的系统取消按钮**必须显式指定 HMSymbol**——`.cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })`，其中 `clearButtonIcon()`（`model/Materials.ets`）返回 `new SymbolGlyphModifier($r('sys.symbol.xmark_circle_fill')).fontColor([ToolPalette.textMuted])`，与 4 个多行 `TextArea` 右上角自绘 ✕ **同一个符号、同一个颜色**。实测：`dumpLayout` 里 `TextInput` 右侧的取消按钮下出现 `SymbolGlyph` 子节点，截图上是一枚实心圆叉（此前用系统默认图标时是不带圆底的细 ✕）——证明指定生效、图标不是空白。`$r('sys.symbol.xmark_circle_fill')` 由 `tests/check-symbol-names.mjs` 对照本机 SDK 的 `id_defined.json` 校验通过。
+
+**未覆盖 / 待真机复核**：
+- **滚轮的自动拨动**：模拟器上 `uitest uiInput swipe` 拨滚轮仍会被系统弹窗吞掉（与第 21 节日期选择器同一条结论），本轮一律用「点可见项 + 确定」验证；**真机请手拨一次**年/月/期数/密码长度/年龄的滚轮，确认粒度与惯性正常。
+- **密码长度（8–128）与健康年龄（1–120）**：与个税期数、贷款年/月**共用同一个 `WheelPickerButton` 与 `integerOptionLabels()` 口径**（单测已穷举断言「滚轮列里的每个值都能通过各自校验」），但本轮模拟器只逐步截图了期数与贷款期限两处（模拟器被并发占用期间窗口/分辨率发生变化，导航状态不稳），这两个页面请真机各点一次。
+- 多列滚轮不在本次范围内（`WheelPickerButton` 只做**单列**；时分秒三列仍由 `TimersPage` 的 `DURATION_COLUMNS` 负责）。
+
+## 追加回执（2026-10-21：时间戳页「日期/时间」卡在窄窗不再折行）
+
+**现象（用户截图）**：折叠态窄窗下「日期 / 时间」一行两张卡时，日期 `2026-10-21`（18 vp 粗体）在卡片里折成两行，整个 Row 被撑高，而且两张卡不一样高。
+
+**实测基线（模拟器 1080×2444，约 360 vp 宽，与折叠态同量级）**：`dumpLayout` 里日期文本 `[199,1025][478,1157]` → **132 px（两行）**，时间文本 `[696,1059][975,1125]` → 66 px（一行）。
+
+**做法（自适应缩小字号，而不是整体调小）**：`TimestampPage.pickCard()` 的值文本加 `.maxLines(1).minFontSize(12).maxFontSize(18).textOverflow({ overflow: TextOverflow.Ellipsis })`，并把固定开销收紧（图标 22→20、容器 padding 14→12）。宽屏仍是 18 vp，只有放不下时才按系统自适应收到刚好放下；`maxLines(1)` 保证**行高恒定**，最坏情况才是省略号。
+
+**修后实测（同一台模拟器）**：日期文本 `[187,1023][484,1082]` → **59 px（一行）**，与时间卡同高；整行高度恢复（后续「选择结果…」提示从 y≈1219 回到 y≈1141）。截图 `screenshots/emulator/timestamp-pick-cards-narrow-zh.jpeg`。
+
+**未覆盖 / 待真机复核**：真机折叠（外屏 ~345 vp）与展开各看一次日期/时间卡——日期应是**单行**、与时间卡等高，且没有出现省略号；（可选）若觉得缩字后的日期偏小，可改成窄窗下两张卡上下排布，代价是页面多占一行卡的高度。
+
+## 追加回执（2026-10-21：ISO 行的空格分隔 + 窄窗两段显示）
+
+**改动**：
+1. `model/TimeTools.ets` 的 ISO 输出把**日期、时间、时区用空格分开**：`2026-10-21 08:15:52.000 Z`（UTC）/ `2026-10-21 16:15:52.000 +08:00`（本地）。`TEXT_PATTERN` 末尾加 `[ ]?`，因此**带空格与紧贴两种写法都能解析**（复制出去的串还能粘回输入框）。
+   - 依据：RFC 3339 §5.6 明确允许日期与时间之间用空格代替 `T`；时区前的空格是本应用的展示约定，实测 `new Date('2026-10-21 07:57:56.000 Z')`、`'… +08:00'` 在 JS 里都能正确解析（**反之** `'2026-10-21T07:57:56.000 Z'` 是 `Invalid Date`）。
+2. `TimestampPage.lineDisplayText()`：**窄窗（`LayoutAdaptive.narrow`，`< 360 vp`）下把两条 ISO 行拆成两段**（日期一行、时间+时区一行），宽屏保持一行。复制与历史仍取 `lineText()` 的**单行原文**——换行只属于显示层（单测断言 ISO 文本里不含 `\n`）。
+
+**实测（模拟器）**：
+| 场景 | 证据 |
+| --- | --- |
+| 宽屏（2210×2416 折叠展开态） | `dumpLayout`：`2026-10-21 08:18:05.000 Z` `[125,1897][1910,1970]` → **73 px 一行**；`2026-10-21 16:18:05.000 +08:00` 同样一行。截图 `screenshots/emulator/timestamp-iso-spaced-wide-zh.jpeg` |
+| 窄窗（`narrow` 由 `Index` 传入；本次用**临时把 `narrow` 置 true 的探针**拍下，探针已还原） | `dumpLayout`：ISO UTC 行 `[125,1895][1910,2041]` → **146 px = 两行**，文本为 `2026-10-21` + `08:16:49.000 Z`；本地行同构。截图 `screenshots/emulator/timestamp-iso-narrow-split-zh.jpeg`（探针版本） |
+| 解析往返（单测） | 新格式、旧格式（`T` 分隔、时区紧贴）、带空格的偏移写法（`… 15:06:40.123 +08:00` 按该偏移解释 = 07:06Z）都能解析回同一瞬间；带 `\n` 的串判 `format` |
+
+**未覆盖 / 待真机复核**：真机折叠外屏（~345 vp）直接看一次——两条 ISO 行应是「日期 / 时间 时区」两行且不出现省略号；展开后应回到一行。本次窄窗证据是用一次性探针拍的（模拟器外屏形态由另一路并发操作切换，无法稳定复现窄窗），因此**窄窗的判断依据（`narrow`）本身未在真机窄窗上跑过**。
+
+
+
+
 ## 追加回执（2026-10-20 第二十一轮：审计 §3.1 容量预校验 / §3.13 覆盖年份）
 
 
@@ -1999,7 +2057,6 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 「正在计算 …」润色预览（2026-10-21） | 通过 | `1+2*3` 时显示区依次是：输入框 `1+2*3`、预览 `正在计算 1+2×3`（`*`→`×`、`/`→`÷`、`-`→`−`、`pi`→`π`，`pi` 按记号边界替换）、结果 `7`；空表达式时**不渲染**这一行（只剩「等待输入」+ 引导句）。截图 [science-pretty-folded-zh.jpeg](screenshots/emulator/science-pretty-folded-zh.jpeg)、[science-pretty-wide-zh.jpeg](screenshots/emulator/science-pretty-wide-zh.jpeg) |
 | 更多函数面板标签完整（2026-10-21） | 通过 | 修复前「更多函数」面板用 `Button(label)` 的默认左右内边距，折叠态每格约 57 vp，`sqrt(`/`atanh(` 全被挤成「s…」；改成显式 `.padding({ left: 4, right: 4 })` + `fontSize(13)` 后，折叠态 `dumpLayout` 25 个标签全部完整（`sqrt(` [62,1119][233,1257]、`atanh(` [651,1444][822,1582]、`npr(` [847,1769][1018,1907]），内存行 `M+ M− MR MC` 不变。截图 [science-more-panel-folded-zh.jpeg](screenshots/emulator/science-more-panel-folded-zh.jpeg) |
 | 折叠入口标题不翻转（2026-10-21） | 通过 | 「更多函数与内存键」「角度 DEG · 10 位有效数字」「完整语法说明」三个入口的可见标题**在展开前后完全一致**（折叠态 `dumpLayout`：展开前后都是 `更多函数与内存键 [112,2066][880,2121]` 这一行文本，状态只由 chevron 指上/指下表达）。修复前展开后会变成「收起更多函数」（还漏了「与内存」）/「收起设置」（把当前角度与精度整条盖掉）。截图 [science-entries-collapsed-zh.jpeg](screenshots/emulator/science-entries-collapsed-zh.jpeg)、[science-more-entry-expanded-zh.jpeg](screenshots/emulator/science-more-entry-expanded-zh.jpeg) |
-| 个税高级区标题不翻转（2026-10-21） | 通过 | `TaxPage` 的「展开扣除与累计数据」↔「收起扣除与累计数据」改成固定标题「扣除与累计数据」+ chevron；折叠态实测点开后标题仍是 `扣除与累计数据 [112,1480][880,1535]`（位置不变），下方出现「本期专项附加扣除」区。截图 [tax-advanced-entry-collapsed-zh.jpeg](screenshots/emulator/tax-advanced-entry-collapsed-zh.jpeg)、[tax-advanced-entry-expanded-zh.jpeg](screenshots/emulator/tax-advanced-entry-expanded-zh.jpeg) |
 | 宽屏内容限宽居中（2026-10-21） | 通过 | 展开态（2210 px ≈ 690 vp）`dumpLayout`：显示区与 6 行键盘左右边界都在 **343–1868 px**（≈ 508 vp，`SCIENCE_CONTENT_MAX_WIDTH = 520` vp 生效），两侧留白对称（343 / 342 px），不再把 5 列键拉成每条约 123 vp；折叠态（345 vp）本来就窄于上限、布局不变 |
 
 **验收中发现并修掉一个格式化缺陷（2026-10-20）**：把精度切到 6 位时结果曾显示成 `1.2676500000000001e+30` —— `Units.formatValue` 原先一律走 `Number(value.toPrecision(digits)).toString()`，而 **ArkTS 的 `Number#toString` 在大数量级上不保证最短表示**（会把 6 位写成 17 位），「有效位数」选项因此失效。现改为「指数写法下尾数取自 `toPrecision(digits)` 并裁掉尾零、指数部分仍用 `toString()`」，单测新增 `1.2676506e30` 的三档位断言与 `1e±101` 断言；该函数被单位换算与科学计算器共用，两处一并受益。
@@ -2441,3 +2498,59 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 ```
 
 拿到回执后我按编号逐条修，并同步更新 `docs/RELEASE_CHECKLIST.md` 的状态。
+
+## 追加回执（2026-10-21：智感握姿全量排查）
+
+**来源**：用户截图指出「纪念日每行的编辑 / 删除按钮」不跟随握姿，并要求排查全 App 里同类会让操作更顺的位置。
+
+**已有底座**：`Index` 原先已订阅 `motion` 的**操作手**与**持握手**（`@kit.MultimodalAwarenessKit`），只有 9 个页面（Barcode/Dates/Documents/NetworkProbe/Password/Qr/Timers/Timestamp/Torch）把动作行接上了 `actionAlign`。
+
+**本轮改动**：
+1. **判定抽成纯逻辑**：`LayoutAdaptive.actionHandSide(operatingSide, holdingSide, widthBand)`（操作手优先于持握手、宽档 `>= WIDTH_MD` 恒 0、信号非有限值按未知），`Index.actionSide()`/`actionAlignment()` 都读它；单测覆盖优先级/宽屏/未知/`NaN`/`±Infinity`/越界值共 14 条。
+2. **列表行的行内动作**：纪念日每行「编辑 / 删除」改由 `@Param handSide` 驱动——左手时整行镜像（`Stack.alignContent` + 两侧留白一起换边）；历史每行「复制 / 删除」接 `actionAlign`（默认 `Start` = 改动前观感，右手才移到右侧）。
+3. **新增跟随的动作行**：`DiffPage`（「对比」主按钮 + 底部「复制差异 / 清空」）、`LevelPage`（5 枚校准键）、`CompassPage`（锁定 + 复制）、`LoanPage`（计算 / 清空）、`TextPage`（3 枚结果动作）、`SettingsPage`（4 枚数据动作）、`HealthPage`（结果动作 + 检查输入）、`SciencePage`（结果 3 动作）、`KinshipPage`（删除最后一个关系词）、`RandomPage`（生成随机数，先包一层 100% 宽的 `Row`）。
+4. **删除死参数**：`BasePage` 声明了 `actionAlign` 却从没有任何行在用它（`Index` 还在传）——本页是实时计算页、唯一按钮是逐值复制，按口径不该跟随，因此**删掉参数与传参**，并在注释里写明理由。
+5. **修掉一处既有缺陷**：纪念日行给按钮预留的宽度只有 64 vp，而两枚按钮实际要 68 vp（2×44+4）加 8 vp 内边距——名字稍长就会滑到删除图标底下；镜像后截图里直接看得到垃圾桶压在文字上。改为常量 `ITEM_ACTION_RESERVE = 100`。
+
+**模拟器实测（2210×2416 展开态；用「临时把 `Index.actionSide()` 写死 `-1`/`1`」的探针拍照，探针已还原并重跑门禁）**：
+
+| 场景 | 证据 |
+| --- | --- |
+| 左手探针 · 纪念日 | `dumpLayout`：名称文本 x 从 125 → **387 px**（预留 100 vp 换到左侧），截图里 ✎/🗑 在行首、文字不再被压住 —— `screenshots/emulator/hand-left-anniversary-zh.jpeg` |
+| 左手探针 · 文本对比 | 「对比」按钮 x 从 **1142（居中）→ 75（行首）** |
+| 右手探针 · 文本对比 | 「对比」按钮移到最右、底部「复制差异 / 清空」也贴右 —— `screenshots/emulator/hand-right-diff-zh.jpeg` |
+| 还原后默认（握姿未知/宽屏） | 纪念日名称 x 回到 125、按钮仍在行尾，观感与改动前一致（预留加宽后不再压字）—— `screenshots/emulator/hand-default-anniversary-zh.jpeg` |
+
+**未覆盖 / 待真机复核**：① **真实握姿信号**没有在真机上验证过——模拟器不产生 `operatingHandChanged`（本轮走的是探针），真机请左右手各持一次，确认动作行确实换边、放下手机（未知）时回到原位；② 键盘类（科学计算器、常用键、内存键、设置页图标网格、亲戚称呼拼接条）**故意不跟随**，真机上只需确认它们的顺序没变；③ 逐值复制按钮（各结果行尾部）按口径不跟随，若真机用起来觉得左手够不到，再单独决策。
+
+### 追加：设置页新增「智感握姿」开关（2026-10-21 同日）
+
+**改动**：`model/HandPosture.ets`（纯逻辑：`'on'`/`'off'`、默认**开启**、未知值回退默认、开/关/**本机不支持**三种说明文案、无障碍文案）+ `LocalData.LOCAL_KEYS` 增加 `hand_posture` + `Index`（读取偏好、`setHandPosture()` 走「先改内存 → 落盘 → 失败回滚 + toast」并同步订阅/退订、`actionSide()` 首行 `if (!this.handPosture) return 0`、**清除本机数据时复位回默认并同步订阅**）+ 设置页「操作方式」区一枚 `Toggle`（本机不支持时禁用并说明）。
+
+**模拟器实测（2210×2416）**：
+
+| 检查项 | 证据 |
+| --- | --- |
+| 设置 tab 出现开关且默认开 | `dumpLayout`：`智感握姿` + 说明「把动作按钮靠近正在操作的那只手；宽窗口（平板/展开态）保持默认版式。」；Toggle 节点 `[1967,1130][2080,1193] checked=true checkable=true enabled=true`（说明本机 `motion` 查询**没有**抛 801，`handPostureSupported=true`） |
+| 点一下即关闭 | 再 dump：`checked=false`，说明变成「已关闭：动作按钮固定在原位，不随握持的手移动。」 |
+| **重启后仍关闭** | `aa force-stop` + 重新启动 → 设置页仍是 `checked=false` + 「已关闭」说明（键 `hand_posture='off'` 读回成功） |
+| **开关真的能挡住跟随**（保留开关判断、只把系统信号换成探针 `-1` 的一版构建） | 开关**关**时进纪念日：名称 x = **125**（默认版式，动作行没动）；在设置里打开开关后再进同一页：名称 x = **387**（镜像到行首）。探针随后已还原并重跑门禁 |
+
+**未覆盖 / 待真机复核**：① 真机上关掉开关后左右换手，动作行**不应**再移动；② 不支持握姿的设备（查 `motion` 抛 801）应看到开关**置灰** + 「本机未提供握姿识别能力…」——模拟器恰好支持，这条没能在设备上看到；③ 「清除本机数据」后开关要回到**开启**（代码已复位并同步订阅，真机走一遍确认）。
+
+### 追加：双手持握 / 未持握 → 冻结在默认版式（2026-10-21 同日）
+
+**依据**：SDK `motion.HoldingHandStatus` 明确有 `BOTH_HANDS_HELD`（双手，API 20+）与 `NOT_HELD`（没握住），而原实现把这两个值都塌成「持握手未知」，于是**只要操作手有信号就继续跟随**——双手交替用拇指时动作行会左右横跳。
+
+**改动**：`LayoutAdaptive.actionHandSide(operatingSide, holdingSide, widthBand, holdingFreezes)` 增加第四参；`Index.holdingCallback` 把 `BOTH_HANDS_HELD`/`NOT_HELD` 记成 `holdingFreezes = true` → **恒返回 0（连操作手也不跟）**。`UNKNOWN_STATUS`（设备不报握姿）不冻结，仍用操作手兜底。关闭开关时 `holdingFreezes` 一并清零（系统只在状态变化时回调，冻住可能等不到下一次回调）。设置页开关的说明文案同步改成「双手持握、设备未持握（平放）与宽窗口时保持默认版式」。
+
+**模拟器实测（2210×2416，用「临时把 `Index.actionSide()` 写死成 `actionHandSide(-1, 0, 0, true)`」的探针，即**操作手=左手**且**已冻结**）**：纪念日名称 x = **125**（默认版式）——同日不冻结的探针（`return -1`）在同一页测得 **387**（镜像到行首），说明冻结这一路确实被遵守、而不是恰好没生效。探针已还原并重跑门禁。
+
+| 规则 | 单测断言 |
+| --- | --- |
+| 双手/未持握 → 0（即使操作手已知） | `actionHandSide(-1, 0, SM, true) === 0`、`(1,1,…) === 0`、`(-1,-1,…) === 0` |
+| 不冻结时行为不变（默认参数向后兼容） | `actionHandSide(-1, 0, SM) === -1`、`(1, 0, SM, false) === 1` |
+| 「冻结」≠「持握手未知」 | `actionHandSide(1, 0, SM, false) === 1`（未知时用操作手兜底） |
+
+**未覆盖 / 待真机复核**：真机**双手握持**时进纪念日/历史页，动作行应**保持默认位置**、换手也不移动；**平放在桌上**用手指点时同样不动；**一只手握**时仍应跟随（换手可见移动）。模拟器不产生真实持握事件，本轮全部用探针+单测覆盖。
+
