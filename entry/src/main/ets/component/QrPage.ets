@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
@@ -11,6 +12,7 @@ import { QrPayload, QrKindEntry, QR_KINDS, WifiSecurityEntry, WIFI_SECURITIES,
 import { makeQr, scanQr, saveQr, shareQr, decodeCodeFromImage } from '../services/SystemTools';
 import { QrLevelEntry, QR_LEVELS, QrColorEntry, QR_COLORS, DEFAULT_QR_LEVEL, DEFAULT_QR_COLOR,
   qrLevelIndex, qrLevelLabel, qrColorIndex, qrColorLabel, qrCapacityErrorText } from '../model/QrStyle';
+import { scanGenGuidanceText } from '../model/ScanGenErrors';
 
 /** 输入字段的双语文案与占位符（常量登记表，界面按字段 id 现取）。 */
 class QrFieldSpec {
@@ -207,7 +209,13 @@ export struct QrPage {
       this.qrResult = payload.text;
       this.onRecord('generated', payload.text);
       this.onStatus(this.tr('二维码已生成', 'QR code created'));
-    } catch (_) { this.onStatus(this.tr('生成失败，请在真机重试', 'Creation failed; try a real device')); }
+    } catch (error) {
+      // 生成失败码 → 可执行提示（如 804「能力不支持」，模拟器上必现）；没有专门建议的码
+      // 保留原来的兜底文案。映射在纯逻辑 `ScanGenErrors.scanGenGuidanceText()`。
+      const guidance: string = scanGenGuidanceText((error as BusinessError).code, this.english);
+      this.onStatus(guidance.length > 0 ? guidance :
+        this.tr('生成失败，请在真机重试', 'Creation failed; try a real device'));
+    }
   }
 
   private async scan(): Promise<void> {

@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
@@ -8,6 +9,7 @@ import { ToolPalette } from '../model/ToolPalette';
 import { BarcodeKind, BarcodeKindEntry, BARCODE_KINDS, barcodeKindIndex, barcodeInput,
   barcodeDisplayValue, barcodeHint, barcodeNumeric, barcodeTwoDimensional,
   barcodeErrorText } from '../model/BarcodeTools';
+import { scanGenGuidanceText } from '../model/ScanGenErrors';
 import { makeBarcode, scanOneDimensionalBarcode, decodeCodeFromImage, saveCodeImage, saveCodeToGallery,
   shareCodeImage } from '../services/SystemTools';
 
@@ -70,8 +72,11 @@ export struct BarcodePage {
       this.barcodePixel = pixel;
       this.barcodeResult = barcodeDisplayValue(kind, content);
       this.onStatus(this.tr('条形码已生成', 'Barcode created'));
-    } catch (_) {
-      this.onStatus(this.tr('生成条形码失败', 'Could not create barcode'));
+    } catch (error) {
+      // 已知错误码（如 804「能力不支持」）给可执行的下一步，其余保留原来的笼统提示——
+      // 码图的失败码映射在纯逻辑 `ScanGenErrors.scanGenGuidanceText()`。
+      const guidance: string = scanGenGuidanceText((error as BusinessError).code, this.english);
+      this.onStatus(guidance.length > 0 ? guidance : this.tr('生成条形码失败', 'Could not create barcode'));
     } finally { this.barcodeBusy = false; }
   }
 

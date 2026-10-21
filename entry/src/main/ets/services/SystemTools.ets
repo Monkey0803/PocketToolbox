@@ -13,6 +13,10 @@ import { BarcodeKind, barcodeFormatId, barcodeTwoDimensional } from '../model/Ba
 import { utf8Text } from '../model/EncodingTools';
 import { QrColorEntry, qrColorEntry, qrLevelValue } from '../model/QrStyle';
 import { TorchSegment } from '../model/TorchSignal';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+const DOMAIN: number = 0x0000;
+const TAG: string = 'SystemTools';
 
 /**
  * 某个 IANA 时区在给定瞬间相对 UTC 的偏移（分钟，含夏令时）。系统不支持该 id 时返回 NaN，
@@ -77,6 +81,20 @@ function errorCorrectionLevel(levelId: string): generateBarcode.ErrorCorrectionL
 }
 
 /**
+ * `generateBarcode.createBarcode` 失败时的唯一日志入口（条码页与二维码页共用）。
+ *
+ * **只记标签与错误对象，绝不记码图内容**：条码/二维码内容可能是用户的账号、口令或 WiFi 密码，
+ * `docs/PRIVACY.md` 承诺它只留在内存里（不落盘、不上传），同样不该进系统日志。
+ *
+ * 为什么必须记（2026-10-21）：页面的 catch 只弹一句笼统提示，而「环境不支持生成」与真正的生成
+ * 失败在界面上一字不差——实测模拟器返回 `{"code":804,"message":"The capability is not supported
+ * on the emulator at this time."}`，没有这行日志就只能猜「是不是我输入错了」。
+ */
+function logGenerateFailure(label: string, error: Error): void {
+  hilog.error(DOMAIN, TAG, 'generateBarcode failed (%{public}s): %{public}s', label, JSON.stringify(error));
+}
+
+/**
  * 生成二维码：容错等级与码色由纯逻辑登记表给出（未知 id 回退默认值，不会把 undefined 传给系统）。
  * 码色是 `0xRRGGBB`，与 `generateBarcode.CreateOptions` 的文档一致。
  */
@@ -84,11 +102,18 @@ export async function makeQr(content: string, levelId: string, colorId: string):
   const color: QrColorEntry | undefined = qrColorEntry(colorId);
   const background: number = color === undefined ? 0xFFFFFF : color.background;
   const foreground: number = color === undefined ? 0x000000 : color.foreground;
-  return await generateBarcode.createBarcode(content, {
-    scanType: scanCore.ScanType.QR_CODE, width: 800, height: 800,
-    level: errorCorrectionLevel(levelId),
-    backgroundColor: background, pixelMapColor: foreground
-  });
+  // 与条码走同一个日志入口：二维码页此前也只有一个笼统的 catch，模拟器上的 804
+  // （能力不支持）与真失败在界面上无法区分。
+  try {
+    return await generateBarcode.createBarcode(content, {
+      scanType: scanCore.ScanType.QR_CODE, width: 800, height: 800,
+      level: errorCorrectionLevel(levelId),
+      backgroundColor: background, pixelMapColor: foreground
+    });
+  } catch (error) {
+    logGenerateFailure('qr', error as Error);
+    throw error as Error;
+  }
 }
 
 export async function scanQr(context: common.UIAbilityContext): Promise<string> {
@@ -116,6 +141,21 @@ function scanTypeOf(kind: BarcodeKind): scanCore.ScanType {
   return scanCore.ScanType.CODE128_CODE;
 }
 
+/** Scan Kit 生成条码：失败时把系统给的原因写进 hilog（见 `logGenerateFailure()`）。 */
+async function createBarcodeImage(content: string, kind: BarcodeKind, scanType: scanCore.ScanType,
+  width: number, height: number): Promise<image.PixelMap> {
+  try {
+    return await generateBarcode.createBarcode(content, {
+      scanType: scanType, width: width, height: height, margin: 10
+    });
+  } catch (error) {
+    logGenerateFailure('kind=' + kind, error as Error);
+    // ArkTS 不允许 throw 任意类型（arkts-limited-throw），与系统给出的错误对象区分开：
+    // 日志里已经留下原始错误，这里只需让调用方的 catch 照旧拿到一个 Error。
+    throw error as Error;
+  }
+}
+
 export async function makeBarcode(content: string, kind: BarcodeKind): Promise<image.PixelMap> {
   const twoDimensional: boolean = barcodeTwoDimensional(kind);
   const scanType: scanCore.ScanType = scanTypeOf(kind);
@@ -124,9 +164,7 @@ export async function makeBarcode(content: string, kind: BarcodeKind): Promise<i
   const height: number = twoDimensional ? 700 : 400;
   const horizontalPadding: number = twoDimensional ? 40 : 80;
   const verticalPadding: number = twoDimensional ? 40 : 40;
-  let generated: image.PixelMap = await generateBarcode.createBarcode(content, {
-    scanType: scanType, width: width, height: height, margin: 10
-  });
+  let generated: image.PixelMap = await createBarcodeImage(content, kind, scanType, width, height);
   try {
     // A one-dimensional code needs clear space beyond the bars for photo-based recognition.
     let pixels: ArrayBuffer = new ArrayBuffer(width * height * 4);
@@ -147,6 +185,12 @@ export async function makeBarcode(content: string, kind: BarcodeKind): Promise<i
       srcPixelFormat: image.PixelMapFormat.BGRA_8888,
       pixelFormat: image.PixelMapFormat.BGRA_8888
     });
+  } catch (error) {
+    // 与生成失败分开记：这一段（读像素 / 补白边 / 建 PixelMap）失败与「Scan Kit 不给生成」
+    // 是两回事，日志里能直接看出卡在哪一步。
+    hilog.error(DOMAIN, TAG, 'barcode pixel post-processing failed (kind=%{public}s, %{public}dx%{public}d): %{public}s',
+      kind, width, height, JSON.stringify(error));
+    throw error as Error;
   } finally { await generated.release(); }
 }
 

@@ -55,6 +55,7 @@ const hashTools = await loadEts('../entry/src/main/ets/model/HashTools.ets');
 const historyKinds = await loadEts('../entry/src/main/ets/model/HistoryKinds.ets');
 const timeZones = await loadEts('../entry/src/main/ets/model/TimeZoneTools.ets');
 const qrStyle = await loadEts('../entry/src/main/ets/model/QrStyle.ets');
+const scanGenErrors = await loadEts('../entry/src/main/ets/model/ScanGenErrors.ets');
 const loans = await loadEts('../entry/src/main/ets/model/LoanMath.ets');
 const colors = await loadEts('../entry/src/main/ets/model/ColorTools.ets');
 const recents = await loadEts('../entry/src/main/ets/model/RecentTools.ets');
@@ -1899,6 +1900,26 @@ for (const kind of ['code128', 'code39', 'code93', 'ean13', 'ean8', 'upca', 'upc
     assert.ok(barcodes.barcodeHint(kind, english).length > 0, `missing hint for ${kind}`);
     assert.ok(barcodes.barcodeErrorText(kind, english).length > 0, `missing error text for ${kind}`);
   }
+}
+
+// 生成失败码 → 用户提示（2026-10-21）。为什么要有断言：这是用户唯一能看到「为什么失败」的线索。
+// 模拟器上 `generateBarcode.createBarcode` 必失败，实测 BusinessError 为
+// `{"code":804,"message":"The capability is not supported on the emulator at this time."}`——
+// 804 必须给出**可执行的下一步**（去真机），而 804 之外的码**不得冒充具体原因**（返回空串，
+// 由各页面保留自己的兜底文案），否则会把人引向错误的排查方向。
+assert.equal(scanGenErrors.SCAN_GEN_UNSUPPORTED_CODE, 804);
+for (const english of [false, true]) {
+  const guidance = scanGenErrors.scanGenGuidanceText(scanGenErrors.SCAN_GEN_UNSUPPORTED_CODE, english);
+  assert.ok(guidance.length > 0, `804 必须给引导文案（english=${english}）`);
+  assert.ok(english ? guidance.includes('real device') : guidance.includes('真机'),
+    '引导文案必须写明下一步：换真机重试');
+  assert.equal(guidance.trim(), guidance, '文案不该带首尾空白');
+}
+assert.notEqual(scanGenErrors.scanGenGuidanceText(804, false), scanGenErrors.scanGenGuidanceText(804, true),
+  '中英文案必须不同');
+for (const code of [undefined, 0, 401, 1000500001]) {
+  assert.equal(scanGenErrors.scanGenGuidanceText(code, false), '',
+    `未收录的失败码不得给具体原因（${code}）`);
 }
 
 // 码制登记表：界面选项行由它派生，新增码制只加登记项
