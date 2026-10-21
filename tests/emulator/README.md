@@ -48,6 +48,8 @@ node tests/emulator/emu.mjs grid 440        # Pura X Max 展开（2584×1828 @44
 判读要点（口径见 `entry/src/main/ets/model/LayoutAdaptive.ets` 与单测）：
 
 - `columns` 应为 1（XS 或窄幅 < 360 vp）/ 2（SM）/ 3（MD 600–840）/ 4（LG 840–1440）/ 5（XL ≥ 1440）；
+- **`columns` 会反映工具页 / 收藏页页顶「每行显示」的设置**：量自动布局前先把两页都选回「自动」
+  （否则量到的是手选档位，手选值按当前窗口收窄，卡片宽度仍不低于 150 vp）；
 - `content.width` = min(窗口宽 − 2 × 左右边距, 断点上限 920 / 1080 / 1200)，`left` 就是左右边距；
 - `columnsGap`/`rowsGap` 与 `search.top` 能看出是否命中「紧凑」（高宽比 < 0.8，即阔折叠展开 /
   三折叠全展开 / 平板横屏）：紧凑时顶部留白 12、间距 10，否则 20 / 12；

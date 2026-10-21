@@ -10,7 +10,10 @@ import { motion } from '@kit.MultimodalAwarenessKit';
 import lazy { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
 import { matchTools, promoteFavorite, moveFavorite, allowedFavorites } from '../model/ToolMeta';
-import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, WIDTH_MD, actionHandSide } from '../model/LayoutAdaptive';
+import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, maxGridColumns, resolveGridColumns,
+  WIDTH_MD, actionHandSide } from '../model/LayoutAdaptive';
+import { DEFAULT_GRID_COLUMNS, GRID_COLUMNS_AUTO, gridColumnCount, gridColumnIdForColumns,
+  gridColumnLabel, parseGridColumns, serializeGridColumns } from '../model/GridColumns';
 import { DEFAULT_HAND_POSTURE, parseHandPosture, serializeHandPosture } from '../model/HandPosture';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, LOCAL_KEYS } from '../model/LocalData';
@@ -20,6 +23,7 @@ import { HistoryItem, historyContentSnippet, historyRefill, historyTargetRoute,
 import { backupFileName, backupSummaryText, buildBackupJson, historyExportText, historyFileName } from '../model/DataExport';
 import { ImportPlan, importErrorText, importSummaryText, parseBackupJson } from '../model/DataImport';
 import { IconActionButton } from '../component/IconActionButton';
+import { OptionSelect } from '../component/OptionSelect';
 import { MaterialSurface } from '../component/MaterialSurface';
 import { CalculatorPage } from '../component/CalculatorPage';
 import { TextPage } from '../component/TextPage';
@@ -126,6 +130,10 @@ struct Index {
   @Local fatalError: string = '';
   @Local history: HistoryItem[] = [];
   @Local favorites: string[] = [];
+  // 工具页 / 收藏页「每行显示几个」：两页各自独立（`'auto'` 或 `'1'..'6'`，见 model/GridColumns.ets）。
+  // 可选的档位按当前窗口收窄，实际生效的列数由 `LayoutAdaptive.resolveGridColumns()` 合并。
+  @Local toolsColumns: string = DEFAULT_GRID_COLUMNS;
+  @Local favoritesColumns: string = DEFAULT_GRID_COLUMNS;
   @Local favoriteSaving: boolean = false;
   // 收藏页的拖拽排序模式：开启后卡片可拖动换位（长按菜单在模式内不再挂载，避免手势冲突）。
   @Local favoritesSorting: boolean = false;
@@ -449,6 +457,11 @@ struct Index {
       // 智感握姿开关：偏好读完才知道要不要订阅（`setupAdaptiveUi()` 跑在读取之前，先默认开着订上）。
       this.handPosture = parseHandPosture(
         await this.data.getString('hand_posture', serializeHandPosture(DEFAULT_HAND_POSTURE)));
+      // 工具页 / 收藏页的「每行显示几个」：非法值（手改备份、旧版本残留）由 `parseGridColumns()` 回退「自动」。
+      this.toolsColumns = parseGridColumns(
+        await this.data.getString('tools_columns', DEFAULT_GRID_COLUMNS));
+      this.favoritesColumns = parseGridColumns(
+        await this.data.getString('favorites_columns', DEFAULT_GRID_COLUMNS));
       this.syncHandPostureSubscription();
     } catch (_) { this.fatalError = this.tr('无法读取本地数据', 'Could not load local data'); }
     this.refreshIcon();
@@ -800,6 +813,9 @@ struct Index {
     // 智感握姿也回到默认（开启）并同步订阅——只删存储会让界面上仍显示「已关闭」（与「最近使用」同类缺陷）。
     this.handPosture = DEFAULT_HAND_POSTURE;
     this.syncHandPostureSubscription();
+    // 「每行显示几个」同理回到默认（自动），否则清除后网格仍按旧列数渲染。
+    this.toolsColumns = DEFAULT_GRID_COLUMNS;
+    this.favoritesColumns = DEFAULT_GRID_COLUMNS;
     this.refreshWidgets();
     this.status = this.tr('本机数据已清除', 'On-device data erased');
   }
@@ -887,6 +903,9 @@ struct Index {
       this.history = await this.data.getHistory();
       this.favorites = await this.data.getFavorites();
       this.recents = this.filterRecents(await this.data.getString('recent_tools', '[]'));
+      this.toolsColumns = parseGridColumns(await this.data.getString('tools_columns', DEFAULT_GRID_COLUMNS));
+      this.favoritesColumns = parseGridColumns(
+        await this.data.getString('favorites_columns', DEFAULT_GRID_COLUMNS));
       this.applyLanguagePreference(normalizeLanguagePreference(        await this.data.getString('language', DEFAULT_LANGUAGE_PREFERENCE)));
       this.refreshWidgets();
     } catch (_) {
@@ -1111,7 +1130,7 @@ struct Index {
           }
         }
       }, (tool: ToolEntry): string => tool.id)
-    }.columnsTemplate(this.gridColumns())
+    }.columnsTemplate(this.gridColumnsTemplateFor('tools'))
       .columnsGap(this.metrics().gridGap).rowsGap(this.metrics().gridGap).width('100%')
   }
 
@@ -1227,6 +1246,9 @@ struct Index {
           .accessibilityText(this.tr('搜索工具', 'Search tools'))
           .onChange((value: string) => { this.toolQuery = value; })
       }
+      // 「每行显示几个」紧跟在搜索框下、**无条件渲染**：搜索过滤时也跟着在（否则打字过程中控件移入移出、
+      // 网格整体跳一下）。它只改本页网格的列数，收藏页各有一份自己的偏好。
+      this.gridDensityRow('tools')
       if (this.toolQuery.trim().length > 0 && this.visibleTools.length === 0) {
         Text(this.tr('没有匹配的工具，试试「二维码」「换算」或英文名。',
           'No tool matches. Try “QR”, “converter” or another keyword.'))
@@ -1250,11 +1272,116 @@ struct Index {
       this.tr('搜索工具，如「二维码」「换算」', 'Search tools, e.g. “QR” or “converter”');
   }
 
-  // 网格列数：按官方宽度断点自适应（XS 1 列、SM 1–2 列、MD 3 列、LG 4 列、XL 5 列）。
-  // 窄幅 SM 窗口（< 360 vp，例如三折叠折叠态外屏）降到 1 列：双列时卡片只有约 150 vp，
-  // 中英标题都会折行挤压；上限 5 列则让平板横屏（1440 vp）不再只铺 4 列、右侧空出一大块。
-  private gridColumns(): string {
-    return gridColumnsTemplate(this.metrics().columns);
+  /**
+   * 网格列数（自动）：按官方宽度断点自适应（XS 1 列、SM 1–2 列、MD 3 列、LG 4 列、XL 5 列）。
+   * 窄幅 SM 窗口（< 360 vp，例如三折叠折叠态外屏）降到 1 列：双列时卡片只有约 150 vp，
+   * 中英标题都会折行挤压；上限 5 列则让平板横屏（1440 vp）不再只铺 4 列、右侧空出一大块。
+   *
+   * 用户可以在页顶把「每行显示几个」改成固定档位（见 `gridDensityRow()`）；可选项按当前窗口能放下的列数
+   * 收窄（可能比自动值更密——940 vp 上自动 4 列、最多 5 列），因此这里仍是**自动值**的唯一来源。
+   */
+  private autoGridColumns(): number {
+    return this.metrics().columns;
+  }
+
+  /**
+   * 当前窗口下「每行显示几个」的可选档位 id：`'auto'` + `1..maxGridColumns(内容列宽)`。
+   *
+   * 用**当前内容列宽**算上限，因此窄窗（折叠态、方形外屏）只给放得下的档位，不会出现
+   * 「选了 4、卡片被挤成 80 vp」；上限的判定公式与单测的 150 vp 断言同源（`LayoutAdaptive`）。
+   */
+  private gridColumnChoiceIds(): string[] {
+    const ids: string[] = [GRID_COLUMNS_AUTO];
+    const limit: number = maxGridColumns(this.metrics().contentWidth);
+    for (let columns: number = 1; columns <= limit; columns++) {
+      ids.push(gridColumnIdForColumns(columns));
+    }
+    return ids;
+  }
+
+  /** 本页的偏好 id：`'tools'` 取工具页，其余（`'favorites'`）取收藏页。 */
+  private gridColumnPreference(which: string): string {
+    return which === 'tools' ? this.toolsColumns : this.favoritesColumns;
+  }
+
+  /**
+   * 本页**实际生效**的列数：偏好（0 = 自动）与当前窗口能放下的最大列数由纯逻辑
+   * `resolveGridColumns()` 合并——窗口变小后已存的大列数会被夹回来，页面与 `Select` 都读这一个值。
+   */
+  private effectiveGridColumns(which: string): number {
+    const metrics: LayoutMetrics = this.metrics();
+    return resolveGridColumns(metrics.columns, gridColumnCount(this.gridColumnPreference(which)),
+      metrics.contentWidth);
+  }
+
+  private gridColumnsTemplateFor(which: string): string {
+    return gridColumnsTemplate(this.effectiveGridColumns(which));
+  }
+
+  /** 本页 `Select` 的选项文案：可选项只由当前窗口（内容列宽）决定，两页因此共用同一份。 */
+  private gridColumnOptions(): SelectOption[] {
+    const auto: number = this.autoGridColumns();
+    return this.gridColumnChoiceIds().map((id: string): SelectOption =>
+      ({ value: gridColumnLabel(id, auto, this.english) }));
+  }
+
+  /**
+   * `Select` 的选中项 id：偏好为「自动」时就是「自动」，否则是**夹取后实际生效**的固定档位——
+   * 「选 5 但窄窗只放得下 2」时显示的是 `每行 2 个`，与屏幕上渲染的列数一致。
+   */
+  private gridColumnDisplayId(which: string): string {
+    if (gridColumnCount(this.gridColumnPreference(which)) === 0) { return GRID_COLUMNS_AUTO; }
+    return gridColumnIdForColumns(this.effectiveGridColumns(which));
+  }
+
+  private gridColumnSelectedIndex(which: string): number {
+    const index: number = this.gridColumnChoiceIds().indexOf(this.gridColumnDisplayId(which));
+    return index >= 0 ? index : 0;
+  }
+
+  /**
+   * 设置本页「每行显示几个」：先改内存 → 落盘 → 失败回滚 + toast（与收藏/历史/智感握姿同一套写入口口径）。
+   *
+   * 成功不弹 toast：网格当场按新列数重排就是反馈；只有落盘失败才需要说明（否则会出现
+   * 「这次看着变了、下次进来又变回去」的假象）。
+   */
+  private async setGridColumns(which: string, id: string): Promise<void> {
+    const value: string = serializeGridColumns(id);
+    const previous: string = this.gridColumnPreference(which);
+    if (previous === value) { return; }
+    if (which === 'tools') { this.toolsColumns = value; } else { this.favoritesColumns = value; }
+    if (this.data === undefined) { return; }
+    try {
+      if (which === 'tools') {
+        await this.data.putString('tools_columns', value);
+      } else {
+        await this.data.putString('favorites_columns', value);
+      }
+    } catch (_) {
+      if (which === 'tools') { this.toolsColumns = previous; } else { this.favoritesColumns = previous; }
+      this.status = this.tr('每行显示保存失败，已恢复原设置',
+        'Could not save the per-row setting; reverted');
+    }
+  }
+
+  /**
+   * 「每行显示几个」控件（工具页与收藏页各一份，**互不影响**）。
+   *
+   * 与其它互斥选项同一套写法：`OptionSelect`（系统 `Select`），文案在 `@Param` 里随语言刷新；
+   * `which` 是常量字面量，按 AGENTS「@Builder 只收常量参数」的约定传入。
+   */
+  @Builder private gridDensityRow(which: string) {
+    OptionSelect({
+      label: this.tr('每行显示', 'Per row'),
+      options: this.gridColumnOptions(),
+      selectedIndex: this.gridColumnSelectedIndex(which),
+      selectedText: gridColumnLabel(this.gridColumnDisplayId(which), this.autoGridColumns(), this.english),
+      a11yText: this.tr('每行显示几个工具', 'Tools per row'),
+      onSelected: (index: number): void => {
+        const ids: string[] = this.gridColumnChoiceIds();
+        if (index >= 0 && index < ids.length) { this.setGridColumns(which, ids[index]); }
+      }
+    })
   }
 
   // 拖拽预览：跟随手指的卡片外观。参数只放常量下标（预览是瞬时的，不需要跟随状态刷新）。
@@ -1284,7 +1411,7 @@ struct Index {
           }
         }
       }, (tool: ToolEntry): string => tool.id)
-    }.columnsTemplate(this.gridColumns())
+    }.columnsTemplate(this.gridColumnsTemplateFor('favorites'))
       .columnsGap(this.metrics().gridGap).rowsGap(this.metrics().gridGap).width('100%')
       .editMode(this.favoritesSorting)
       .onItemDragStart((_event: ItemDragInfo, itemIndex: number) => this.favoriteDragPreview(itemIndex))
@@ -1306,6 +1433,8 @@ struct Index {
           .fontColor(ToolPalette.primaryDeep).fontWeight(FontWeight.Medium)
           .onClick(() => this.switchTab(0))
       } else {
+        // 收藏页自己的「每行显示几个」（与工具页互不影响）；空态没有网格，因此只在有收藏时渲染。
+        this.gridDensityRow('favorites')
         Row({ space: 12 }) {
           Text(this.favoritesSorting ?
             this.tr('拖动卡片调整顺序，完成后点右侧按钮。', 'Drag cards to reorder, then tap the button on the right.') :

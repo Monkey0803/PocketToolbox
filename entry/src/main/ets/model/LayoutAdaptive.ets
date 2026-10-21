@@ -57,6 +57,21 @@ export const ASPECT_LG_MIN: number = 1.2;
  */
 export const NARROW_SINGLE_COLUMN_MAX_VP: number = 360;
 
+/**
+ * 网格列数的上限（`gridColumnsTemplate()` 与本文件的列数夹取共用）。
+ * 6 列是「内容列 1200 vp 的平板横屏」也放得下的上限（1200 / 6 = 200 vp）。
+ */
+export const GRID_COLUMNS_LIMIT: number = 6;
+
+/**
+ * 单张工具卡片的最小宽度（vp）：工具标题 18 fp 加粗、最多 2 行，再窄就会被省略号截断。
+ *
+ * 这个下限是**自动列数**与**用户手选的列数**共用的硬约束：
+ * `maxGridColumns()` 用它算「当前窗口最多能放几列」，工具页/收藏页的「每行显示几个」
+ * 只提供放得下的档位，单测也按同一个常量断言（此前 150 这个字面量只写在测试里）。
+ */
+export const MIN_CARD_WIDTH_VP: number = 150;
+
 /** 窗口尺寸异常（未测量到、非有限值）时的兜底：按常规手机竖屏处理，避免出现 0 列/负边距。 */
 const FALLBACK_WIDTH_VP: number = 390;
 const FALLBACK_HEIGHT_VP: number = 844;
@@ -128,12 +143,40 @@ export function heightBandOf(widthVp: number, heightVp: number): number {
 
 /** 网格列数 → `Grid.columnsTemplate`（等比列，最多 6 列）。 */
 export function gridColumnsTemplate(columns: number): string {
-  const count: number = Math.round(clamp(Number.isFinite(columns) ? columns : 1, 1, 6));
+  const count: number = Math.round(clamp(Number.isFinite(columns) ? columns : 1, 1, GRID_COLUMNS_LIMIT));
   let template: string = '1fr';
   for (let index: number = 1; index < count; index++) {
-    template += ' 1fr';
+    template = template + ' 1fr';
   }
   return template;
+}
+
+/**
+ * 当前内容列宽下**最多能放几列**（卡片宽度不低于 `MIN_CARD_WIDTH_VP`）。
+ *
+ * 公式与单测里「卡片不会被挤到 150 vp 以下」的断言完全同源（`contentWidth / columns >= 150`），
+ * 因此两者不会各说各话；异常宽度（0/负数/NaN）回退 1 列，绝不返回 0。
+ */
+export function maxGridColumns(contentWidth: number): number {
+  if (!Number.isFinite(contentWidth) || contentWidth <= 0) { return 1; }
+  return Math.round(clamp(Math.floor(contentWidth / MIN_CARD_WIDTH_VP), 1, GRID_COLUMNS_LIMIT));
+}
+
+/**
+ * 用户手选的列数与自动列数的**唯一合并口径**（工具页/收藏页各用一份偏好）。
+ *
+ * - `preferredColumns <= 0`（即偏好为「自动」）→ 原样使用断点算出的 `autoColumns`（只做 1–6 夹取）；
+ * - 手选值 → 夹到「当前内容列宽放得下的最大列数」，再与自动值一样夹到 1–6。
+ *
+ * 「选 5 但在窄窗只放得下 2」时返回 2，界面因此显示的是**实际生效**的列数（`Select` 的选中项
+ * 与文案都由调用方按返回值现取），不会出现「写着 5、只画 2」的矛盾。
+ */
+export function resolveGridColumns(autoColumns: number, preferredColumns: number,
+  contentWidth: number): number {
+  const auto: number = Math.round(clamp(Number.isFinite(autoColumns) ? autoColumns : 1, 1, GRID_COLUMNS_LIMIT));
+  if (!Number.isFinite(preferredColumns) || preferredColumns <= 0) { return auto; }
+  const bounded: number = Math.round(clamp(preferredColumns, 1, maxGridColumns(contentWidth)));
+  return Math.round(clamp(bounded, 1, GRID_COLUMNS_LIMIT));
 }
 
 /**
@@ -175,6 +218,8 @@ export class LayoutMetrics {
   readonly columns: number;
   /** 内容列最大宽度：超出后居中留白。 */
   readonly contentMaxWidth: number;
+  /** 实际可用的内容列宽：`min(窗口宽 - 左右边距, contentMaxWidth)`（网格列数上限按它算）。 */
+  readonly contentWidth: number;
   /** 页面左右边距。 */
   readonly horizontalPadding: number;
   /** 内容区顶部留白，**不含**标题栏高度（标题栏避让由 `Index` 另加）。 */
@@ -200,6 +245,8 @@ export class LayoutMetrics {
     this.columns = columnsOf(this.widthVp, this.widthBand);
     this.contentMaxWidth = contentMaxWidthOf(this.widthBand);
     this.horizontalPadding = horizontalPaddingOf(this.widthBand);
+    // 与 `Index.tabScroll()` 的 constraintSize(maxWidth) + padding 同一算法：内容列宽取两者较小值。
+    this.contentWidth = Math.min(this.widthVp - this.horizontalPadding * 2, this.contentMaxWidth);
     // 只有「矮而宽」才收紧：竖长手机（LG）与近方（MD）保持原有留白，
     // 阔直板 440×744（高宽比 1.69）因此与常规手机同款，不会被误当成矮屏。
     this.compact = this.heightBand <= HEIGHT_SM;

@@ -108,9 +108,9 @@ export struct SettingsPage {
       this.getUIContext().showAlertDialog({
         title: this.tr('清除本机数据', 'Erase on-device data'),
         message: this.tr(
-          '将删除历史记录、收藏及顺序、计时器与秒表、纪念日、汇率缓存，并把单位与语言偏好恢复为默认。此操作不可撤销。',
+          '将删除历史记录、收藏及顺序、计时器与秒表、纪念日、汇率缓存，并把单位、语言与「工具/收藏页每行显示几个」偏好恢复为默认。此操作不可撤销。',
           'This deletes history, favourites and their order, timers and stopwatch, anniversaries and the rate ' +
-          'cache, and resets unit and language preferences to defaults. It cannot be undone.'),
+          'cache, and resets unit, language and per-row preferences to defaults. It cannot be undone.'),
         primaryButton: {
           value: this.tr('取消', 'Cancel'),
           action: () => {}
@@ -188,9 +188,10 @@ export struct SettingsPage {
       this.getUIContext().showAlertDialog({
         title: this.tr('导出本机数据', 'Export on-device data'),
         message: this.tr(
-          '将把历史记录、收藏及顺序、计时器与秒表、纪念日、汇率缓存、单位与语言偏好打包成一个 JSON 文件，保存在你选择的位置。不会上传到任何服务器。',
+          '将把历史记录、收藏及顺序、计时器与秒表、纪念日、汇率缓存、单位与语言偏好、工具与收藏页每行显示几个打包成一个 JSON 文件，保存在你选择的位置。不会上传到任何服务器。',
           'Packages history, favourites and their order, timers and stopwatch, anniversaries, the rate cache, ' +
-          'and unit and language preferences into one JSON file saved wherever you choose. Nothing is uploaded.'),
+          'unit and language preferences, and the per-row settings of the tools and favourites tabs into one ' +
+          'JSON file saved wherever you choose. Nothing is uploaded.'),
         primaryButton: { value: this.tr('取消', 'Cancel'), action: () => {} },
         secondaryButton: { value: this.tr('导出', 'Export'), action: () => this.onExportData() }
       });
@@ -473,8 +474,8 @@ export struct SettingsPage {
       Text(this.tr('隐私', 'Privacy')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 这段必须与 `docs/PRIVACY.md` 同步：它曾停留在「3 项权限、无联网」的旧版本，漏了纪念日清单、
       // 汇率缓存与指南针/水平仪的上次单位（2026-10-20 审计 P0）。
-      Text(this.tr('历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、工具收藏及其顺序、语言偏好、智感握姿开关、单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；文档扫描结果只在本次运行保留，由你主动导出。应用申请 5 项权限（代理提醒、握姿、加速度传感器、网络、网络信息），联网只有三处且全部由你点击触发：网络工具探测、单位换算「更新汇率」、设置页「检查更新」；启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
-        'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), timers and stopwatch laps, favourites and their order, language preference, the adaptive hand posture switch, the converter’s last category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; document scans stay in memory until you export them. The app requests five permissions (reminder agent, gesture, accelerometer, internet, network info). Network access happens in exactly three places, each triggered by your tap: Network tools probes, the converter’s Update rates, and Settings’ Check for updates; app start-up, the background and the home-screen widget never go online. Tax is computed on-device and official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
+      Text(this.tr('历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、工具收藏及其顺序、语言偏好、智感握姿开关、工具与收藏页的「每行显示几个」、单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；文档扫描结果只在本次运行保留，由你主动导出。应用申请 5 项权限（代理提醒、握姿、加速度传感器、网络、网络信息），联网只有三处且全部由你点击触发：网络工具探测、单位换算「更新汇率」、设置页「检查更新」；启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
+        'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), timers and stopwatch laps, favourites and their order, language preference, the adaptive hand posture switch, the per-row setting of the tools and favourites tabs, the converter’s last category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; document scans stay in memory until you export them. The app requests five permissions (reminder agent, gesture, accelerometer, internet, network info). Network access happens in exactly three places, each triggered by your tap: Network tools probes, the converter’s Update rates, and Settings’ Check for updates; app start-up, the background and the home-screen widget never go online. Tax is computed on-device and official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       Row({ space: 8 }) {
         IconActionButton({

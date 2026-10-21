@@ -1662,7 +1662,9 @@
 **口径（`layoutMetrics(widthVp, heightVp, widthBand?, heightBand?)`）**
 
 - 宽度断点（官方）：XS < 320、SM 320–600、MD 600–840、LG 840–1440、XL ≥ 1440
-  → 网格列数 **1 /（窄幅 < 360 vp 时 1，否则 2）/ 3 / 4 / 5**；
+  → 网格列数 **1 /（窄幅 < 360 vp 时 1，否则 2）/ 3 / 4 / 5**（这是「每行显示」为**自动**时的值；
+  工具页与收藏页可在页顶把本页改成固定档位，见文末「工具页 / 收藏页『每行显示几个』」一节——
+  手选值按当前窗口收窄，卡片宽度下限 150 vp 不变）；
 - 高度断点（官方，按**高宽比 = 高 / 宽**）：SM < 0.8（矮而宽）、MD 0.8–1.2（近方）、LG ≥ 1.2（竖长）；
 - 内容列最大宽度：MD 及以下 920、LG 1080、XL 1200（原来统一 920——1107 / 1440 vp 下左右各空出两百多 vp）；
 - 左右边距：XS 16、SM 20、MD 与 LG 24、XL 32；
@@ -2058,8 +2060,8 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 更多函数面板标签完整（2026-10-21） | 通过 | 修复前「更多函数」面板用 `Button(label)` 的默认左右内边距，折叠态每格约 57 vp，`sqrt(`/`atanh(` 全被挤成「s…」；改成显式 `.padding({ left: 4, right: 4 })` + `fontSize(13)` 后，折叠态 `dumpLayout` 25 个标签全部完整（`sqrt(` [62,1119][233,1257]、`atanh(` [651,1444][822,1582]、`npr(` [847,1769][1018,1907]），内存行 `M+ M− MR MC` 不变。截图 [science-more-panel-folded-zh.jpeg](screenshots/emulator/science-more-panel-folded-zh.jpeg) |
 | 折叠入口标题不翻转（2026-10-21） | 通过 | 「更多函数与内存键」「角度 DEG · 10 位有效数字」「完整语法说明」三个入口的可见标题**在展开前后完全一致**（折叠态 `dumpLayout`：展开前后都是 `更多函数与内存键 [112,2066][880,2121]` 这一行文本，状态只由箭头表达——未展开 ▶ `chevron_right`、展开 ▼ `chevron_down`）。修复前展开后会变成「收起更多函数」（还漏了「与内存」）/「收起设置」（把当前角度与精度整条盖掉）。截图 [science-entries-collapsed-zh.jpeg](screenshots/emulator/science-entries-collapsed-zh.jpeg)、[science-more-entry-expanded-zh.jpeg](screenshots/emulator/science-more-entry-expanded-zh.jpeg) |
 | 个税高级区标题不翻转（2026-10-21） | 通过 | `TaxPage` 的「展开扣除与累计数据」↔「收起扣除与累计数据」改成固定标题「扣除与累计数据」+ 箭头（未展开 ▶ / 展开 ▼）；折叠态实测点开后标题仍是 `扣除与累计数据`（位置不变），下方出现「本期专项附加扣除」区。截图 [tax-advanced-entry-collapsed-zh.jpeg](screenshots/emulator/tax-advanced-entry-collapsed-zh.jpeg)、[tax-advanced-entry-expanded-zh.jpeg](screenshots/emulator/tax-advanced-entry-expanded-zh.jpeg) |
-
-# 真机验收清单（日期工具 / 时间戳 / 计时时长）
+| 展开箭头约定「未展开 ▶ / 展开 ▼」（2026-10-21） | 通过 | 科学计算器 3 个入口（截图 [science-entries-collapsed-zh.jpeg](screenshots/emulator/science-entries-collapsed-zh.jpeg)）、个税高级区、贷款还款计划表统一为「未展开 ▶ `chevron_right` / 展开 ▼ `chevron_down`」。**系统 `Select`（`OptionSelect`，如健康页「活动量」）没有开合回调、只有 `onSelect`，因此做不到 ▶→▼**；文本工具的 4 个分组入口已按用户要求改成 `OptionSelect`（见下一行，不再是 `bindMenu`），不再参与这套箭头约定 |
+| 文本工具动作改成统一下拉（2026-10-21） | 通过 | 4 组动作（整理／去重排序／大小写／编码摘要）从自绘 `Button` + `bindMenu` 改成 `OptionSelect`（系统 `Select`），与全应用 30+ 处下拉同款：标签与下拉各占一列、下拉显示占位「选择操作」（截图 [text-actions-select-folded-zh.jpeg](screenshots/emulator/text-actions-select-folded-zh.jpeg)、[text-actions-select-zh.jpeg](screenshots/emulator/text-actions-select-zh.jpeg)）。空输入选「去空行」→ 提示「请先输入文本」且下拉回到占位（`text-actions-reject-zh.jpeg`）；输入 `abc a⏎⏎` 后选「去空行」→ 结果卡写出 `abc a`（截图 [text-actions-menu-open-zh.jpeg](screenshots/emulator/text-actions-menu-open-zh.jpeg)、[text-actions-result-zh.jpeg](screenshots/emulator/text-actions-result-zh.jpeg)）。折叠态 4 个中文标签（最长 5 字）在 72 vp 标签列里都是单行 |
 | 宽屏内容限宽居中（2026-10-21） | 通过 | 展开态（2210 px ≈ 690 vp）`dumpLayout`：显示区与 6 行键盘左右边界都在 **343–1868 px**（≈ 508 vp，`SCIENCE_CONTENT_MAX_WIDTH = 520` vp 生效），两侧留白对称（343 / 342 px），不再把 5 列键拉成每条约 123 vp；折叠态（345 vp）本来就窄于上限、布局不变 |
 
 **验收中发现并修掉一个格式化缺陷（2026-10-20）**：把精度切到 6 位时结果曾显示成 `1.2676500000000001e+30` —— `Units.formatValue` 原先一律走 `Number(value.toPrecision(digits)).toString()`，而 **ArkTS 的 `Number#toString` 在大数量级上不保证最短表示**（会把 6 位写成 17 位），「有效位数」选项因此失效。现改为「指数写法下尾数取自 `toPrecision(digits)` 并裁掉尾零、指数部分仍用 `toString()`」，单测新增 `1.2676506e30` 的三档位断言与 `1e±101` 断言；该函数被单位换算与科学计算器共用，两处一并受益。
@@ -2556,4 +2558,42 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 | 「冻结」≠「持握手未知」 | `actionHandSide(1, 0, SM, false) === 1`（未知时用操作手兜底） |
 
 **未覆盖 / 待真机复核**：真机**双手握持**时进纪念日/历史页，动作行应**保持默认位置**、换手也不移动；**平放在桌上**用手指点时同样不动；**一只手握**时仍应跟随（换手可见移动）。模拟器不产生真实持握事件，本轮全部用探针+单测覆盖。
+
+## 追加：工具页 / 收藏页「每行显示几个」（2026-10-21）
+
+**来源**：用户提「工具、收藏 tab 是不是可以加一个设置一行显示多少个」，并选定「**页顶放控件**」+「**两页各自独立**」。
+
+**改动**：
+1. **纯逻辑偏好** `entry/src/main/ets/model/GridColumns.ets`：值只认 `'auto'` / `'1'..'6'`（`parseGridColumns()` 对空串、越界、小数、未知值一律回退默认；写入口先规范化，存储里不留无法解析的串），`gridColumnCount()` / `gridColumnIdForColumns()` / `gridColumnLabel()` 供页面映射成 `SelectOption[]` 与选中文案。两个键 `tools_columns` / `favorites_columns` 已登记进 `LocalData.LOCAL_KEYS`。
+2. **列数的唯一合并口径**在 `LayoutAdaptive`：新增 `MIN_CARD_WIDTH_VP = 150`、`maxGridColumns(contentWidth) = clamp(floor(contentWidth / 150), 1, 6)`、`resolveGridColumns(autoColumns, preferredColumns, contentWidth)`，以及 `LayoutMetrics.contentWidth`（`min(窗口宽 − 2×边距, 内容列上限)`，与 `Index.tabScroll()` 的 constraintSize+padding 同一算法）。**可选项只给当前窗口放得下的档位**，手选值在窗口变窄后按当前最大列数夹取——`Select` 显示的、网格渲染的都是**实际生效**的列数，不会「写着 4、只画 2」。
+3. **页面**：`Index.gridDensityRow(which)` 用 `OptionSelect`（系统 `Select`，与其它互斥选项同一套 UI，不新增 HMSymbol），工具页放在**搜索框正下方、无条件渲染**（搜索时不移入移出），收藏页放在提示行上方、**仅在收藏非空时**渲染（空态没有网格）。`setGridColumns()` 走「先改内存 → 落盘 → 失败回滚 + toast」，成功不弹 toast（网格当场重排就是反馈）。
+4. **生命周期**：`load()` 各读一次；`clearAllLocalData()` 双双复位回「自动」（否则清除后网格仍按旧列数渲染）；`importLocalData()` 导入后重读两键。导出/导入自动覆盖（只走 `LOCAL_KEYS`）。
+5. **文案同步**：`SettingsPage` 的「清除本机数据」确认框、「导出本机数据」确认框、页内长隐私说明（中英），`docs/PRIVACY.md`（中英 + 更新日期），`README.md` 的布局一句，`tests/emulator/README.md` 的量测判读要点。
+
+**单测（`node tests/run-unit-tests.mjs` → `All toolbox model assertions passed`）**：
+
+| 口径 | 断言 |
+| --- | --- |
+| 解析与往返 | `''`/`'7'`/`'0'`/`'-1'`/`'2.5'`/`'two'`/`undefined`/`null` → `'auto'`；`' AUTO '` → `'auto'`；`'03'` → `'3'`；7 个合法 id 往返一致 |
+| id ↔ 列数 | `gridColumnCount('auto') === 0`、`('4') === 4`、非法 → 0；`gridColumnIdForColumns(9) === '6'`、`(0) === '1'`、`NaN → 'auto'` |
+| 文案 | 自动档带生效列数（「自动（每行 2 个）」/`Auto (2 per row)`）、固定档写列数、异常自动值兜底 1 列、中英不同 |
+| 列数上限 | `maxGridColumns(336)===2`、`(892)===5`、`(1200)===6`（8 → 夹到 6）、`(0)/(NaN)/(-400)===1` |
+| 合并口径 | 自动透传、手选更保守生效、`resolveGridColumns(2,4,336)===2`（窄窗夹取）、`(5,6,1200)===6`、手选 `NaN`/负数 → 自动 |
+| 内容列宽 | 1440×960 → 1200、376×809 → 336、940×665 → 892、未测量 → 350 |
+| 既有不变量 | 「卡片不窄于 150 vp」的循环改成同时断言 `metrics.columns <= maxGridColumns(metrics.contentWidth)`（两条判据同源） |
+
+**模拟器实测（1080×2444 @480 → 窗口约 360×814 vp，内容列 318.7 vp，因此本机 `maxGridColumns = 2`）**：
+
+| 场景 | 证据 |
+| --- | --- |
+| 工具页出现控件、默认自动 | `每行显示` + `自动（每行 1 个）`（360 vp 属窄幅 SM，自动就是 1 列）—— `screenshots/emulator/grid-tools-auto-zh.jpeg` |
+| 选项**只给放得下的档位** | 展开下拉只有 `自动（每行 1 个）` / `每行 1 个` / `每行 2 个`（没有 3 列及以上的档位，因为 318.7 / 3 < 150）—— `screenshots/emulator/grid-columns-menu-zh.jpeg` |
+| 选「每行 2 个」立即生效 | `emu.mjs grid`：`columns=2`、`cardWidth=153`（≥150）、`columnsGap=12.7`，控件文案变 `每行 2 个` —— `screenshots/emulator/grid-tools-2col-zh.jpeg` |
+| **强停重启后保持** | `aa force-stop` + `aa start` → 仍是 `columns=2` / `每行 2 个`（键 `tools_columns` 读回成功） |
+| **两页互不影响** | 收藏页当时是 `自动（每行 1 个）`（工具页已是「每行 2 个」）；在收藏页选「每行 2 个」→ `columns=2`（`grid-favorites-2col-zh.jpeg`）；再改成「每行 1 个」→ `columns=1`，切回工具页仍是 `每行 2 个` / `columns=2` |
+| 收藏空态不出现控件 | 「清除本机数据」后收藏为空 → 收藏页只有空态文案 + 「去工具页挑选」，**没有**「每行显示」行（没有网格就不摆控件）—— `grid-favorites-empty-zh.jpeg` |
+| **清除本机数据复位** | 清除前：工具 `每行 2 个`、收藏 `每行 1 个`；确认框正文已含「…并把单位、语言与「工具/收藏页每行显示几个」偏好恢复为默认…」；确认后两页都回到 `自动（每行 1 个）`、`columns=1`（存储与内存一起复位） |
+
+**未覆盖 / 待复核**：① **宽窗口的档位（4/5/6 列）**没有在设备上量到——本轮模拟器只能同时跑一个实例，启动 `PuraXMax` 时失败（`GLib: failed to allocate 63488 bytes`，宿主内存不足），因此「平板横屏选 5 列 / 640 vp 以上给到 6 列」目前只有单测覆盖（`maxGridColumns(892)===5`、`(1200)===6`）；在 PuraXMax / 三折叠全展开 / 平板实例上应按上表同样走一遍。② **跨断点夹取**（宽窗选 5 列后折叠到窄窗）同样需要能在同一实例里切换形态的设备（单测已断言 `resolveGridColumns(5, 6, 1200)===6` 与 `(2, 4, 336)===2`）。③ 英文文案（`Per row` / `Auto (N per row)` / `N per row`）只过了单测，未在设备上切语言核对。
+
 

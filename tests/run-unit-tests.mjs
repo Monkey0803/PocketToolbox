@@ -76,6 +76,7 @@ const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.e
 const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
 const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
 const handPosture = await loadEts('../entry/src/main/ets/model/HandPosture.ets');
+const gridColumns = await loadEts('../entry/src/main/ets/model/GridColumns.ets');
 const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets');
 const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
 const aboutInfo = await loadEts('../entry/src/main/ets/model/AboutInfo.ets');
@@ -5041,6 +5042,50 @@ assert.ok(handPosture.handPostureA11yText(false, false).indexOf('已关闭') >= 
 assert.ok(handPosture.handPostureA11yText(true, true).indexOf('on') >= 0);
 assert.ok(handPosture.handPostureA11yText(false, true).indexOf('off') >= 0);
 
+// ---- 工具页 / 收藏页「每行显示几个」（model/GridColumns.ets，两页各一份偏好）----
+// 只认 `'auto'` 与 `'1'..'6'`：手改备份、旧版本残留、越界值都必须回退默认（不是静默按某个数字渲染）。
+assert.equal(gridColumns.GRID_COLUMNS_AUTO, 'auto');
+assert.equal(gridColumns.DEFAULT_GRID_COLUMNS, 'auto', '默认仍是按断点自动');
+assert.equal(gridColumns.GRID_COLUMNS_MAX, 6, '与 gridColumnsTemplate 的 1–6 夹取一致');
+assert.equal(gridColumns.parseGridColumns('auto'), 'auto');
+assert.equal(gridColumns.parseGridColumns(' AUTO '), 'auto', '大小写与空白不敏感');
+assert.equal(gridColumns.parseGridColumns('3'), '3');
+assert.equal(gridColumns.parseGridColumns('03'), '3', '前导零规范化后再写回');
+assert.equal(gridColumns.parseGridColumns(''), 'auto', '空串 → 默认');
+assert.equal(gridColumns.parseGridColumns('7'), 'auto', '超出上限 → 默认（不夹取到 6，避免悄悄改变用户意图）');
+assert.equal(gridColumns.parseGridColumns('0'), 'auto');
+assert.equal(gridColumns.parseGridColumns('-1'), 'auto');
+assert.equal(gridColumns.parseGridColumns('2.5'), 'auto', '只认整数');
+assert.equal(gridColumns.parseGridColumns('two'), 'auto');
+assert.equal(gridColumns.parseGridColumns(undefined), 'auto', '旧数据缺键 → 默认');
+assert.equal(gridColumns.parseGridColumns(null), 'auto');
+// 往返：写入什么读回什么（写入口先规范化，存储里不留下无法解析的串）
+for (const id of ['auto', '1', '2', '3', '4', '5', '6']) {
+  assert.equal(gridColumns.parseGridColumns(gridColumns.serializeGridColumns(id)), id);
+}
+assert.equal(gridColumns.serializeGridColumns('9'), 'auto', '非法值写默认');
+// id ↔ 列数：'auto' 记成 0（约定 0 = 交给断点），固定档位给列数本身
+assert.equal(gridColumns.gridColumnCount('auto'), 0);
+assert.equal(gridColumns.gridColumnCount('4'), 4);
+assert.equal(gridColumns.gridColumnCount('9'), 0);
+assert.equal(gridColumns.gridColumnIdForColumns(1), '1');
+assert.equal(gridColumns.gridColumnIdForColumns(6), '6');
+assert.equal(gridColumns.gridColumnIdForColumns(9), '6', '列数夹到上限');
+assert.equal(gridColumns.gridColumnIdForColumns(0), '1');
+assert.equal(gridColumns.gridColumnIdForColumns(Number.NaN), 'auto');
+// 文案：自动档必须把**当前生效的列数**说出来，固定档位写列数本身；中英都要有
+const autoLabelZh = gridColumns.gridColumnLabel('auto', 2, false);
+const autoLabelEn = gridColumns.gridColumnLabel('auto', 2, true);
+assert.ok(autoLabelZh.indexOf('自动') >= 0 && autoLabelZh.indexOf('2') >= 0, '自动文案要带生效列数');
+assert.ok(autoLabelEn.indexOf('Auto') >= 0 && autoLabelEn.indexOf('2') >= 0);
+assert.ok(gridColumns.gridColumnLabel('3', 2, false).indexOf('3') >= 0);
+assert.ok(gridColumns.gridColumnLabel('3', 2, true).indexOf('3') >= 0);
+assert.notEqual(gridColumns.gridColumnLabel('1', 2, false), autoLabelZh, '手选档位不能显示成「自动」');
+assert.ok(gridColumns.gridColumnLabel('auto', Number.NaN, false).indexOf('1') >= 0, '异常自动值兜底 1 列');
+assert.ok(gridColumns.gridColumnLabel('auto', 0, true).length > 0);
+assert.ok(gridColumns.gridColumnLabel('6', 2, true) !== gridColumns.gridColumnLabel('6', 2, false),
+  '中英文案不同');
+
 // 阔直板 Pura X View 440×744：SM 档、2 列、不收紧（仍是竖长形态）
 const wideBar = layout.layoutMetrics(440, 744);
 assert.equal(wideBar.widthBand, layout.WIDTH_SM);
@@ -5104,8 +5149,11 @@ assert.equal(tablet.compact, true);
 for (const width of [320, 360, 440, 600, 720, 840, 940, 1107, 1280, 1440, 1600]) {
   const metrics = layout.layoutMetrics(width, 800);
   assert.ok(metrics.columns >= 1 && metrics.columns <= 5, `bad columns at ${width} vp`);
-  const contentWidth = Math.min(width - metrics.horizontalPadding * 2, metrics.contentMaxWidth);
+  const contentWidth = metrics.contentWidth;
   assert.ok(contentWidth / metrics.columns >= 150, `cards too narrow: ${width} vp / ${metrics.columns} columns`);
+  // 页面按同一个常量/函数给「每行显示几个」收窄可选项：自动列数必须落在它给的上限之内
+  assert.ok(metrics.columns <= layout.maxGridColumns(contentWidth),
+    `自动列数超过 maxGridColumns：${width} vp / ${metrics.columns} 列`);
 }
 let previousColumns = 0;
 for (let width = 200; width <= 1600; width += 1) {
@@ -5143,6 +5191,37 @@ assert.equal(layout.gridColumnsTemplate(5), '1fr 1fr 1fr 1fr 1fr');
 assert.equal(layout.gridColumnsTemplate(0), '1fr');
 assert.equal(layout.gridColumnsTemplate(Number.NaN), '1fr');
 assert.equal(layout.gridColumnsTemplate(99), '1fr 1fr 1fr 1fr 1fr 1fr');
+assert.equal(layout.gridColumnsTemplate(7), '1fr 1fr 1fr 1fr 1fr 1fr', '6 是列数硬上限');
+
+// 内容列宽：与 `Index.tabScroll()` 的 constraintSize(maxWidth) + padding 同一算法
+assert.equal(layout.layoutMetrics(1440, 960).contentWidth, 1200, 'XL：窗口宽 - 64 > 上限 1200');
+assert.equal(layout.layoutMetrics(376, 809).contentWidth, 336, 'SM：376 - 40');
+assert.equal(layout.layoutMetrics(940, 665).contentWidth, 892, 'LG：940 - 48');
+assert.equal(layout.layoutMetrics(0, 0).contentWidth, 350, '未测量 → 兜底 390 - 40');
+
+// 「每行显示几个」的列数上限（MIN_CARD_WIDTH_VP = 150）与单测的 150 vp 断言同源
+assert.equal(layout.MIN_CARD_WIDTH_VP, 150, '卡片宽度下限是页面可选项与单测共用的常量');
+assert.equal(layout.maxGridColumns(336), 2, '常规手机：最多 2 列（336 / 150）');
+assert.equal(layout.maxGridColumns(892), 5, '阔折叠展开：最多 5 列');
+assert.equal(layout.maxGridColumns(1200), 6, '平板横屏：1200 / 150 = 8 → 夹到 6');
+assert.equal(layout.maxGridColumns(150), 1);
+assert.equal(layout.maxGridColumns(149), 1, '放不下第 2 列');
+assert.equal(layout.maxGridColumns(0), 1, '异常宽度回退 1 列，绝不返回 0');
+assert.equal(layout.maxGridColumns(Number.NaN), 1);
+assert.equal(layout.maxGridColumns(-400), 1);
+
+// 自动 / 手选的唯一合并口径：手选只可能比自动更保守（按当前窗口收窄），窗口变窄后夹回来
+assert.equal(layout.resolveGridColumns(2, 0, 336), 2, '0 = 自动 → 原样用断点值');
+assert.equal(layout.resolveGridColumns(4, 0, 892), 4);
+assert.equal(layout.resolveGridColumns(2, 1, 336), 1, '手选 1 列（比自动更保守）');
+assert.equal(layout.resolveGridColumns(2, 2, 336), 2, '手选与自动相等');
+assert.equal(layout.resolveGridColumns(2, 4, 336), 2, '手选 4 列但窄窗只放得下 2 → 夹到 2');
+assert.equal(layout.resolveGridColumns(4, 5, 892), 5);
+assert.equal(layout.resolveGridColumns(5, 6, 1200), 6, '上限仍是 6');
+assert.equal(layout.resolveGridColumns(5, 9, 1200), 6);
+assert.equal(layout.resolveGridColumns(2, Number.NaN, 336), 2, '非有限手选值 → 自动');
+assert.equal(layout.resolveGridColumns(2, -3, 336), 2, '负数手选值 → 自动');
+assert.equal(layout.resolveGridColumns(Number.NaN, 0, 336), 1, '非有限自动值 → 1 列兜底');
 
 // 异常尺寸不产生坏布局（0 / 负数 / NaN 都走兜底，不会是 0 列或负边距）
 for (const size of [layout.layoutMetrics(0, 0), layout.layoutMetrics(-100, Number.NaN)]) {

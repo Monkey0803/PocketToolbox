@@ -36,7 +36,10 @@ export const LOCAL_KEYS: string[] = [
   'level_tolerance',
   // 智感握姿开关（`model/HandPosture.ets` 的 `on`/`off`）。放进来才会被「清除本机数据」与
   // 导出/导入信封一起覆盖——设置类偏好漏登记过一次就会在清除后留下残留（见 AGENTS）。
-  'hand_posture'
+  'hand_posture',
+  // 工具页 / 收藏页「每行显示几个」（`model/GridColumns.ets` 的 `'auto'` 或 `'1'..'6'`），两页各自独立。
+  'tools_columns',
+  'favorites_columns'
 ];
 
 /** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */
