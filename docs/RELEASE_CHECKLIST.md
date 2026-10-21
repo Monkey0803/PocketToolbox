@@ -245,6 +245,13 @@
   - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增主键盘 30 格 id 唯一/文案齐全/动作合法、数字与四则运算键存在、`padRowKeys` 行切片与越界、`MORE_FUNCTION_KEYS` 25 项与「刚好覆盖 30 个函数」、`equalsExpression` 有效/无效/空、以及每个函数键的可求值探针）；`node tests/check-consistency.mjs` 14 项通过；`assembleHap` `BUILD SUCCESSFUL`。
   - **模拟器复验（Mate X7 折叠态 1080×2444 @480 / 展开态 2210 px）**：点 `1` `+` `2` `×` `3` `=` → `7`；`C` 清空 → 「等待输入」；`π` `÷` `2` `=` → `1.570796327`；`⌫` 单字符与整词（`sqrt(`）都实测；「更多函数与内存」面板 25 个函数 + 内存行渲染正常，`sqrt(9)` 与 `M+` 都按预期工作。截图 [science-keypad-folded-zh.jpeg](screenshots/emulator/science-keypad-folded-zh.jpeg)、[science-keypad-wide-zh.jpeg](screenshots/emulator/science-keypad-wide-zh.jpeg)、[science-keypad-more-folded-zh.jpeg](screenshots/emulator/science-keypad-more-folded-zh.jpeg)。
   - **真机待复核**：`⌫`/`C` 的红色键面在深色模式下的对比度、5 列键位在真机上的触控手感（键高 48 vp、折叠态每格约 62 vp 宽）。
+
+- **科学计算器：结果卡润色预览 + 宽屏限宽（2026-10-21，已完成单测、构建与折叠/展开双形态模拟器复验）**：不新增权限、不引入联网、工具数不变。
+  ① **「正在计算 …」预览**：新增纯逻辑 `prettyExpression()`，把 ASCII 运算符润色成键面符号（`*`→`×`、`/`→`÷`、`-`→`−`、`pi`→`π`）；`pi` 按**记号边界**替换（前一个字符不是字母、后一个不是字母/数字），因此 `2pi`→`2π`、`pi*3`→`π×3`，而 `api`/`pi2` 这类整体标识符不动。**只显示、绝不写回表达式**——解析层只认 ASCII 记号，写回去用户就算不出来了（单测有正反两条断言：润色串必须 `syntax` 错、原串必须可求值）。预览行只在表达式非空时渲染，`maxLines(1)` + 省略号。
+  ② **宽屏限宽居中**：`SCIENCE_CONTENT_MAX_WIDTH = 520` vp，外层 `Column` 负责居中、内层 `constraintSize({ maxWidth })`。展开态（690 vp）实测内容左右边界 343–1868 px（≈ 508 vp）、两侧留白对称，5 列键每格从约 123 vp 收到约 95 vp，不再像长条；折叠态本来就窄，不受影响。
+  - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增 13 条 `prettyExpression` 断言：四种运算符、`pi` 的三种边界、空串、以及「润色串不可求值 / 原串可求值」的配对断言）；`assembleHap` `BUILD SUCCESSFUL`。
+  - **模拟器复验**：折叠态键位依次点 `1` `+` `2` `×` `3` → 输入框 `1+2*3`、预览 `正在计算 1+2×3`、结果 `7`；展开态同样；截图 [science-pretty-folded-zh.jpeg](screenshots/emulator/science-pretty-folded-zh.jpeg)、[science-pretty-wide-zh.jpeg](screenshots/emulator/science-pretty-wide-zh.jpeg)。另外确认「有结果（预览 + 动作行）时」折叠态键盘最后一行仍在屏内（y 2059–2121，屏高 2444）。
+  - **真机待复核**：预览行在超长表达式下的省略表现（折叠态一行，超出显示 `…`）。
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
   ② **工具搜索支持关键词**：`model/ToolMeta.ets` 的 `ToolMeta` 增加可选 `keywords`（别名/缩写，只参与搜索不显示），`matchTools()` 一并匹配；已为二维码/条码/计算/个税/单位/计时/日期/时间戳/文本/随机/密码/贷款/颜色/健康/文档扫描/水平仪补齐关键词（如「健康计算」可用 `BMI`/`BMR`/`基础代谢` 搜到，`房贷` 命中贷款计算）。

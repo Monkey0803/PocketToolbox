@@ -78,6 +78,7 @@ const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
 const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets');
 const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
 const aboutInfo = await loadEts('../entry/src/main/ets/model/AboutInfo.ets');
+const numberOptions = await loadEts('../entry/src/main/ets/model/NumberOptions.ets');
 const { createHash } = await import('node:crypto');
 
 // --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
@@ -4148,6 +4149,27 @@ assert.equal(science.equalsExpression('1+', 'deg', 10), '');
 assert.equal(science.equalsExpression('1+2*3', 'deg', 10), '7');
 assert.equal(science.equalsExpression('sqrt(', 'deg', 10), '');
 assert.equal(science.evaluate(science.equalsExpression('2^10', 'deg', 6), 'deg').value, 1024);
+// 显示用的润色表达式：只换符号、不改语义；`pi` 按标识符边界替换
+assert.equal(science.prettyExpression('1+2*3'), '1+2×3');
+assert.equal(science.prettyExpression('10/4'), '10÷4');
+assert.equal(science.prettyExpression('7-3'), '7−3');
+assert.equal(science.prettyExpression('-1+2'), '−1+2');
+assert.equal(science.prettyExpression('pi*3'), 'π×3');
+assert.equal(science.prettyExpression('2pi'), '2π');
+assert.equal(science.prettyExpression('pi'), 'π');
+assert.equal(science.prettyExpression('sin(30)/2'), 'sin(30)÷2');
+assert.equal(science.prettyExpression('7 mod 3'), '7 mod 3');
+assert.equal(science.prettyExpression('exp(1)'), 'exp(1)', '函数名里的字母不能被动');
+assert.equal(science.prettyExpression('api'), 'api', 'pi 前面是字母时不替换（整体标识符）');
+assert.equal(science.prettyExpression('pi2'), 'pi2', 'pi 后面是数字时不替换');
+assert.equal(science.prettyExpression(''), '');
+// 润色只是显示层：润色后的串**不能**直接求值（符号不是解析器认的记号），而原串必须始终可求值
+for (const pair of [['1+2*3', '×'], ['10/4', '÷'], ['7-3', '−'], ['pi*3', 'π']]) {
+  assert.ok(science.prettyExpression(pair[0]).includes(pair[1]), `${pair[0]} 应显示为 ${pair[1]}`);
+  assert.equal(science.evaluate(science.prettyExpression(pair[0]), 'deg').error, 'syntax',
+    `润色后的串不能直接求值（${pair[0]}）——它只用于显示`);
+  assert.equal(science.evaluate(pair[0], 'deg').error, '', `${pair[0]} 原串应当可求值`);
+}
 for (const code of ['empty', 'syntax', 'unknown', 'domain', 'divzero', 'overflow']) {
   assert.ok(science.calcErrorText(code, false).length > 0, `missing calc error ${code}`);
   assert.ok(science.calcErrorText(code, true).length > 0, `missing calc error ${code} en`);
@@ -8288,6 +8310,132 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   assert.equal(diffTools.diffLines(linesOf(601), linesOf(2)).error, 'toolarge', '任一侧超限即报 toolarge');
   assert.equal(diffTools.diffLines('  \n ', '\t').error, 'empty');
   assert.equal(diffTools.diffLines('', '').error, 'empty');
+}
+
+// ---------------- 输入框增强一（2026-10-21）：有界整数滚轮选项与落点 ----------------
+// 口径：每个工具的 `*Options()` 必须与它的校验函数共用同一组边界常量（「滚轮能选到的值一定能算」）；
+// `optionIndex()` 只决定滚轮落点、不改输入值，非法输入一律夹到合法下标而不是编造中间项。
+{
+  // integerOptionLabels：闭区间、升序、连续
+  const labels12 = numberOptions.integerOptionLabels(1, 12);
+  assert.equal(labels12.length, 12, '1–12 应有 12 项');
+  assert.equal(labels12[0], '1');
+  assert.equal(labels12[11], '12', '末项应是上限而不是「上限的下一项」');
+  for (let index = 0; index < labels12.length; index += 1) {
+    assert.equal(labels12[index], (index + 1).toString(), '第 ' + index + ' 项应是连续升序整数文案');
+    assert.ok(units.parseIntegerInput(labels12[index]) !== undefined, '选项必须是可解析的十进制整数');
+  }
+  assert.equal(new Set(labels12).size, labels12.length, '选项不得重复');
+  const lengthLabels = numberOptions.integerOptionLabels(8, 128);
+  assert.equal(lengthLabels.length, 121, '8–128 应有 121 项');
+  assert.equal(lengthLabels[0], '8');
+  assert.equal(lengthLabels[120], '128');
+  assert.equal(numberOptions.integerOptionLabels(0, 0).length, 1, '单值区间也要有那一项');
+  assert.equal(numberOptions.integerOptionLabels(5, 4).length, 0, 'min > max 应返回空列（不编造）');
+  assert.equal(numberOptions.integerOptionLabels(1.5, 3).length, 0, '非整数边界应返回空列');
+  assert.equal(numberOptions.integerOptionLabels(1, 2.5).length, 0);
+  assert.deepEqual(numberOptions.integerOptionLabels(-2, 1), ['-2', '-1', '0', '1'], '负下界也要支持');
+
+  // optionIndex：精确命中 / 夹取 / 无法解析
+  assert.equal(numberOptions.optionIndex(labels12, '7'), 6, '精确命中取下标');
+  assert.equal(numberOptions.optionIndex(labels12, ' 7 '), 6, '两侧空白不应影响命中');
+  assert.equal(numberOptions.optionIndex(labels12, '07'), 6, '前导零按数值命中');
+  assert.equal(numberOptions.optionIndex(labels12, ''), 0, '空输入停在最小值（不假装已选）');
+  assert.equal(numberOptions.optionIndex(labels12, '   '), 0);
+  assert.equal(numberOptions.optionIndex(labels12, '0x10'), 0, '十六进制写法不得被当成 16（十进制口径）');
+  assert.equal(numberOptions.optionIndex(labels12, '1e3'), 0, '科学计数法不得被当成 1000');
+  assert.equal(numberOptions.optionIndex(labels12, '-5'), 0, '负数夹到最小项');
+  assert.equal(numberOptions.optionIndex(labels12, '13'), 11, '超上限夹到最大项');
+  assert.equal(numberOptions.optionIndex(labels12, '999'), 11);
+  assert.equal(numberOptions.optionIndex(labels12, 'abc'), 0);
+  assert.equal(numberOptions.optionIndex([], '3'), 0, '空列返回 0（调用方另有空列不弹窗的守卫）');
+  assert.equal(numberOptions.optionIndex(lengthLabels, '128'), 120);
+  // 非连续列（调用方违约）只保证「结果落在合法下标内」，不编造中间项
+  const sparseIndex = numberOptions.optionIndex(['2', '5'], '4');
+  assert.ok(sparseIndex >= 0 && sparseIndex <= 1, '非连续列的落点必须仍在合法下标内');
+
+  // 个税期数：常量、默认值、滚轮列与校验同源
+  assert.equal(tax.TAX_PERIOD_MIN, 1);
+  assert.equal(tax.TAX_PERIOD_MAX, 12);
+  assert.deepEqual(tax.taxPeriodOptions(), labels12, '期数滚轮列必须等于 1–12');
+  assert.equal(new tax.WageInput().period, tax.TAX_PERIOD_MIN, '期数默认值走常量');
+  for (let period = tax.TAX_PERIOD_MIN; period <= tax.TAX_PERIOD_MAX; period += 1) {
+    const input = new tax.WageInput();
+    input.period = period;
+    input.grossCents = 2000000;
+    assert.ok(tax.wageTax(input) !== undefined, '期数 ' + period + ' 应可计算');
+  }
+  const periodBelow = new tax.WageInput();
+  periodBelow.period = tax.TAX_PERIOD_MIN - 1;
+  periodBelow.grossCents = 2000000;
+  assert.equal(tax.wageTax(periodBelow), undefined, '期数 0 必须拒绝');
+  const periodAbove = new tax.WageInput();
+  periodAbove.period = tax.TAX_PERIOD_MAX + 1;
+  periodAbove.grossCents = 2000000;
+  assert.equal(tax.wageTax(periodAbove), undefined, '期数 13 必须拒绝');
+
+  // 密码长度：滚轮列与校验同源（每个值都必须通过校验）
+  const passwordLabels = passwords.passwordLengthOptions();
+  assert.equal(passwordLabels.length, 121);
+  assert.equal(passwordLabels[0], passwords.PASSWORD_MIN_LENGTH.toString());
+  assert.equal(passwordLabels[120], passwords.PASSWORD_MAX_LENGTH.toString());
+  for (const label of passwordLabels) {
+    assert.equal(passwords.passwordLengthErrorText(Number(label), false), '',
+      '滚轮里的 ' + label + ' 位必须通过校验');
+  }
+  assert.ok(passwords.passwordLengthErrorText(passwords.PASSWORD_MIN_LENGTH - 1, false).length > 0);
+  assert.ok(passwords.passwordLengthErrorText(passwords.PASSWORD_MAX_LENGTH + 1, false).length > 0);
+
+  // 年龄：滚轮列与 `healthFieldValid('age', …)` 同源
+  const ageLabels = health.ageOptions();
+  assert.equal(ageLabels.length, 120);
+  assert.equal(ageLabels[0], health.HEALTH_AGE_MIN_YEARS.toString());
+  assert.equal(ageLabels[119], health.HEALTH_AGE_MAX_YEARS.toString());
+  for (const label of ageLabels) {
+    assert.equal(health.healthFieldValid('age', Number(label)), true, '滚轮里的 ' + label + ' 岁必须合法');
+  }
+  assert.equal(health.healthFieldValid('age', health.HEALTH_AGE_MIN_YEARS - 1), false);
+  assert.equal(health.healthFieldValid('age', health.HEALTH_AGE_MAX_YEARS + 1), false);
+
+  // 贷款期限：年/月的滚轮列互相收窄，穷举所有组合都必须落在 1–600 期
+  assert.equal(loans.LOAN_TERM_MAX_YEARS, 50, '50 年 = 600 期，由 MAX_LOAN_MONTHS 推导');
+  assert.equal(loans.LOAN_EXTRA_MONTHS_MAX, 11);
+  const yearLabels = loans.loanTermYearOptions('0');
+  assert.equal(yearLabels[0], '1');
+  assert.equal(yearLabels[yearLabels.length - 1], '50', '月填 0 时年可到 50');
+  const yearLabelsWith11Months = loans.loanTermYearOptions('11');
+  assert.equal(yearLabelsWith11Months[yearLabelsWith11Months.length - 1], '49',
+    '11 个月时年上限必须收到 49（50 年是 611 期）');
+  assert.deepEqual(loans.loanExtraMonthOptions('50'), ['0'], '50 年时月只能是 0');
+  assert.equal(loans.loanExtraMonthOptions('0').length, 12, '0 年时月可到 11');
+  assert.equal(loans.loanExtraMonthOptions('0')[11], '11');
+  let comboChecked = 0;
+  for (const yearLabel of yearLabels) {
+    for (const monthLabel of loans.loanExtraMonthOptions(yearLabel)) {
+      const total = loans.loanMonths(Number(yearLabel), Number(monthLabel));
+      assert.ok(total > 0 && total <= loans.MAX_LOAN_MONTHS,
+        yearLabel + ' 年 ' + monthLabel + ' 月 = ' + total + ' 期必须落在 1–600');
+      comboChecked += 1;
+    }
+  }
+  assert.ok(comboChecked >= 589, '至少覆盖 589 组年/月组合，实际 ' + comboChecked);
+  // 每一年的「月上限」必须恰好补到 600 期（或补到 11 个月封顶），不多也不少
+  for (const yearLabel of yearLabels) {
+    const months = loans.loanExtraMonthOptions(yearLabel);
+    const expectedLast = Math.min(loans.LOAN_EXTRA_MONTHS_MAX, loans.MAX_LOAN_MONTHS - Number(yearLabel) * 12);
+    assert.equal(months[months.length - 1], expectedLast.toString(),
+      yearLabel + ' 年的月上限应恰好是 ' + expectedLast);
+  }
+  assert.equal(loans.loanMonths(Number(yearLabels[yearLabels.length - 1]), 0), loans.MAX_LOAN_MONTHS,
+    '最大年 + 0 月应恰好等于 600 期（口径同源）');
+  assert.deepEqual(loans.loanTermYearOptions('abc'), yearLabels, '另一框写坏时退回最宽安全区间');
+  assert.equal(loans.loanExtraMonthOptions('').length, 12);
+  assert.deepEqual(loans.loanExtraMonthOptions('999'), ['0'], '另一框超大时按上限收窄');
+  assert.deepEqual(loans.loanTermYearOptions('999'), yearLabelsWith11Months);
+
+  // 选择器失败文案：中英都要有，且不假装用户取消了选择
+  assert.equal(numberOptions.pickerFailureText(false), '无法打开选择器');
+  assert.equal(numberOptions.pickerFailureText(true), 'Could not open the picker');
 }
 
 console.log('All toolbox model assertions passed');

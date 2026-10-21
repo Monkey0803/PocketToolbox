@@ -268,6 +268,38 @@ export function equalsExpression(expression: string, angle: AngleUnit, significa
   return formatResult(computed.value, significant);
 }
 
+/**
+ * 显示用的润色表达式：把 ASCII 运算符还原成**键面上的符号**（`*`→`×`、`/`→`÷`、`-`→`−`、`pi`→`π`）。
+ *
+ * **只用于显示，绝不写回表达式**：解析层只认 `*` `/` `-` `pi`（不认 `×`/`÷`/`−`/`π`），把它写回去会让
+ * 用户算不出来。页面只在结果卡里以「正在计算 …」的形式读它。
+ * `pi` 按**记号边界**替换：前一个字符不是字母、后一个字符不是字母/数字时才换——`2pi` → `2π`（数字后面的
+ * `pi` 是解析器切出来的新记号），而 `api`/`pi2` 这类整体标识符不动，将来加进含 `pi` 的函数名也不会被误伤。
+ * 判字母/数字复用文件下面那份 `isLetter()`/`isDigit()`（与词法扫描同一口径，不要再写第二套）。
+ */
+export function prettyExpression(expression: string): string {
+  let text: string = '';
+  let index: number = 0;
+  while (index < expression.length) {
+    const ch: string = expression.charAt(index);
+    if (ch === '*') { text += '×'; index += 1; continue; }
+    if (ch === '/') { text += '÷'; index += 1; continue; }
+    if (ch === '-') { text += '−'; index += 1; continue; }
+    if (ch === 'p' && expression.charAt(index + 1) === 'i') {
+      const before: string = index === 0 ? '' : expression.charAt(index - 1);
+      const after: string = index + 2 < expression.length ? expression.charAt(index + 2) : '';
+      if (!isLetter(before) && !isLetter(after) && !isDigit(after)) {
+        text += 'π';
+        index += 2;
+        continue;
+      }
+    }
+    text += ch;
+    index += 1;
+  }
+  return text;
+}
+
 
 export class CalcResult {
   readonly value: number;

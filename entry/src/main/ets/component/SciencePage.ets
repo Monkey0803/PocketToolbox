@@ -8,7 +8,13 @@ import { AngleUnit, AngleEntry, ANGLE_UNITS, CalcResult, DEFAULT_ANGLE, PadKey, 
   padRowKeys, MORE_FUNCTION_KEYS, QuickKey, MemoryKey, MEMORY_KEYS, angleIndex, angleLabel, evaluate,
   formatResult, calcErrorText, calcHintText, calcEmptyHintText, appendQuickKey, backspaceExpression,
   insertValueAsFactor, memoryAfterAdd, memoryAfterSubtract, memoryDisplayText,
-  equalsExpression } from '../model/ScientificCalc';
+  equalsExpression, prettyExpression } from '../model/ScientificCalc';
+
+/**
+ * 显示区与键盘的最大宽度（vp）：再宽按键就宽到不像计算器了（展开态 690 vp 时每格约 123 vp），
+ * 因此宽屏把整块内容居中并限制在这个宽度；折叠态（约 345 vp）本来就更窄，不受影响。
+ */
+const SCIENCE_CONTENT_MAX_WIDTH: number = 520;
 
 /**
  * 科学计算器页：**上面是显示区（表达式 + 结果）、下面是 5 列真键盘**。
@@ -103,6 +109,15 @@ export struct SciencePage {
     const shown: string = memoryDisplayText(this.hasMemory, this.memory, this.precision);
     if (shown.length === 0) { return ''; }
     return this.tr('内存 ', 'Memory ') + shown;
+  }
+
+  /**
+   * 结果卡里的「正在计算 …」预览：把表达式里的 ASCII 运算符润色成键面符号（`*`→`×` 等）。
+   * 空表达式返回空串（界面据此不渲染这一行）——**只用于显示，绝不写回表达式**。
+   */
+  private prettyText(): string {
+    if (this.expression.trim().length === 0) { return ''; }
+    return prettyExpression(this.expression);
   }
 
   /** 键盘行下标（驱动 `ForEach`，行数由登记表决定而不是页面写死）。 */
@@ -298,6 +313,12 @@ export struct SciencePage {
       lightEffect: true
     }) {
       Column({ space: 10 }) {
+        // 预览行：把 `*` `/` `-` 润色成 `×` `÷` `−`，让屏幕上的算式与键面符号一致（只显示，不写回）
+        if (this.prettyText().length > 0) {
+          Text(this.tr('正在计算 ', 'Computing ') + this.prettyText())
+            .fontSize(14).fontColor(ToolPalette.textSecondary)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        }
         // 屏幕上不再写死「结果」两个字（真计算器的显示区靠字号区分），但无障碍名称仍要读出来。
         Text(this.resultText()).fontSize(32).fontWeight(FontWeight.Bold)
           .fontColor(this.resultValid() ? ToolPalette.textPrimary : ToolPalette.textMuted)
@@ -391,10 +412,12 @@ export struct SciencePage {
   }
 
   build() {
-    Column({ space: 12 }) {
-      // 1) 显示区（表达式 + 结果）在最上、2) 键盘紧接其下——真计算器的排布：
-      // 折叠态首屏必须能看全键盘（含 `=`），所以设置/说明/更多函数这些「非高频」区块一律放到键盘之后。
-      this.displayArea()
+    // 外层 Column 只负责「占满宽度 + 居中排放」：内层才是页面内容，并被限制在 SCIENCE_CONTENT_MAX_WIDTH 内
+    Column() {
+      Column({ space: 12 }) {
+        // 1) 显示区（表达式 + 结果）在最上、2) 键盘紧接其下——真计算器的排布：
+        // 折叠态首屏必须能看全键盘（含 `=`），所以设置/说明/更多函数这些「非高频」区块一律放到键盘之后。
+        this.displayArea()
       ForEach(this.padRowIndices(), (row: number) => {
         this.padRow(row)
       }, (row: number) => row.toString())
@@ -427,9 +450,14 @@ export struct SciencePage {
       if (this.showSyntax) {
         Text(this.syntaxFull()).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
-      Text(this.tr('求值只在本机进行，不上传任何数据。',
-        'Evaluation happens on this device; nothing is uploaded.'))
-        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-    }.width('100%')
+        Text(this.tr('求值只在本机进行，不上传任何数据。',
+          'Evaluation happens on this device; nothing is uploaded.'))
+          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      }
+      .width('100%')
+      // 宽屏限制宽度（外层 Column 默认居中排放子节点）：键盘不会被拉成一条条「宽条」
+      .constraintSize({ maxWidth: SCIENCE_CONTENT_MAX_WIDTH })
+    }
+    .width('100%')
   }
 }
