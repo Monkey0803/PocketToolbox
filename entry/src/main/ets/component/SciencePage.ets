@@ -1,3 +1,4 @@
+import { clearButtonIcon } from '../model/Materials';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -282,10 +283,16 @@ export struct SciencePage {
       : this.tr('展开完整语法说明', 'Show the full syntax help');
   }
 
-  /** 入口标题在构建函数体内现取（`@Builder` 只收常量 kind）。 */
+  /**
+   * 入口标题在构建函数体内现取（`@Builder` 只收常量 kind）。
+   *
+   * **标题只描述「这一行是什么」，不随展开状态变化**：以前展开后会变成「收起设置」/「收起语法说明」，
+   * 一是同一个入口在两个状态下成了两个话题（「更多函数与内存」展开后还漏了「与内存」），二是设置行一展开
+   * 就看不见当前的角度与精度口径了。状态由 chevron 与无障碍文案表达（与 `DiffPage` 的长行展开同一口径）。
+   */
   private entryTitle(kind: string): string {
-    if (kind === 'settings') { return this.showSettings ? this.tr('收起设置', 'Hide settings') : this.settingsSummary(); }
-    return this.showSyntax ? this.tr('收起语法说明', 'Hide syntax help') : this.tr('完整语法说明', 'Full syntax help');
+    if (kind === 'settings') { return this.settingsSummary(); }
+    return this.tr('完整语法说明', 'Full syntax help');
   }
 
   private entryExpanded(kind: string): boolean {
@@ -304,7 +311,7 @@ export struct SciencePage {
     }) {
       TextInput({ text: this.expression, placeholder: calcHintText(this.english) })
         // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
-        .cancelButton({ style: CancelButtonStyle.INPUT })
+        .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
         .backgroundColor(Color.Transparent)
         .onChange((value: string) => { this.expression = value; }).height(52)
     }
@@ -424,11 +431,10 @@ export struct SciencePage {
       ForEach(this.padRowIndices(), (row: number) => {
         this.padRow(row)
       }, (row: number) => row.toString())
-      // 3) 更多函数与内存（主键盘放不下的 25 个函数 + 内存键）
+      // 3) 更多函数与内存（主键盘放不下的 25 个函数 + 内存键）：标题固定，不随展开变成「收起更多函数」
       Button() {
         Row({ space: 8 }) {
-          Text(this.showMore ? this.tr('收起更多函数', 'Hide more functions')
-            : this.tr('更多函数与内存', 'More functions and memory'))
+          Text(this.tr('更多函数与内存键', 'More functions and memory keys'))
             .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary).layoutWeight(1)
           SymbolGlyph(this.showMore ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
             .fontSize(20).fontColor([ToolPalette.primaryDeep])
@@ -436,7 +442,9 @@ export struct SciencePage {
       }
       .width('100%').height(48).padding({ left: 16, right: 16 })
       .backgroundColor(ToolPalette.surface).borderRadius(12)
-      .accessibilityText(this.tr('展开或收起更多函数与内存键', 'Show or hide more functions and memory keys'))
+      .accessibilityText(this.showMore
+        ? this.tr('收起更多函数与内存键', 'Hide more functions and memory keys')
+        : this.tr('展开更多函数与内存键', 'Show more functions and memory keys'))
       .onClick(() => { this.showMore = !this.showMore; })
       if (this.showMore) {
         this.morePanel()
