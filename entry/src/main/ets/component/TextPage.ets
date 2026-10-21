@@ -37,6 +37,14 @@ export struct TextPage {
   @Local textWords: number = 0;
   @Local textCjk: number = 0;
   @Local textParagraphs: number = 0;
+  /**
+   * 当前打开的分组菜单 id（空串＝都关着）。
+   *
+   * 用来把入口右侧的指示箭头做成「未展开 ▶ / 展开 ▼」：`bindMenu` 的 `MenuOptions` 有
+   * `onAppear`/`onDisappear`（`ContextMenuOptions`），这是系统 `Select` 没有的能力
+   * （`Select` 只回调 `onSelect`，无法知道菜单何时开合）。
+   */
+  @Local openTextMenu: string = '';
 
   aboutToAppear(): void {
     if (this.initialValue.length > 0) {
@@ -74,12 +82,19 @@ export struct TextPage {
       Row({ space: 8 }) {
         Text(this.menuTitle(id)).fontSize(16).fontWeight(FontWeight.Medium)
           .fontColor(ToolPalette.textPrimary).layoutWeight(1)
-        SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(20).fontColor([ToolPalette.primaryDeep])
+        // 指示箭头：未打开 ▶（`chevron_right`）、打开 ▼（`chevron_down`）——与科学计算器、个税、贷款
+        // 的折叠入口同一套「收起朝右、展开朝下」约定（2026-10-21）。
+        SymbolGlyph(this.openTextMenu === id ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
+          .fontSize(20).fontColor([ToolPalette.primaryDeep])
       }.width('100%')
     }
     .width('100%').height(48).padding({ left: 16, right: 16 })
     .backgroundColor(ToolPalette.surface).borderRadius(12)
-    .bindMenu(this.menuItems(id))
+    // 菜单开合要能反查到这一行：`onDisappear` 时只有仍是自己才清空，避免连点两行时状态串台。
+    .bindMenu(this.menuItems(id), {
+      onAppear: () => { this.openTextMenu = id; },
+      onDisappear: () => { if (this.openTextMenu === id) { this.openTextMenu = ''; } }
+    })
     .accessibilityText(this.menuAccessibility(id))
   }
 

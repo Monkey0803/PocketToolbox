@@ -416,7 +416,8 @@ export struct TaxPage {
             Row({ space: 8 }) {
               Text(this.tr('扣除与累计数据', 'Deductions and prior history'))
                 .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textStrong).layoutWeight(1)
-              SymbolGlyph(this.taxAdvanced ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+              // 指示箭头：未展开 ▶、展开 ▼（与科学计算器、文本工具菜单入口、贷款折叠入口同一套约定）
+              SymbolGlyph(this.taxAdvanced ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
                 .fontSize(20).fontColor([ToolPalette.primaryDeep])
             }.width('100%')
           }

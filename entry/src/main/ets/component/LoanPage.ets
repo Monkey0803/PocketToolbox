@@ -278,7 +278,8 @@ export struct LoanPage {
           Text(this.tr('还款计划表', 'Repayment schedule')).fontSize(15).layoutWeight(1)
             .fontColor(ToolPalette.textSecondary)
           IconActionButton({
-            icon: this.scheduleOpen ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'),
+            // 指示箭头：未展开 ▶、展开 ▼（与科学计算器、个税、文本工具菜单入口同一套约定）
+            icon: this.scheduleOpen ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'),
             tintColor: ToolPalette.primaryDeep,
             a11yText: this.scheduleOpen ? this.tr('收起还款计划表', 'Hide the schedule')
               : this.tr('展开还款计划表', 'Show the schedule'),

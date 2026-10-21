@@ -264,7 +264,8 @@ export struct SciencePage {
       Row({ space: 8 }) {
         Text(this.entryTitle(kind)).fontSize(15).fontWeight(FontWeight.Medium)
           .fontColor(ToolPalette.textPrimary).layoutWeight(1)
-        SymbolGlyph(this.entryExpanded(kind) ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+        // 指示箭头：未展开 ▶、展开 ▼（与文本工具菜单入口、个税、贷款折叠入口同一套约定）
+        SymbolGlyph(this.entryExpanded(kind) ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
           .fontSize(20).fontColor([ToolPalette.primaryDeep])
       }.width('100%')
     }
@@ -439,7 +440,7 @@ export struct SciencePage {
         Row({ space: 8 }) {
           Text(this.tr('更多函数与内存键', 'More functions and memory keys'))
             .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary).layoutWeight(1)
-          SymbolGlyph(this.showMore ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+          SymbolGlyph(this.showMore ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
             .fontSize(20).fontColor([ToolPalette.primaryDeep])
         }.width('100%')
       }
