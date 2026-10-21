@@ -380,8 +380,11 @@ export struct SciencePage {
     Row({ space: 8 }) {
       ForEach(this.moreRowKeys(row), (key: QuickKey) => {
         Button(key.id).height(44)
-          .fontSize(14).fontColor(ToolPalette.primaryDeep)
+          .fontSize(13).fontColor(ToolPalette.primaryDeep)
           .backgroundColor(ToolPalette.borderSoft).borderRadius(12)
+          // 键面是 `sqrt(`/`atanh(` 这类原文记号（最长 6 字符）：Button 默认的左右内边距会把它们挤成「s…」，
+          // 折叠态每格只有约 57 vp，必须显式把内边距压到 4 vp（2026-10-21 折叠态实测）
+          .padding({ left: 4, right: 4 })
           .layoutWeight(1)
           .accessibilityText(this.tr(key.zh, key.en))
           .onClick(() => { this.expression = appendQuickKey(this.expression, key.id); })

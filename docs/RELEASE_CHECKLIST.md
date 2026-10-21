@@ -252,6 +252,10 @@
   - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` → `All toolbox model assertions passed`（新增 13 条 `prettyExpression` 断言：四种运算符、`pi` 的三种边界、空串、以及「润色串不可求值 / 原串可求值」的配对断言）；`assembleHap` `BUILD SUCCESSFUL`。
   - **模拟器复验**：折叠态键位依次点 `1` `+` `2` `×` `3` → 输入框 `1+2*3`、预览 `正在计算 1+2×3`、结果 `7`；展开态同样；截图 [science-pretty-folded-zh.jpeg](screenshots/emulator/science-pretty-folded-zh.jpeg)、[science-pretty-wide-zh.jpeg](screenshots/emulator/science-pretty-wide-zh.jpeg)。另外确认「有结果（预览 + 动作行）时」折叠态键盘最后一行仍在屏内（y 2059–2121，屏高 2444）。
   - **真机待复核**：预览行在超长表达式下的省略表现（折叠态一行，超出显示 `…`）。
+
+- **修复「更多函数」面板标签被截断（2026-10-21）**：面板键用的是 `Button(key.id)` 标签形式，`Button` 的**默认左右内边距**在折叠态（每格约 57 vp）把 25 个函数键全部挤成「s…」这类省略（截图里一整片看不清）。修法：键上显式写 `.padding({ left: 4, right: 4 })` 并把字号降到 13——`atanh(`（最长 6 字符）也能完整显示。**教训：`Button(label)` 的默认内边距会吃掉约 32 vp 宽度，5 列窄格放原文记号时必须显式压掉。**
+  - **验证**：`assembleHap` `BUILD SUCCESSFUL`；折叠态 `dumpLayout` 25 个标签全部为完整原文（`sqrt(`/`cbrt(`/…/`npr(`）+ 内存行 `M+ M− MR MC`；截图 [science-more-panel-folded-zh.jpeg](screenshots/emulator/science-more-panel-folded-zh.jpeg)。
+  - **真机待复核**：`atanh(` 这类最长标签在真机稍大字号下的表现（若仍紧，可把面板改成 4 列）。
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
   ② **工具搜索支持关键词**：`model/ToolMeta.ets` 的 `ToolMeta` 增加可选 `keywords`（别名/缩写，只参与搜索不显示），`matchTools()` 一并匹配；已为二维码/条码/计算/个税/单位/计时/日期/时间戳/文本/随机/密码/贷款/颜色/健康/文档扫描/水平仪补齐关键词（如「健康计算」可用 `BMI`/`BMR`/`基础代谢` 搜到，`房贷` 命中贷款计算）。
