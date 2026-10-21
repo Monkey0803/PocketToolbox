@@ -259,7 +259,7 @@
 
 - **修复折叠式入口的标题会随展开状态翻转（2026-10-21）**：科学计算器三个整行入口（「更多函数与内存」「角度 DEG · 10 位有效数字」「完整语法说明」）原来在展开后会把可见标题换成「收起更多函数」/「收起设置」/「收起语法说明」——同一入口在两个状态下成了两个话题（「更多函数与内存」展开后还漏了「与内存」），**设置行一展开就看不见当前的角度与精度口径**。改为：**可见标题只描述「这一行是什么」，展开与否只由 chevron 与 `accessibilityText`（`展开…`/`收起…`）表达**，与 `LoanPage`「还款计划表」的既有做法一致；标题同时补成「更多函数与内存键」（面板里确实有 4 个内存键）。
   - **验证**：折叠态 `dumpLayout` 展开前后标题文本逐字相同（`更多函数与内存键` 始终在同一行），chevron 由下变上；`assembleHap` `BUILD SUCCESSFUL`、一致性检查 14 项、单测全绿。截图 [science-entries-collapsed-zh.jpeg](screenshots/emulator/science-entries-collapsed-zh.jpeg)、[science-more-entry-expanded-zh.jpeg](screenshots/emulator/science-more-entry-expanded-zh.jpeg)。
-  - **同类待办**：`TaxPage` 的「展开扣除与累计数据」↔「收起扣除与累计数据」是同一类写法（至少主题一致、危害小），如需统一成稳定标题可一并改。
+  - **同类已一并统一**：`TaxPage` 的「展开扣除与累计数据」↔「收起扣除与累计数据」改成固定标题「扣除与累计数据」+ chevron（可见文案里不再出现「展开/收起」，全部收进 `accessibilityText`）。实测折叠态：点开后标题仍是 `扣除与累计数据 [112,1480][880,1535]`（位置不变），下方出现「本期专项附加扣除」区。截图 [tax-advanced-entry-collapsed-zh.jpeg](screenshots/emulator/tax-advanced-entry-collapsed-zh.jpeg)、[tax-advanced-entry-expanded-zh.jpeg](screenshots/emulator/tax-advanced-entry-expanded-zh.jpeg)。全仓扫描确认：`tr('展开…')`/`tr('收起…')` 现在只出现在 `accessibilityText`/`a11yText` 里。
 - **健康计算工具 + 工具搜索关键词（2026-10-19，已完成单测、构建与模拟器复验）**：**新增第 17 个工具卡片**，仍不新增权限、不引入联网：
   ① 纯逻辑 `model/HealthMath.ets`：BMI（中国成人标准切点 18.5/24/28，**用「≥」判断**，24.0 记超重、28.0 记肥胖）与分类文案、`normalWeightRange()`（身高² × 18.5–23.9）、`bmr()`（Mifflin-St Jeor，男 +5 / 女 −161）、`tdee()`（BMR × 活动系数，五档 1.2–1.9）、输入解析与错误文案。页面 `component/HealthPage.ets` 实时出结果（身高/体重够就算 BMI，补年龄再出 BMR/TDEE）。
   ② **工具搜索支持关键词**：`model/ToolMeta.ets` 的 `ToolMeta` 增加可选 `keywords`（别名/缩写，只参与搜索不显示），`matchTools()` 一并匹配；已为二维码/条码/计算/个税/单位/计时/日期/时间戳/文本/随机/密码/贷款/颜色/健康/文档扫描/水平仪补齐关键词（如「健康计算」可用 `BMI`/`BMR`/`基础代谢` 搜到，`房贷` 命中贷款计算）。

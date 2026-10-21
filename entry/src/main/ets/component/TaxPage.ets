@@ -1,14 +1,18 @@
+import { clearButtonIcon } from '../model/Materials';
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
+import { WheelPickerButton } from './WheelPickerButton';
 import { ToolPalette } from '../model/ToolPalette';
+import { optionIndex } from '../model/NumberOptions';
 import { parseIntegerInput } from '../model/Units';
 import { TaxResult, TaxKindEntry, TAX_KINDS, taxKindIndex, WageInput, parseMoney, moneyText,
   contributionFromBase, wageTax, oneOffTax, severanceTax, reverseOneOff, reverseWage,
   BONUS_LIMITS, BONUS_QUICK, bonusTax, bonusQuickDeductionCents, bonusTrapHint, bonusNoteText,
-  reverseUnsupportedNoteText, TAX_RULES_REVIEWED } from '../model/IncomeTax';
+  reverseUnsupportedNoteText, TAX_RULES_REVIEWED, TAX_PERIOD_MIN, TAX_PERIOD_MAX,
+  taxPeriodOptions } from '../model/IncomeTax';
 
 /**
  * 居民个人个税估算页（工资累计预扣 / 稿酬 / 劳务 / 特许权 / 离职补偿）。
@@ -30,6 +34,8 @@ export struct TaxPage {
   @Local taxReverse: boolean = false;
   @Local taxAmount: string = '';
   @Local taxPeriod: string = '1';
+  // 期数滚轮的选项列：纯数字、与语言无关，构造时算一次（不要每帧重建数组）。
+  private periodPickOptions: string[] = taxPeriodOptions();
   @Local taxAdvanced: boolean = false;
   @Local taxSocialByBase: boolean = false;
   @Local taxSocialAmount: string = '0';
@@ -277,6 +283,8 @@ export struct TaxPage {
         TextInput({ text: value,
           placeholder: this.taxFieldLabelZh(zh, dynamic).includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
             this.tr('金额（元）', 'Amount (CNY)') })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .type(InputType.Normal).height(48)
           .accessibilityText(this.tr(this.taxFieldLabelZh(zh, dynamic), this.taxFieldLabelEn(en, dynamic)))
@@ -333,7 +341,8 @@ export struct TaxPage {
           'Period is the current payment at the same employer this year; basic deduction accumulates at CNY 5,000 per period.'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         Column({ space: 6 }) {
-          Text(this.tr('本年任职受雇期数（1–12）', 'Employment period this year (1–12)'))
+          Text(this.tr('本年任职受雇期数（' + TAX_PERIOD_MIN + '–' + TAX_PERIOD_MAX + '）',
+            'Employment period this year (' + TAX_PERIOD_MIN + '–' + TAX_PERIOD_MAX + ')'))
             .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
           MaterialSurface({
             supported: this.immersiveSupported,
@@ -342,10 +351,25 @@ export struct TaxPage {
             corner: 16,
             interactive: true
           }) {
-            TextInput({ text: this.taxPeriod, placeholder: '1' })
-              .backgroundColor(Color.Transparent).type(InputType.Number).height(48)
-              .accessibilityText(this.tr('本年任职受雇期数', 'Employment period this year'))
-              .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
+            // 期数是 1–12 的有限取值：除了手输，右侧还挂一个滚轮入口（`WheelPickerButton`）。
+            Row({ space: 0 }) {
+              TextInput({ text: this.taxPeriod, placeholder: '1' })
+                // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+                .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+                .backgroundColor(Color.Transparent).type(InputType.Number).height(48).layoutWeight(1)
+                .accessibilityText(this.tr('本年任职受雇期数', 'Employment period this year'))
+                .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
+              WheelPickerButton({
+                english: this.english,
+                options: this.periodPickOptions,
+                selectedIndex: optionIndex(this.periodPickOptions, this.taxPeriod),
+                immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                a11yText: this.tr('从列表选择任职受雇期数', 'Pick the employment period from a list'),
+                onPicked: (value: string): void => { this.taxPeriod = value; this.taxResult = undefined; },
+                onStatus: (message: string): void => this.onStatus(message)
+              })
+            }.width('100%')
           }
         }.width('100%')
         OptionSelect({
@@ -386,10 +410,22 @@ export struct TaxPage {
           Text(this.tr('第二期起需核对本年此前累计数据。', 'From period 2, check prior year-to-date amounts.'))
             .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         } else {
-          Button(this.taxAdvanced ? this.tr('收起扣除与累计数据', 'Hide deductions and history') :
-            this.tr('展开扣除与累计数据', 'Show deductions and history'))
-            .width('100%').height(48).backgroundColor(ToolPalette.border).fontColor(ToolPalette.textStrong)
-            .onClick(() => { this.taxAdvanced = !this.taxAdvanced; this.taxResult = undefined; })
+          // 标题固定为「扣除与累计数据」，展开与否只由 chevron 与无障碍文案表达（与会话里科学计算器、
+          // LoanPage 的折叠入口同一口径：可见标题不随状态变成另一个话题）。
+          Button() {
+            Row({ space: 8 }) {
+              Text(this.tr('扣除与累计数据', 'Deductions and prior history'))
+                .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textStrong).layoutWeight(1)
+              SymbolGlyph(this.taxAdvanced ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+                .fontSize(20).fontColor([ToolPalette.primaryDeep])
+            }.width('100%')
+          }
+          .width('100%').height(48).padding({ left: 16, right: 16 })
+          .backgroundColor(ToolPalette.border)
+          .accessibilityText(this.taxAdvanced
+            ? this.tr('收起扣除与累计数据', 'Hide deductions and prior history')
+            : this.tr('展开扣除与累计数据', 'Show deductions and prior history'))
+          .onClick(() => { this.taxAdvanced = !this.taxAdvanced; this.taxResult = undefined; })
           if (!this.taxAdvanced) {
             Text(this.tr('若已填写隐藏项，其金额仍参与计算。', 'Previously entered hidden amounts still affect the result.'))
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
