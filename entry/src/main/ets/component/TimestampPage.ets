@@ -4,7 +4,8 @@ import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { buildImmersiveMaterial } from '../model/Materials';
-import { StampResult, StampModeEntry, STAMP_MODES, stampModeIndex, stampModeLabel, parseStampInput,
+import { StampResult, StampLine, StampModeEntry, STAMP_MODES, STAMP_BATCH_MAX, stampModeIndex, stampModeLabel,
+  parseStampInput, parseStampLines, stampLineCount,
   currentSeconds, currentMillis, weekdayText, relativeTimeText,
   localDateText, localTimeText, timeTextOf } from '../model/TimeTools';
 import { TimeZoneEntry, TIME_ZONES, LOCAL_ZONE_ID, timeZoneIndex, timeZoneLabel, localZoneDisplay,
@@ -60,6 +61,50 @@ export struct TimestampPage {
     return parseStampInput(this.input, this.stampMode);
   }
 
+  /**
+   * 批量模式：输入里有两行以上非空内容时，按行解析（多行粘贴即可核对一批时间戳）。
+   * 上限 `STAMP_BATCH_MAX` 由纯逻辑截断，界面另行提示「只转换了前 N 行」。
+   */
+  @Computed
+  get batchLines(): StampLine[] {
+    return this.isBatch ? parseStampLines(this.input, this.stampMode) : [];
+  }
+
+  @Computed
+  get isBatch(): boolean {
+    return stampLineCount(this.input) >= 2;
+  }
+
+  /** 批量行的一行文本：`输入 → 本地时间（失败给错误文案）`。 */
+  private batchLineText(line: StampLine): string {
+    const value: string = line.result.ok ? line.result.localText : this.lineErrorText(line.result.error);
+    return line.input + '  →  ' + value;
+  }
+
+  /** 批量行的错误文案：复用单行的口径，但对「空」不再提示（空行已被过滤掉）。 */
+  private lineErrorText(error: string): string {
+    return error === 'empty' ? '' : this.errorTextOf(error);
+  }
+
+  private errorTextOf(error: string): string {
+    if (error === 'range') {
+      return this.tr('超出可表示范围', 'Out of range');
+    }
+    if (error === 'date') {
+      return this.tr('日期或时间字段超出范围', 'Date or time out of range');
+    }
+    if (error === 'dst') {
+      return this.tr('该本地时间在夏令时切换中不存在', 'Nonexistent local time (DST change)');
+    }
+    // 解释方式不是登记表里的 id（第 50 轮新增的错误码）：必须有自己的文案，
+    // 否则会像第 48 轮的 `loanErrorText('method')` 那样**落到「无法识别」上，把人引向错误的原因**。
+    if (error === 'mode') {
+      return this.tr('解释方式无效，请重新选择「自动 / 按秒 / 按毫秒」',
+        'Invalid interpretation mode; pick Auto, Seconds or Milliseconds again');
+    }
+    return this.tr('无法识别', 'Unrecognized');
+  }
+
   private errorText(): string {
     const error: string = this.result.error;
     if (error === 'empty') {
@@ -111,8 +156,12 @@ export struct TimestampPage {
   }
 
   // 日期/时间选择器对话框用：与可点表面同一套材质（触控变形 + 光感），与 `DatesPage` 保持一致。
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
+  /**
+   * 系统选择器对话框的材质：**只读光感，不要触控形变**（`interactive` 是给应用内输入表面用的，
+   * 对话框的交互由系统负责；2026-10-20 审计 §3.27）。
+   */
+  private dialogMaterial(): uiMaterial.Material | undefined {
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, false, true);
   }
 
   /**
@@ -154,7 +203,7 @@ export struct TimestampPage {
       if (kind === 'date') {
         this.getUIContext().showDatePickerDialog({
           selected: base,
-          systemMaterial: this.immersiveMaterial(true),
+          systemMaterial: this.dialogMaterial(),
           onDateAccept: (value: Date) => {
             this.input = localDateText(value) + ' ' + timeText;
           }
@@ -165,7 +214,7 @@ export struct TimestampPage {
           format: TimePickerFormat.HOUR_MINUTE_SECOND,
           useMilitaryTime: true,
           enableCascade: false,
-          systemMaterial: this.immersiveMaterial(true),
+          systemMaterial: this.dialogMaterial(),
           onAccept: (value: TimePickerResult) => {
             this.input = dateText + ' ' + timeTextOf(value.hour, value.minute, value.second);
           }
@@ -425,8 +474,8 @@ export struct TimestampPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('支持秒或毫秒级 Unix 时间戳，也支持 YYYY-MM-DD HH:mm:ss（可带 .SSS）；日期时间按本地时间解释，末尾加 Z 或 +08:00 表示绝对时刻。也可以直接选取日期与时间。',
-        'Accepts a Unix timestamp in seconds or milliseconds, or YYYY-MM-DD HH:mm:ss (with optional .SSS); a date and time is read as local time, while a trailing Z or +08:00 gives an absolute instant. You can also pick a date and time directly.'))
+      Text(this.tr('支持秒或毫秒级 Unix 时间戳，也支持 YYYY-MM-DD HH:mm:ss（可带 .SSS）；日期时间按本地时间解释，末尾加 Z 或 +08:00 表示绝对时刻。也可以直接选取日期与时间；每行一条即可批量转换（最多 ' + STAMP_BATCH_MAX + ' 行）。',
+        'Accepts a Unix timestamp in seconds or milliseconds, or YYYY-MM-DD HH:mm:ss (with optional .SSS); a date and time is read as local time, while a trailing Z or +08:00 gives an absolute instant. You can also pick a date and time directly, or put one value per line to convert in bulk (up to ' + STAMP_BATCH_MAX + ' lines).'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
@@ -435,11 +484,16 @@ export struct TimestampPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.input, placeholder: this.tr('时间戳或日期时间', 'Timestamp or date and time') })
+        // 多行输入：批量转换要求用户能把一整列时间戳粘进来（`TextInput` 是单行的）。
+        TextArea({ text: this.input, placeholder: this.tr('时间戳或日期时间；每行一条可批量转换',
+          'Timestamp or date and time; one per line to convert in bulk') })
           .backgroundColor(Color.Transparent)
-          .onChange((value: string) => this.input = value).height(52)
+          .onChange((value: string) => this.input = value).height(72)
       }
-      this.dateTimePick()
+      // 日期/时间选择卡只在单行模式显示：批量模式下它们不知道该往哪一行写。
+      if (!this.isBatch) {
+        this.dateTimePick()
+      }
       OptionSelect({
         label: this.tr('解释方式', 'Read as'),
         options: this.modeOptions(),
@@ -461,7 +515,20 @@ export struct TimestampPage {
         lightEffect: true
       }) {
         Column({ space: 10 }) {
-          if (!this.result.ok) {
+          // 批量模式：一行一条，逐行给出本地时间或错误原因（多行粘贴即可核对一批时间戳）。
+          if (this.isBatch) {
+            Text(this.tr('批量转换（' + this.batchLines.length + ' 行）', 'Batch (' + this.batchLines.length + ' lines)'))
+              .fontSize(15).fontWeight(FontWeight.Bold).width('100%')
+            ForEach(this.batchLines, (line: StampLine) => {
+              Text(this.batchLineText(line)).fontSize(14).width('100%')
+                .fontColor(line.result.ok ? ToolPalette.textPrimary : ToolPalette.warning)
+            }, (line: StampLine): string => 'batch:' + line.input)
+            if (stampLineCount(this.input) > STAMP_BATCH_MAX) {
+              Text(this.tr('只转换了前 ' + STAMP_BATCH_MAX + ' 行，其余请分批处理',
+                'Only the first ' + STAMP_BATCH_MAX + ' lines were converted'))
+                .fontSize(12).fontColor(ToolPalette.warning).width('100%')
+            }
+          } else if (!this.result.ok) {
             Text(this.errorText()).fontSize(15).fontColor(ToolPalette.warning).width('100%')
           } else {
             this.resultLine('local')
@@ -479,7 +546,8 @@ export struct TimestampPage {
           }
         }.padding(16).width('100%')
       }
-      if (this.result.ok) {
+      // 时区换算与单行结果绑定：批量模式下不显示（否则 200 行会配 200 个时区块）。
+      if (this.result.ok && !this.isBatch) {
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
           lightEffect: true

@@ -10,6 +10,7 @@ import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { i18n } from '@kit.LocalizationKit';
 import { BarcodeKind, barcodeFormatId, barcodeTwoDimensional } from '../model/BarcodeTools';
+import { utf8Text } from '../model/EncodingTools';
 import { QrColorEntry, qrColorEntry, qrLevelValue } from '../model/QrStyle';
 import { TorchSegment } from '../model/TorchSignal';
 
@@ -247,23 +248,135 @@ export async function shareQr(context: common.UIAbilityContext, pixelMap: image.
   await shareCodeImage(context, pixelMap, 'qr');
 }
 
-export async function saveScannedDocuments(context: common.UIAbilityContext, uris: string[], pdf: boolean): Promise<number> {
-  if (uris.length === 0) { return 0; }
+/** 文本导出结果：`saved` 为假表示用户在保存器里取消（不是错误）。 */
+export class TextExportResult {
+  saved: boolean = false;
+  error: string = '';
+}
+
+/**
+ * 让用户选位置保存一段文本（UTF-8）。
+ *
+ * 与二维码/扫描导出走同一个系统保存器；**取消不算失败**（`saved=false` 且 `error=''`），
+ * 写盘失败才带 `error`，由调用方按「取消 / 失败」分别提示。
+ */
+export async function saveTextFile(context: common.UIAbilityContext, fileName: string,
+  content: string): Promise<TextExportResult> {
+  const outcome: TextExportResult = new TextExportResult();
+  let options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+  options.newFileNames = [fileName];
+  let targets: string[] = [];
+  try {
+    targets = await new picker.DocumentViewPicker(context).save(options);
+  } catch (_) {
+    outcome.error = 'picker';
+    return outcome;
+  }
+  if (targets.length === 0) { return outcome; }
+  try {
+    // `fs.writeSync()` 的字符串重载按 UTF-8 写入，中文与换行都不会被破坏。
+    let file: fs.File = fs.openSync(targets[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    try {
+      fs.writeSync(file.fd, content);
+    } finally {
+      fs.closeSync(file);
+    }
+    outcome.saved = true;
+  } catch (_) {
+    outcome.error = 'write';
+  }
+  return outcome;
+}
+
+/** 文本读取结果：`cancelled` 为真表示用户没选文件；`error` 非空表示读取失败。 */
+export class TextImportResult {
+  cancelled: boolean = false;
+  error: string = '';
+  content: string = '';
+}
+
+/**
+ * 让用户选一个文本文件并读出内容（UTF-8）。
+ *
+ * 与保存对称：取消（`cancelled`）与失败（`error`）分开报告——取消是正常操作，
+ * 界面不该提示「导入失败」。只读取用户**主动选中**的文件，不扫描目录。
+ */
+export async function pickTextFile(context: common.UIAbilityContext): Promise<TextImportResult> {
+  const outcome: TextImportResult = new TextImportResult();
+  let uris: string[] = [];
+  try {
+    let options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+    options.maxSelectNumber = 1;
+    uris = await new picker.DocumentViewPicker(context).select(options);
+  } catch (_) {
+    outcome.error = 'picker';
+    return outcome;
+  }
+  if (uris.length === 0) {
+    outcome.cancelled = true;
+    return outcome;
+  }
+  try {
+    let file: fs.File = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
+    try {
+      const stat: fs.Stat = fs.statSync(file.fd);
+      // 上限 1 MB：备份是纯文本偏好数据，正常只有几 KB；超大的多半是选错了文件。
+      if (stat.size > 1024 * 1024) {
+        outcome.error = 'toolarge';
+        return outcome;
+      }
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size);
+      const read: number = fs.readSync(file.fd, buffer);
+      // 复用纯逻辑里那套 UTF-8 解码（正确处理 1–4 字节序列与代理对），不要在这里再写一份。
+      const bytes: number[] = Array.from(new Uint8Array(buffer)).slice(0, read > 0 ? read : stat.size);
+      const decoded: string | undefined = utf8Text(bytes);
+      outcome.content = decoded === undefined ? '' : decoded;
+    } finally {
+      fs.closeSync(file);
+    }
+  } catch (_) {
+    outcome.error = 'read';
+    return outcome;
+  }
+  if (outcome.content.length === 0) { outcome.error = 'read'; }
+  return outcome;
+}
+
+/** 导出结果：`selected` 是系统保存器回传的目标数（0 = 用户取消），`written` 是真正写成功的页数。 */
+export class DocumentExportResult {
+  selected: number = 0;
+  written: number = 0;
+}
+
+export async function saveScannedDocuments(context: common.UIAbilityContext, uris: string[],
+  pdf: boolean): Promise<DocumentExportResult> {
+  const outcome: DocumentExportResult = new DocumentExportResult();
+  if (uris.length === 0) { return outcome; }
   let options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
   options.newFileNames = uris.map((uri: string, index: number): string =>
     'PocketToolbox-Scan-' + (index + 1).toString() + (pdf ? '.pdf' : '.jpg'));
   let targets: string[] = await new picker.DocumentViewPicker(context).save(options);
-  if (targets.length === 0) { return 0; }
-  if (targets.length !== uris.length) { throw new Error('Incomplete document selection'); }
-  for (let index: number = 0; index < uris.length; index++) {
-    let source: fs.File = fs.openSync(uris[index], fs.OpenMode.READ_ONLY);
+  outcome.selected = targets.length;
+  if (targets.length === 0) { return outcome; }
+  // 系统保存器对「多文件名」的回传数量随版本而异（可能只给 1 个目标）。此前数量不符会直接 throw，
+  // 于是多页扫描几乎必然只得到「导出失败」且没有原因（2026-10-20 审计 P0）。
+  // 现在按能对应的部分逐页写、单页失败不影响其它页，界面据 `written/selected` 如实提示。
+  const pairs: number = Math.min(targets.length, uris.length);
+  for (let index: number = 0; index < pairs; index++) {
     try {
-      let target: fs.File = fs.openSync(targets[index], fs.OpenMode.WRITE_ONLY);
-      try { await fs.copyFile(source.fd, target.fd); }
-      finally { fs.closeSync(target); }
-    } finally { fs.closeSync(source); }
+      let source: fs.File = fs.openSync(uris[index], fs.OpenMode.READ_ONLY);
+      try {
+        let target: fs.File = fs.openSync(targets[index], fs.OpenMode.WRITE_ONLY);
+        try {
+          await fs.copyFile(source.fd, target.fd);
+          outcome.written += 1;
+        } finally { fs.closeSync(target); }
+      } finally { fs.closeSync(source); }
+    } catch (_) {
+      // 单页失败继续处理下一页；返回值让界面如实提示部分成功。
+    }
   }
-  return targets.length;
+  return outcome;
 }
 
 /**
@@ -459,9 +572,36 @@ export class TorchController {
   }
 }
 
+/**
+ * 后台提醒的排程结果。
+ *
+ * 之前只返回 id、失败就吞掉，界面只能笼统说「未启用」；现在把**原因**带出来，让用户知道是
+ * 通知权限没允许（可去系统设置开）还是设备/系统层面不可用（2026-10-20 审计 P1「通知权限引导」）。
+ */
+export class ReminderOutcome {
+  readonly id: number;
+  /** `''` 成功；`denied` 通知未允许；`unsupported` 设备不支持；`other` 其它失败。 */
+  readonly error: string;
+
+  constructor(id: number, error: string) {
+    this.id = id;
+    this.error = error;
+  }
+}
+
+/**
+ * 排一个后台提醒：先请求通知许可（用户拒绝会抛错），再发布提醒。
+ *
+ * 两步失败要分开报告：`requestEnableNotification()` 抛错 = 用户没允许通知，此时发布提醒也一定失败，
+ * 因此直接返回 `denied` 并**不再调用** `publishReminder()`（避免无意义的失败调用）。
+ */
 export async function scheduleReminder(context: common.UIAbilityContext, name: string,
-  seconds: number, english: boolean): Promise<number> {
-  await notificationManager.requestEnableNotification(context);
+  seconds: number, english: boolean): Promise<ReminderOutcome> {
+  try {
+    await notificationManager.requestEnableNotification(context);
+  } catch (_) {
+    return new ReminderOutcome(-1, 'denied');
+  }
   let request: reminderAgentManager.ReminderRequestTimer = {
     reminderType: reminderAgentManager.ReminderType.REMINDER_TYPE_TIMER,
     triggerTimeInSeconds: Math.max(1, Math.ceil(seconds)),
@@ -473,7 +613,11 @@ export async function scheduleReminder(context: common.UIAbilityContext, name: s
     content: english ? 'Countdown finished' : '倒计时结束',
     expiredContent: english ? 'Countdown finished' : '倒计时结束'
   };
-  return await reminderAgentManager.publishReminder(request);
+  try {
+    return new ReminderOutcome(await reminderAgentManager.publishReminder(request), '');
+  } catch (_) {
+    return new ReminderOutcome(-1, 'other');
+  }
 }
 
 export async function cancelReminder(id: number): Promise<void> {

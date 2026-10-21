@@ -34,7 +34,10 @@ export struct OptionSelect {
         .font({ size: 15 }).fontColor(ToolPalette.textPrimary)
         .optionFont({ size: 15 }).optionFontColor(ToolPalette.textStrong)
         .selectedOptionFont({ size: 15 }).selectedOptionFontColor(ToolPalette.primaryDeep)
-        .selectedOptionBgColor(ToolPalette.tintBlue).menuBackgroundColor(Color.White)
+        // 菜单底必须走色板：曾经写死 `Color.White`，而选项文字用 `textStrong`（深色值近白 `#DCE4EE`），
+        // 深色模式下就是「白底 + 近白字」（对比约 1.4:1）——所有下拉都不可读（2026-10-20 审计 P0）。
+        // `surface` 浅色是 `#FFFFFF`（与写死时完全一致）、深色是 `#1A212B`，两套都保证对比度。
+        .selectedOptionBgColor(ToolPalette.tintBlue).menuBackgroundColor(ToolPalette.surface)
         .accessibilityText(this.a11yText)
         .onSelect((index: number) => this.onSelected(index))
     }.width('100%')

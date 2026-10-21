@@ -57,6 +57,9 @@ const timeZones = await loadEts('../entry/src/main/ets/model/TimeZoneTools.ets')
 const qrStyle = await loadEts('../entry/src/main/ets/model/QrStyle.ets');
 const loans = await loadEts('../entry/src/main/ets/model/LoanMath.ets');
 const colors = await loadEts('../entry/src/main/ets/model/ColorTools.ets');
+const recents = await loadEts('../entry/src/main/ets/model/RecentTools.ets');
+const dataExport = await loadEts('../entry/src/main/ets/model/DataExport.ets');
+const dataImport = await loadEts('../entry/src/main/ets/model/DataImport.ets');
 const health = await loadEts('../entry/src/main/ets/model/HealthMath.ets');
 const science = await loadEts('../entry/src/main/ets/model/ScientificCalc.ets');
 const startup = await loadEts('../entry/src/main/ets/model/StartupIntent.ets');
@@ -73,7 +76,43 @@ const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets')
 const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
 const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets');
 const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
+const aboutInfo = await loadEts('../entry/src/main/ets/model/AboutInfo.ets');
 const { createHash } = await import('node:crypto');
+
+// --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
+// 为什么要有断言：地址是**发布身份**的一部分（商店要求公开、免登录、长期有效），而「地址是否可用」
+// 是一条纯判据——写错了不会崩，只会让入口静默失效或指向不合规的明文地址，因此必须钉住。
+assert.equal(aboutInfo.PRIVACY_POLICY_URL, '', '当前是待填占位：填好后这条断言要一起改成真实地址的形态校验');
+assert.equal(aboutInfo.isUsablePolicyUrl(aboutInfo.PRIVACY_POLICY_URL), false, '空占位不算可用');
+assert.equal(aboutInfo.isUsablePolicyUrl(''), false);
+assert.equal(aboutInfo.isUsablePolicyUrl('   '), false, '纯空白不算');
+assert.equal(aboutInfo.isUsablePolicyUrl('https://'), false, '只有协议不算');
+assert.equal(aboutInfo.isUsablePolicyUrl('https:///privacy.html'), false, '没有主机名不算');
+assert.equal(aboutInfo.isUsablePolicyUrl('http://example.com/privacy'), false, '明文 http 不算（商店判不合规）');
+assert.equal(aboutInfo.isUsablePolicyUrl('example.com/privacy'), false, '缺协议不算（不自动补协议）');
+assert.equal(aboutInfo.isUsablePolicyUrl('  https://example.com/privacy  '), true, '首尾空白会被 trim');
+assert.equal(aboutInfo.isUsablePolicyUrl('https://gitee.com/owner/repo/raw/main/docs/PRIVACY.md'), true);
+assert.equal(aboutInfo.isUsablePolicyUrl('https://owner.gitee.io/repo/privacy.html'), true);
+// 文案：三种结果必须分开（未定稿 / 打不开 / 浏览器打开说明），不能共用一句
+assert.ok(aboutInfo.privacyPendingText(false).includes('尚未填写'));
+assert.ok(aboutInfo.privacyPendingText(true).includes('not been set'));
+assert.equal(aboutInfo.privacyOpenFailedText('', false), aboutInfo.privacyPendingText(false),
+  '地址为空时「打不开」要退回「尚未填写」——不能给出可执行地址却无地址可给');
+assert.equal(aboutInfo.privacyOpenFailedText('   ', true), aboutInfo.privacyPendingText(true));
+const failed = aboutInfo.privacyOpenFailedText('https://example.com/privacy', false);
+assert.ok(failed.includes('https://example.com/privacy'), '失败提示必须带上地址本体（用户要能自己粘出去）');
+assert.ok(failed.includes('手动访问'));
+assert.ok(aboutInfo.privacyOpenFailedText('https://example.com/privacy', true).includes('https://example.com/privacy'));
+assert.ok(aboutInfo.privacyEntryNoteText(false).includes('系统浏览器'));
+assert.ok(aboutInfo.privacyEntryNoteText(true).includes('browser'));
+assert.ok(aboutInfo.privacyCopyHintText(false).includes('复制'));
+assert.ok(aboutInfo.privacyCopyHintText(true).includes('copy'));
+// 说明里不能承诺「应用内加载网页」：它只负责交给系统浏览器
+assert.ok(aboutInfo.privacyEntryNoteText(false).includes('系统浏览器'), '要写明由系统浏览器打开');
+assert.ok(aboutInfo.privacyEntryNoteText(false).includes('不加载网页'), '要写明应用内不加载网页');
+assert.ok(aboutInfo.privacyEntryNoteText(true).includes('never loads'), '英文同样要写明不加载');
+assert.notEqual(aboutInfo.privacyEntryNoteText(false), aboutInfo.privacyCopyHintText(false),
+  '两条说明分开写：复制提示只在地址真的渲染出来时才出现');
 
 function category(id) {
   return units.CATEGORIES.find((entry) => entry.id === id);
@@ -115,7 +154,210 @@ const currencyCategory = units.CATEGORIES.find((entry) => entry.id === 'currency
 assert.equal(currencyCategory.special, 'currency');
 assert.equal(currencyCategory.units.length, 0);
 assert.equal(units.categoryIndex('currency'), units.CATEGORIES.findIndex((entry) => entry.id === 'currency'));
-// 新增类别：压力/能量/功率/角度/频率/油耗 + 市制单位
+// 补充单位（2026-10-20 第 8 轮 §3.26）：海里、英制加仑、美制杯、月/年、TB/PB 与二进制侧
+// 复用上面已经取到的 `volume`/`time`/`dataSize` 类别对象，不再重复声明（同名 const 会直接报语法错）。
+near(units.convert(1, length, unit(length, 'nmi'), unit(length, 'm')), 1852);
+near(units.convert(1, length, unit(length, 'nmi'), unit(length, 'km')), 1.852);
+assert.notEqual(unit(volume, 'ukgal').factor, unit(volume, 'gal').factor);   // 英制 ≠ 美制
+near(units.convert(1, volume, unit(volume, 'ukgal'), unit(volume, 'l')), 4.54609);
+near(units.convert(1, volume, unit(volume, 'gal'), unit(volume, 'l')), 3.785411784);
+near(units.convert(1, volume, unit(volume, 'cup'), unit(volume, 'ml')), 236.5882365, 1e-6);
+near(units.convert(1, time, unit(time, 'month'), unit(time, 'day')), 30.4375, 1e-9);
+near(units.convert(1, time, unit(time, 'year'), unit(time, 'day')), 365.25, 1e-9);
+near(units.convert(12, time, unit(time, 'month'), unit(time, 'year')), 1, 1e-9);
+near(units.convert(1, data, unit(data, 'TB'), unit(data, 'GB')), 1000);
+near(units.convert(1, data, unit(data, 'PB'), unit(data, 'TB')), 1000);
+near(units.convert(1, data, unit(data, 'TiB'), unit(data, 'GiB')), 1024);
+near(units.convert(1, data, unit(data, 'PiB'), unit(data, 'TiB')), 1024);
+// 第 67 轮：补齐「精确定义单位」的**常数级**断言。为什么必须单独做这一层：
+// 往返与传递性对**线性类别**验不了常数——`convert(v,a,b) = v*f_a/f_b`，因子会被约掉
+// （实验：把 km 因子故意翻倍，往返仍回到 3、传递性也仍然一致）。所以常数正确性只能靠点断言。
+// 注意各类别的**基准单位**：length 是 mm、area 是 mm2、mass 是 mg、angle 是 deg、data 是 bit。
+// 这里统一用 `category()`/`unit()` 取（函数声明会提升），避免引用尚未初始化的类别绑定。
+near(units.convert(1, category('length'), unit(category('length'), 'in'), unit(category('length'), 'mm')), 25.4, 1e-12);
+near(units.convert(1, category('length'), unit(category('length'), 'ft'), unit(category('length'), 'mm')), 304.8, 1e-12);
+near(units.convert(1, category('length'), unit(category('length'), 'mi'), unit(category('length'), 'mm')), 1609344, 1e-9);
+near(units.convert(1, category('area'), unit(category('area'), 'acre'), unit(category('area'), 'm2')), 4046.8564224, 1e-9);
+near(units.convert(1, category('mass'), unit(category('mass'), 'oz'), unit(category('mass'), 'g')), 28.349523125, 1e-9);
+near(units.convert(1, category('angle'), unit(category('angle'), 'turn'), unit(category('angle'), 'deg')), 360, 1e-12);
+near(units.convert(1, category('angle'), unit(category('angle'), 'grad'), unit(category('angle'), 'deg')), 0.9, 1e-12);
+near(units.convert(400, category('angle'), unit(category('angle'), 'grad'), unit(category('angle'), 'turn')), 1, 1e-12);
+// 压力：bar/atm/psi/mmHg 三套常数的交叉一致性（1 atm = 1.01325 bar、1 psi ≈ 6894.757 Pa）
+near(units.convert(1, category('pressure'), unit(category('pressure'), 'atm'), unit(category('pressure'), 'bar')), 1.01325, 1e-12);
+near(units.convert(1, category('pressure'), unit(category('pressure'), 'bar'), unit(category('pressure'), 'pa')), 100000, 1e-9);
+near(units.convert(1, category('pressure'), unit(category('pressure'), 'psi'), unit(category('pressure'), 'pa')), 6894.757293168361, 1e-9);
+// mmHg 取的是「托」的定义值 101325/760（源码注释写明理由：让 760 mmHg 恰好等于 1 atm）。
+// 与常规定义的毫米汞柱（133.322387415 Pa）相差约 1.4e-7 相对量——这是**有意的选择**，不是缺陷。
+near(units.convert(760, category('pressure'), unit(category('pressure'), 'mmhg'), unit(category('pressure'), 'atm')), 1, 1e-12);
+near(units.convert(1, category('pressure'), unit(category('pressure'), 'mmhg'), unit(category('pressure'), 'pa')), 101325 / 760, 1e-12);
+// 数据类：十进制（KB=1000）与二进制（KiB=1024）必须严格区分
+near(units.convert(1, category('data'), unit(category('data'), 'B'), unit(category('data'), 'bit')), 8, 1e-12);
+near(units.convert(1, category('data'), unit(category('data'), 'KiB'), unit(category('data'), 'B')), 1024, 1e-9);
+near(units.convert(1, category('data'), unit(category('data'), 'MiB'), unit(category('data'), 'KiB')), 1024, 1e-9);
+near(units.convert(1, category('data'), unit(category('data'), 'PiB'), unit(category('data'), 'B')), 1125899906842624, 1);
+// 功/能/功率/速度：定义值
+near(units.convert(1, category('energy'), unit(category('energy'), 'cal'), unit(category('energy'), 'j')), 4.184, 1e-12);
+near(units.convert(1, category('energy'), unit(category('energy'), 'kwh'), unit(category('energy'), 'j')), 3600000, 1e-9);
+near(units.convert(1, category('power'), unit(category('power'), 'hp'), unit(category('power'), 'w')), 745.6998715822702, 1e-9);
+near(units.convert(1, category('speed'), unit(category('speed'), 'mph'), unit(category('speed'), 'mps')), 0.44704, 1e-12);
+near(units.convert(1, category('speed'), unit(category('speed'), 'kn'), unit(category('speed'), 'mps')), 1852 / 3600, 1e-12);
+// 月/年的名称里必须写明「平均」口径，避免被当成固定天数
+assert.ok(unit(time, 'month').zh.includes('平均'));
+assert.ok(unit(time, 'year').en.includes('avg'));
+// 新增单位不得让 id 重复（同一类别内）
+for (const entry of units.CATEGORIES) {
+  const ids = entry.units.map((item) => item.id);
+  assert.equal(new Set(ids).size, ids.length, `duplicate unit id in ${entry.id}`);
+}
+// 第 84 轮：**把因子表整体与权威精确定义对照**（上面是手挑的 20 来个点断言；一个没被挑到的因子
+// 写错一位数照样全绿）。下面 82 个值取自国际定义的精确值，相对容差 1e-12。
+{
+  const exactFactors = {
+    length: { base: 'm', values: { mm: 0.001, cm: 0.01, m: 1, km: 1000, in: 0.0254, ft: 0.3048, mi: 1609.344, nmi: 1852, chi: 1 / 3, cun: 1 / 30, li: 500 } },
+    mass: { base: 'kg', values: { mg: 1e-6, g: 0.001, kg: 1, t: 1000, lb: 0.45359237, oz: 0.45359237 / 16, jin: 0.5, liang: 0.05 } },
+    area: { base: 'm2', values: { mm2: 1e-6, cm2: 1e-4, m2: 1, km2: 1e6, ha: 1e4, mu: 1e4 / 15, ft2: 0.09290304, acre: 4046.8564224 } },
+    volume: { base: 'l', values: { ml: 0.001, l: 1, m3: 1000, floz: 0.0295735295625, gal: 3.785411784, ukgal: 4.54609, cup: 0.2365882365 } },
+    speed: { base: 'mps', values: { mps: 1, kph: 1 / 3.6, mph: 1609.344 / 3600, kn: 1852 / 3600 } },
+    data: { base: 'B', values: { bit: 0.125, B: 1, KB: 1000, MB: 1e6, GB: 1e9, TB: 1e12, PB: 1e15, KiB: 1024, MiB: 1048576, GiB: 1073741824, TiB: 1099511627776, PiB: 1125899906842624 } },
+    pressure: { base: 'pa', values: { pa: 1, kpa: 1000, bar: 1e5, atm: 101325, mmhg: 101325 / 760, psi: 6894.757293168361 } },
+    energy: { base: 'j', values: { j: 1, kj: 1000, cal: 4.184, kcal: 4184, wh: 3600, kwh: 3600000 } },
+    power: { base: 'w', values: { w: 1, kw: 1000, mw: 1e6, hp: 745.6998715822702, ps: 735.49875 } },
+    angle: { base: 'deg', values: { deg: 1, rad: 180 / Math.PI, grad: 0.9, turn: 360 } },
+    frequency: { base: 'hz', values: { hz: 1, khz: 1000, mhz: 1e6, ghz: 1e9 } },
+    time: { base: 's', values: { ms: 0.001, s: 1, min: 60, h: 3600, day: 86400, week: 604800, month: 365.25 * 86400 / 12, year: 365.25 * 86400 } }
+  };
+  let comparedFactors = 0;
+  for (const [categoryId, spec] of Object.entries(exactFactors)) {
+    const entry = category(categoryId);
+    // base 必须真的是那个 factor === 1 的单位（否则整套因子的基准就错了）
+    assert.equal(unit(entry, spec.base).factor, 1, `${categoryId} 的基准单位应是 ${spec.base}`);
+    for (const [unitId, expected] of Object.entries(spec.values)) {
+      const actual = unit(entry, unitId).factor;
+      assert.ok(Math.abs(actual - expected) / expected <= 1e-12,
+        `${categoryId}/${unitId} 因子 ${actual} 应等于权威值 ${expected}`);
+      comparedFactors += 1;
+    }
+  }
+  assert.ok(comparedFactors >= 80, `因子对照数应足够：${comparedFactors}`);
+}
+// 第 84 轮：**标签消歧**（此前 0 处断言）——单位标签是用户唯一能看到的「这个单位到底是什么」，
+// 标签错了比因子错了更隐蔽（数字看着对，含义是另一个单位）。
+{
+  const power = category('power');
+  const volume = category('volume');
+  const length = category('length');
+  const mass = category('mass');
+  const area = category('area');
+  const data = category('data');
+  // ① `mw` 是**兆瓦**（不是毫瓦）；英文标签用单词形式避免 mW/MW 大小写歧义
+  assert.equal(unit(power, 'mw').zh, '兆瓦');
+  assert.equal(unit(power, 'mw').en, 'Megawatt');
+  assert.equal(unit(power, 'mw').factor, 1e6, '兆瓦应是 1e6 瓦');
+  // ② 美制加仑与英制加仑必须分开登记、分别标注、因子不同
+  assert.notEqual(unit(volume, 'gal').factor, unit(volume, 'ukgal').factor);
+  assert.ok(unit(volume, 'gal').zh.includes('美制'));
+  assert.ok(unit(volume, 'ukgal').zh.includes('英制'));
+  assert.ok(unit(volume, 'floz').zh.includes('美制'), '液盎司也要写明是美制');
+  assert.ok(unit(volume, 'cup').zh.includes('美制'));
+  // ③ 市制单位要在名称里说明（避免与公制/英制混淆）
+  assert.ok(unit(length, 'chi').zh.includes('市制'));
+  assert.ok(unit(mass, 'jin').zh.includes('市制'));
+  assert.ok(unit(area, 'mu').zh.includes('市制'));
+  // ④ 十进制与二进制数据单位都必须**同时存在**且标签能区分（KB=1000 vs KiB=1024）
+  assert.equal(unit(data, 'KB').factor, 1000);
+  assert.equal(unit(data, 'KiB').factor, 1024);
+  assert.ok(unit(data, 'KiB').zh.includes('二进制'));
+  assert.equal(unit(data, 'MiB').en, 'Mebibyte');
+  // ⑤ 第 96 轮：**马力也分两种标准**，此前只有一个不带限定的「马力」标签、数值取的是**英制/机械马力**
+  //    745.6998715823 W——而中文里「马力」通常指**米制马力** 735.49875 W（75 kgf·m/s），两者差约 1.4%。
+  //    与美制/英制加仑同一处理：分开登记 + 标签写明是哪种，否则中文用户读到的含义与实际数值不符。
+  assert.equal(unit(power, 'hp').factor, 745.6998715823, '英制（机械）马力');
+  assert.ok(unit(power, 'hp').zh.includes('英制'), 'hp 标签必须写明是英制/机械马力');
+  assert.equal(unit(power, 'hp').en, 'Horsepower (mechanical)');
+  assert.equal(unit(power, 'ps').factor, 735.49875, '米制马力 = 75 kgf·m/s');
+  assert.ok(unit(power, 'ps').zh.includes('米制'), 'ps 标签必须写明是米制马力');
+  assert.ok(unit(power, 'ps').en.includes('Metric'));
+  assert.notEqual(unit(power, 'hp').factor, unit(power, 'ps').factor, '两种马力不能共用一个因子');
+  assert.ok(Math.abs(unit(power, 'hp').factor / unit(power, 'ps').factor - 1.01387) < 0.001, '两者相差约 1.4%');
+  // ⑥ 第 97 轮：**盎司也要写明是常衡**——因子是常衡盎司（磅/16 = 28.349523125 g），
+  //    而中文「盎司」常用于贵金属、那里指**金衡盎司** 31.1034768 g，两者相差 9.7%。
+  assert.ok(unit(mass, 'oz').zh.includes('常衡'), 'oz 标签必须写明是常衡盎司');
+  assert.equal(unit(mass, 'oz').en, 'Ounce (avoirdupois)');
+  assert.equal(unit(mass, 'oz').factor, 0.45359237 / 16, '常衡盎司 = 磅/16');
+  assert.ok(Math.abs(31.1034768 / 1000 / unit(mass, 'oz').factor - 1.0971) < 0.001, '金衡盎司比常衡重约 9.7%');
+  // 「吨」用 Tonne/吨 即公吨的专名，**不需要**再加限定（英文 Tonne 本身就是米制专拼，区别于 Ton）
+  assert.equal(unit(mass, 't').factor, 1000);
+  assert.equal(unit(mass, 't').en, 'Tonne');
+}
+
+// 第 67 轮：`convert()` 的**性质测试**（不依赖任何「预期换算表」——只要因子自洽就必须成立）。
+// 上面全是**点断言**（手挑的具体数值），只能证明「这几个换算对」；写错一个方向的因子、或让某对
+// 单位不满足传递性，点断言照样全绿。这里扫**全部单位对/三元组**。
+{
+  const relativeClose = (a, b, tolerance) => {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) { return a === b; }
+    return Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+  };
+  const probeValues = [1, 7.5, 0.001, 1234.5];
+  let roundTripChecked = 0;
+  let triplesChecked = 0;
+  for (const entry of units.CATEGORIES) {
+    for (const fromUnit of entry.units) {
+      for (const toUnit of entry.units) {
+        for (const value of probeValues) {
+          const there = units.convert(value, entry, fromUnit, toUnit);
+          const back = units.convert(there, entry, toUnit, fromUnit);
+          // 注意容差：`convert` 是 `v * f / f`，二进制浮点下 `mi` 这种因子可能回不到**完全相等**
+          // （实测 42.5 mi 往返得 42.49999999999999），所以这里必须用相对容差而不是 `===`。
+          assert.ok(relativeClose(back, value, 1e-9),
+            `${entry.id} ${value} ${fromUnit.id}→${toUnit.id}→${fromUnit.id} 往返得 ${back}`);
+          roundTripChecked += 1;
+        }
+        // 传递性：直算必须等于「经任意中间单位」两步算
+        for (const middle of entry.units) {
+          const direct = units.convert(7.5, entry, fromUnit, toUnit);
+          const chained = units.convert(units.convert(7.5, entry, fromUnit, middle), entry, middle, toUnit);
+          assert.ok(relativeClose(direct, chained, 1e-8),
+            `${entry.id} ${fromUnit.id}→${middle.id}→${toUnit.id} 与直算不一致（${direct} vs ${chained}）`);
+          triplesChecked += 1;
+        }
+      }
+    }
+  }
+  assert.ok(roundTripChecked > 2000, `往返检查数应足够多：${roundTripChecked}`);
+  assert.ok(triplesChecked > 5000, `传递性检查数应足够多：${triplesChecked}`);
+  // 「currency」类别**故意没有静态单位**：它的单位来自汇率缓存（`FxTools`），由页面动态映射。
+  // 断言这一点，避免后来者「补上一份硬编码币种表」或写一条要求非空的检查。
+  const currencyCategory = units.CATEGORIES.find((entry) => entry.id === 'currency');
+  assert.ok(currencyCategory !== undefined && currencyCategory.special === 'currency');
+  assert.equal(currencyCategory.units.length, 0, '币种类别的单位来自汇率缓存，不应有静态单位');
+  // 其余类别都必须有单位，且非特例类别的因子必须是正有限数
+  for (const entry of units.CATEGORIES) {
+    if (entry.id === 'currency') { continue; }
+    assert.ok(entry.units.length > 0, `${entry.id} 不应为空类别`);
+    if (entry.special === 'temperature' || entry.special === 'fuel') { continue; }
+    for (const item of entry.units) {
+      assert.ok(Number.isFinite(item.factor) && item.factor > 0, `${entry.id}/${item.id} 因子非法`);
+    }
+  }
+  // 仿射与反比类别**不能**套用「0 换算成 0」的直觉：0°F = −17.78°C、0 km/L 的油耗是无穷大。
+  const tempCategory = units.CATEGORIES.find((entry) => entry.special === 'temperature');
+  const tempUnit = (id) => tempCategory.units.find((item) => item.id === id);
+  near(units.convert(0, tempCategory, tempUnit('f'), tempUnit('c')), -17.77777777777778, 1e-12);
+  near(units.convert(0, tempCategory, tempUnit('k'), tempUnit('c')), -273.15);
+  const fuelCategory = units.CATEGORIES.find((entry) => entry.special === 'fuel');
+  const fuelUnit = (id) => fuelCategory.units.find((item) => item.id === id);
+  assert.equal(units.convert(0, fuelCategory, fuelUnit('kml'), fuelUnit('l100')), Infinity,
+    '0 km/L 的百公里油耗是无穷大（反比关系，不是 0）');
+  // 反比关系仍要往返闭合
+  for (const item of fuelCategory.units) {
+    const first = fuelCategory.units[0];
+    const there = units.convert(8, fuelCategory, item, first);
+    assert.ok(relativeClose(units.convert(there, fuelCategory, first, item), 8, 1e-9),
+      `油耗往返应闭合：${item.id}`);
+  }
+}
+
 const lengthChi = unit(length, 'chi');
 near(units.convert(3, length, lengthChi, unit(length, 'm')), 1);
 near(units.convert(1, length, unit(length, 'li'), unit(length, 'km')), 0.5);
@@ -247,6 +489,50 @@ assert.equal(timers.fastestLapIndex([1000]), -1);
 assert.equal(timers.slowestLapIndex([]), -1);
 assert.equal(timers.fastestLapIndex([1000, 2000]), 0);
 assert.equal(timers.slowestLapIndex([1000, 2000]), 0);
+// 计次守卫与上限（2026-10-20 审计 P1）：暂停后连点会产生相同累计值 → 0 差值污染最快/最慢
+assert.equal(timers.LAP_MAX, 200);
+assert.equal(timers.lapRecordable([], 1000), true);
+assert.equal(timers.lapRecordable([], 0), false);
+assert.equal(timers.lapRecordable([], -5), false);
+assert.equal(timers.lapRecordable([], Number.NaN), false);
+assert.equal(timers.lapRecordable([1000], 1001), true);
+assert.equal(timers.lapRecordable([1000], 1000), false);   // 暂停后连点
+assert.equal(timers.lapRecordable([1000], 999), false);    // 不递增
+assert.equal(timers.lapRecordable([1000, Number.NaN], 2000), false);
+assert.deepEqual(timers.appendLap([1000], 3000), [1000, 3000]);
+assert.deepEqual(timers.appendLap([], 1000), [1000]);
+// 超过上限只保留最近 LAP_MAX 次（不修改入参数组）
+const longLaps = [];
+for (let index = 1; index <= timers.LAP_MAX + 5; index++) { longLaps.push(index * 1000); }
+const trimmed = timers.appendLap(longLaps, (timers.LAP_MAX + 6) * 1000);
+assert.equal(trimmed.length, timers.LAP_MAX);
+assert.equal(trimmed[trimmed.length - 1], (timers.LAP_MAX + 6) * 1000);
+assert.equal(longLaps.length, timers.LAP_MAX + 5);
+// 后台提醒失败的引导文案（2026-10-20 第 5 轮）：要给出可执行的下一步，并说明应用内计时不受影响
+assert.equal(timers.reminderGuidanceText('', false), '');
+assert.equal(timers.reminderGuidanceText('unknown-code', true), '');
+const deniedHint = timers.reminderGuidanceText('denied', false);
+assert.ok(deniedHint.includes('系统设置'));
+assert.ok(deniedHint.includes('应用内计时不受影响'));
+assert.ok(timers.reminderGuidanceText('denied', true).includes('system settings'));
+assert.ok(timers.reminderGuidanceText('unsupported', false).length > 0);
+assert.ok(timers.reminderGuidanceText('other', false).length > 0);
+assert.notEqual(timers.reminderGuidanceText('denied', false), timers.reminderGuidanceText('other', false));
+
+// --- §3.15 计时到点的应用内提示文案（2026-10-20 第 11 轮）---
+assert.equal(timers.finishedAlertText(['煮蛋'], false), '计时结束：煮蛋');
+assert.equal(timers.finishedAlertText(['煮蛋'], true), 'Timer finished: Egg'.replace('Egg', '煮蛋'));
+assert.equal(timers.finishedAlertText(['甲', '乙'], false), '2 个计时结束：甲、乙');
+assert.equal(timers.finishedAlertText(['甲', '乙'], true), '2 timers finished: 甲, 乙');
+// 超过 FINISHED_ALERT_MAX_NAMES 时只列前几个 + 「等 N 个」
+assert.equal(timers.FINISHED_ALERT_MAX_NAMES, 3);
+assert.equal(timers.finishedAlertText(['甲', '乙', '丙', '丁', '戊'], false), '5 个计时结束：甲、乙、丙 等 2 个');
+assert.equal(timers.finishedAlertText(['甲', '乙', '丙', '丁'], true), '4 timers finished: 甲, 乙, 丙 and 1 more');
+assert.equal(timers.finishedAlertText(['甲', '乙', '丙'], false), '3 个计时结束：甲、乙、丙');
+// 空名字/纯空白名字被过滤；全空时给通用文案而不是空列表
+assert.equal(timers.finishedAlertText([], false), '有一个计时结束了');
+assert.equal(timers.finishedAlertText(['  ', ''], true), 'A timer has finished');
+assert.equal(timers.finishedAlertText(['煮蛋', '  '], false), '计时结束：煮蛋');
 
 assert.equal(dates.daysBetween('2024-02-28', '2024-03-01'), 2);
 assert.equal(dates.daysBetween('2024-03-01', '2024-02-28'), -2);
@@ -310,6 +596,86 @@ const leapDayInfo = dates.calendarInfo('2024-02-29');
 assert.equal(leapDayInfo.weekday, 4);
 assert.equal(leapDayInfo.dayOfYear, 60);
 assert.equal(dates.calendarInfo('2025-02-29'), undefined);
+// 第 35 轮探针补充：ISO 周跨年边界的**另一个方向**（2027-01-01 是周五 → 属于 2026 年第 53 周），
+// 以及「跨年前的最后一周」；这两条与已有的 2021-01-01/2024-12-30 合起来才覆盖四个象限。
+assert.equal(dates.calendarInfo('2027-01-01').isoWeek, 53);
+assert.equal(dates.calendarInfo('2027-01-01').isoWeekYear, 2026);
+assert.equal(dates.calendarInfo('2026-12-28').isoWeek, 53);
+assert.equal(dates.calendarInfo('2026-12-28').isoWeekYear, 2026);
+assert.equal(dates.calendarInfo('2025-12-29').isoWeek, 1);       // 周一 → 下一年第 1 周
+assert.equal(dates.calendarInfo('2025-12-29').isoWeekYear, 2026);
+assert.equal(dates.calendarInfo('2026-01-04').isoWeek, 1);       // 第 1 周的周日
+assert.equal(dates.calendarInfo('2026-01-05').isoWeek, 2);
+// weekday 是 **1–7 的数字**（周一=1…周日=7，ISO 口径），不是文案：2026-02-17（春节）是周二
+assert.equal(dates.calendarInfo('2026-02-17').weekday, 2);
+assert.equal(dates.calendarInfo('2026-10-25').weekday, 7);
+// 年内第几天：平年末、闰年 2/29 之后各错一天
+assert.equal(dates.calendarInfo('2026-12-31').dayOfYear, 365);
+assert.equal(dates.calendarInfo('2026-03-01').dayOfYear, 60);    // 平年 3/1 = 60
+assert.equal(dates.calendarInfo('2024-03-01').dayOfYear, 61);    // 闰年 3/1 = 61
+// 第 100 轮：上面全是**手挑的年份/日期**（跨年四周 + 几个闰日）。ISO 周/年与年积日是**外部标准**，
+// 而且 53 周年份的分布、以及 Jan 1 落在周四/周日这些情形**每年都不一样**——点断言碰不到的那些年份
+// 里藏错也看不出来。这里用**独立实现**（Unix 时间的 Thursday 法 + 逐月累加）对 1970–2100 **逐日**对照。
+{
+  const refIso = (year, month, day) => {
+    const at = Date.UTC(year, month - 1, day);
+    const dayNum = (new Date(at).getUTCDay() + 6) % 7;        // 周一=0…周日=6
+    const thursday = at + (3 - dayNum) * 86400000;
+    const isoYear = new Date(thursday).getUTCFullYear();
+    return { year: isoYear, week: Math.floor((thursday - Date.UTC(isoYear, 0, 1)) / (7 * 86400000)) + 1 };
+  };
+  const refDayOfYear = (year, month, day) => {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    const lengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let total = day;
+    for (let index = 0; index < month - 1; index++) { total += lengths[index]; }
+    return total;
+  };
+  const text = (year, month, day) => `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  let swept = 0;
+  let week53Years = 0;
+  for (let year = 1970; year <= 2100; year++) {
+    let has53 = false;
+    for (let month = 1; month <= 12; month++) {
+      const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const info = dates.calendarInfo(text(year, month, day));
+        const expected = refIso(year, month, day);
+        assert.equal(info.isoWeek, expected.week, `${text(year, month, day)} 的 ISO 周`);
+        assert.equal(info.isoWeekYear, expected.year, `${text(year, month, day)} 的 ISO 周年`);
+        assert.equal(info.dayOfYear, refDayOfYear(year, month, day), `${text(year, month, day)} 的年积日`);
+        assert.equal(info.weekday, ((new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7) + 1,
+          `${text(year, month, day)} 的 ISO 星期`);
+        if (expected.week === 53) { has53 = true; }
+        swept += 1;
+      }
+    }
+    if (has53) { week53Years += 1; }
+  }
+  assert.ok(swept > 47000, `逐日对照应覆盖 4.7 万天以上，实际 ${swept}`);
+  assert.ok(week53Years > 40, `1970–2100 应有 40 个以上的 53 周年份，实际 ${week53Years}`);
+}
+// 世纪年的闰规则（能被 4 整除但整百年不闰，除非能被 400 整除）——此前只写过 2024/2020 这类普通闰年
+assert.notEqual(dates.parseDate('2000-02-29'), undefined, '2000 能被 400 整除 → 闰年');
+assert.equal(dates.parseDate('1900-02-29'), undefined, '1900 是整百年且不能被 400 整除 → 平年');
+assert.equal(dates.parseDate('2100-02-29'), undefined, '2100 同 1900');
+assert.equal(dates.addDays('1900-02-28', 1), '1900-03-01', '平年 2/28 次日是 3/1');
+assert.equal(dates.addDays('2000-02-28', 1), '2000-02-29', '闰年 2/28 次日是 2/29');
+assert.equal(dates.calendarInfo('1900-12-31').dayOfYear, 365, '1900 是 365 天');
+assert.equal(dates.calendarInfo('2000-12-31').dayOfYear, 366, '2000 是 366 天');
+assert.equal(dates.calendarInfo('2024-12-31').dayOfYear, 366);
+// 连续 60 天的 dayOfYear 必须递增 1，或跨年重置为 1（不允许跳变）
+{
+  let cursor = '2026-12-20';
+  for (let index = 0; index < 60; index++) {
+    const next = dates.addDays(cursor, 1);
+    const before = dates.calendarInfo(cursor).dayOfYear;
+    const after = dates.calendarInfo(next).dayOfYear;
+    assert.ok(after === before + 1 || (after === 1 && (before === 365 || before === 366)),
+      `${cursor} → ${next} 的 dayOfYear 跳变：${before} → ${after}`);
+    cursor = next;
+  }
+}
 
 assert.equal(dates.workingDaysBetween('2026-10-15', '2026-10-15', true), 1);
 assert.equal(dates.workingDaysBetween('2026-10-15', '2026-10-15', false), 0);
@@ -427,6 +793,33 @@ assert.equal(dates.constellationRangeText(dates.constellationAt('2026-01-01'), f
 assert.equal(dates.constellationRangeText(dates.constellationAt('2026-01-01'), true), 'Dec 22 – Jan 19');
 assert.equal(dates.constellationRangeText(dates.constellationAt('2024-02-29'), false), '2月19日 – 3月20日');
 assert.equal(dates.constellationRangeText(dates.constellationAt('2026-10-24'), true), 'Oct 24 – Nov 22');
+// §3.13④ 不在登记表里的星座**不要编造区间**（此前 indexOf 返回 -1 会被 %len 变成 0，静默按表首推区间）
+const straySign = new dates.Constellation();
+straySign.id = 'not-in-table';
+straySign.zh = '未知';
+straySign.en = 'Unknown';
+straySign.startMonth = 5;
+straySign.startDay = 6;
+assert.equal(dates.constellationRangeText(straySign, false), '5月6日');
+assert.equal(dates.constellationRangeText(straySign, true), 'May 6');
+// §3.13③ 工作日统计的区间护栏：与 addWorkingDays 的口径不打架
+assert.equal(dates.WORKING_DAYS_SHIFT_LIMIT, 36500);
+assert.equal(dates.WORKING_DAYS_MAX_SPAN_DAYS, 60000);
+assert.equal(dates.workingDaysSpanExceeded('2026-10-15', '2026-10-20'), false);
+assert.equal(dates.workingDaysSpanExceeded('0001-01-01', '9999-12-31'), true);
+assert.equal(dates.workingDaysSpanExceeded('not a date', '9999-12-31'), false);
+assert.equal(dates.workingDaysSpanExceeded('0001-01-01', 'bad'), false);
+assert.ok(dates.workingDaysSpanErrorText('0001-01-01', '9999-12-31', false).includes('60000'));
+assert.equal(dates.workingDaysSpanErrorText('2026-10-15', '2026-10-20', false), '');
+assert.ok(dates.workingDaysSpanErrorText('0001-01-01', '9999-12-31', true).includes('shorten'));
+// 超限时统计返回 undefined（不再卡主线程逐日循环）
+assert.equal(dates.workingDaysBetween('0001-01-01', '9999-12-31', true), undefined);
+assert.equal(dates.workingDaysBetweenWithHolidays('0001-01-01', '9999-12-31', true, [], []), undefined);
+// 但「能推算出来的日期也要能统计」：36500 个工作日 ≈ 51100 日历日，必须仍在护栏内
+const farWorkDay = dates.addWorkingDays('2026-10-15', 36500);
+assert.ok(farWorkDay !== undefined);
+assert.equal(dates.workingDaysSpanExceeded('2026-10-15', farWorkDay), false);
+assert.ok(dates.workingDaysBetween('2026-10-15', farWorkDay, true) > 36500);
 // 逐日扫一整年（闰年 2024）：只能停留在当前星座或推进到登记表里的下一个，且 12 个星座都出现过
 const signOrder = dates.CONSTELLATIONS.map((sign) => sign.id);
 let previousSign = dates.constellationAt('2023-12-31').id;
@@ -448,6 +841,100 @@ for (let month = 1; month <= 12; month++) {
 assert.equal(visitedSigns.size, 12);
 
 // --- 时间戳：错误码（empty/format/date/range）、秒毫秒口径、精度、时区偏移、渲染辅助函数 ---
+// 批量转换（2026-10-20 审计 P1）：按行解析、空行忽略、保留原行序、超限只取前 N 行
+assert.equal(timeTools.STAMP_BATCH_MAX, 200);
+// §3.14① 时区偏移的合法性：±14:00 是极限，`+14:30` 这类不存在的偏移必须拒绝
+assert.equal(timeTools.parseStampInput('2026-10-20T12:00:00+14:00').error, '');
+assert.equal(timeTools.parseStampInput('2026-10-20T12:00:00-14:00').error, '');
+assert.notEqual(timeTools.parseStampInput('2026-10-20T12:00:00+14:30').error, '');
+assert.notEqual(timeTools.parseStampInput('2026-10-20T12:00:00-14:30').error, '');
+assert.notEqual(timeTools.parseStampInput('2026-10-20T12:00:00+15:00').error, '');
+assert.equal(timeTools.parseStampInput('2026-10-20T12:00:00+13:45').error, '');
+assert.equal(timeTools.parseStampInput('2026-10-20T12:00:00+00:00').error, '');
+// §3.15④ 计时上限的单一来源（页面与 LocalData 共用同一份常量与文案）
+assert.equal(timers.TIMER_MAX_COUNT, 30);
+assert.equal(timers.TIMER_MIN_DURATION_MS, 1000);
+assert.equal(timers.TIMER_MAX_DURATION_MS, 86400000);
+assert.equal(timers.timerDurationWithinLimits(1000), true);
+assert.equal(timers.timerDurationWithinLimits(86400000), true);
+assert.equal(timers.timerDurationWithinLimits(999), false);
+assert.equal(timers.timerDurationWithinLimits(86400001), false);
+assert.equal(timers.timerDurationWithinLimits(Number.NaN), false);
+assert.equal(timers.timerLimitText(false).includes('30'), true);
+assert.equal(timers.timerLimitText(true).includes('30'), true);
+// 第 87 轮：**时长上限的文案与选择器实际可选范围必须一致**（此前两处互相矛盾）。
+// 实测证据：选择器三列是 时 0–23 / 分 0–59 / 秒 0–59 → 能选到的最大值是 23:59:59 = 86399000 ms；
+// `parseDuration('24','0','0')` 返回 0（拒绝）。而当时编辑路径手写「23 小时 59 分 59 秒」、
+// 新增路径走 `timerLimitText()` 却写「24 小时」——同一个校验失败给出两个矛盾的时长上限。
+{
+  const inputMax = timers.TIMER_INPUT_MAX_DURATION_MS;
+  assert.equal(inputMax, 86399000, '输入上限应是 23:59:59');
+  // 输入上限 ↔ 选择器三列范围：逐位对齐，不能再有「文案说 24 小时、选择器只到 23」这种错位
+  const columnHours = timers.DURATION_COLUMNS[0].length - 1;
+  const columnMinutes = timers.DURATION_COLUMNS[1].length - 1;
+  const columnSeconds = timers.DURATION_COLUMNS[2].length - 1;
+  assert.equal((columnHours * 3600 + columnMinutes * 60 + columnSeconds) * 1000, inputMax,
+    '选择器能选到的最大值必须等于输入上限');
+  assert.equal(timers.parseDuration(String(columnHours), String(columnMinutes), String(columnSeconds)), inputMax);
+  assert.equal(timers.parseDuration('24', '0', '0'), 0, '24:00:00 超出输入上限，应被拒绝');
+  // 存储容差必须 **≥** 输入上限，否则已存的 24 小时计时器会被 LocalData 静默丢掉
+  assert.ok(timers.TIMER_MAX_DURATION_MS >= inputMax, '存储容差不得低于输入上限');
+  assert.equal(timers.TIMER_MAX_DURATION_MS, 86400000);
+  assert.equal(timers.timerDurationWithinLimits(86400000), true, '已存的 24 小时计时器仍要能读回来');
+  // 两条文案共用同一个时长片段：`timerLimitText()` 必须**包含** `timerDurationLimitText()`（同一来源）
+  for (const english of [false, true]) {
+    const durationOnly = timers.timerDurationLimitText(english);
+    const withCount = timers.timerLimitText(english);
+    assert.ok(withCount.indexOf(durationOnly) === 0,
+      `计时上限文案应以时长文案开头（${english}）：${withCount} / ${durationOnly}`);
+    // 文案里的数字必须是**输入上限**（23 小时 59 分 59 秒），不能写成 24 小时
+    assert.ok(durationOnly.includes('23') || durationOnly.includes('23:59:59'));
+    assert.ok(!durationOnly.includes('24'), `时长上限文案不应再写 24 小时：${durationOnly}`);
+  }
+  assert.equal(timers.timerDurationLimitText(false), '请输入 1 秒至 23 小时 59 分 59 秒的时长');
+  assert.equal(timers.timerLimitText(false), '请输入 1 秒至 23 小时 59 分 59 秒的时长，最多 30 组');
+  assert.equal(timers.timerLimitText(true), 'Enter 1 second to 23:59:59; maximum 30 timers');
+}
+assert.equal(timeTools.stampLineCount(''), 0);
+assert.equal(timeTools.stampLineCount('  \n \r\n'), 0);
+assert.equal(timeTools.stampLineCount('1\n2\n\n3'), 3);
+assert.equal(timeTools.parseStampLines('').length, 0);
+assert.equal(timeTools.parseStampLines('  \n \n').length, 0);
+const stampBatch = timeTools.parseStampLines('1792396081\n\n2026-10-19 08:30:45\n坏输入');
+assert.equal(stampBatch.length, 3);
+assert.equal(stampBatch[0].input, '1792396081');
+assert.equal(stampBatch[0].result.ok, true);
+assert.equal(stampBatch[1].input, '2026-10-19 08:30:45');
+assert.equal(stampBatch[1].result.ok, true);
+assert.equal(stampBatch[2].result.ok, false);
+assert.equal(stampBatch[2].result.error, 'format');
+// 手动指定毫秒口径同样作用于批量（模式 id 是 's'/'ms'）
+assert.equal(timeTools.parseStampLines('1792396081', 'ms')[0].result.unit, 'milliseconds');
+assert.equal(timeTools.parseStampLines('1792396081', 's')[0].result.unit, 'seconds');
+// 超过上限只解析前 STAMP_BATCH_MAX 行（页面据此提示）
+const stampLines = [];
+for (let index = 0; index < timeTools.STAMP_BATCH_MAX + 5; index++) { stampLines.push('1792396081'); }
+const stampCapped = timeTools.parseStampLines(stampLines.join('\n'));
+assert.equal(stampCapped.length, timeTools.STAMP_BATCH_MAX);
+assert.equal(timeTools.stampLineCount(stampLines.join('\n')), timeTools.STAMP_BATCH_MAX + 5);
+// 单行输入不受批量影响（仍然只有一行）
+assert.equal(timeTools.parseStampLines('1792396081').length, 1);
+assert.equal(timeTools.stampLineCount('1792396081'), 1);
+// 第 33 轮探针补充：**恰好等于上限不算超限**（第 32 轮在节假日区间上正是这个边界被虚报，
+// 所以「边界两侧的行为」要逐个功能钉住，而不是只测「明显超限」）。
+const exactStampBatch = Array.from({ length: timeTools.STAMP_BATCH_MAX }, () => '1792396081').join('\n');
+assert.equal(timeTools.parseStampLines(exactStampBatch).length, timeTools.STAMP_BATCH_MAX);
+assert.equal(timeTools.stampLineCount(exactStampBatch), timeTools.STAMP_BATCH_MAX);
+assert.equal(timeTools.stampLineCount(exactStampBatch) > timeTools.STAMP_BATCH_MAX, false);   // 页面提示条件
+const oneMoreStamp = exactStampBatch + '\n1792396081';
+assert.equal(timeTools.parseStampLines(oneMoreStamp).length, timeTools.STAMP_BATCH_MAX);
+assert.equal(timeTools.stampLineCount(oneMoreStamp), timeTools.STAMP_BATCH_MAX + 1);
+assert.equal(timeTools.stampLineCount(oneMoreStamp) > timeTools.STAMP_BATCH_MAX, true);
+// 空行不占额度、也不计数（否则大段空行会误触发「只转换了前 N 行」）
+const paddedStamp = '\n'.repeat(timeTools.STAMP_BATCH_MAX + 50) + exactStampBatch;
+assert.equal(timeTools.parseStampLines(paddedStamp).length, timeTools.STAMP_BATCH_MAX);
+assert.equal(timeTools.stampLineCount(paddedStamp), timeTools.STAMP_BATCH_MAX);
+
 assert.equal(timeTools.parseStampInput('').error, 'empty');
 assert.equal(timeTools.parseStampInput('   ').error, 'empty');
 assert.equal(timeTools.parseStampInput('abc').error, 'format');
@@ -629,6 +1116,20 @@ assert.equal(textTools.textStats('').lines, 0);
 assert.equal(textTools.textStats('A😀\n 中').characters, 5);
 assert.equal(textTools.textStats('A😀\n 中').nonSpaceCharacters, 3);
 assert.equal(textTools.textStats('A😀\n 中').lines, 2);
+// 第 66 轮修正：**行数按 `wc -l` 口径**——末尾换行不产生额外一行。
+// 修正前 `'\n\n'` 会算成 3 行、从编辑器复制的单行文本（带末尾换行）会显示 2 行，与仓库里
+// `DiffTools.splitLines()` 的口径（注释写明「末尾换行不产生额外的空行」）互相矛盾。
+assert.equal(textTools.textStats('a').lines, 1);
+assert.equal(textTools.textStats('a\n').lines, 1, '末尾换行不应多算一行');
+assert.equal(textTools.textStats('a\nb').lines, 2);
+assert.equal(textTools.textStats('a\nb\n').lines, 2, '两行文本带末尾换行仍是 2 行');
+assert.equal(textTools.textStats('\n').lines, 1);
+assert.equal(textTools.textStats('\n\n').lines, 2, '两个换行是 2 行（此前是 3）');
+assert.equal(textTools.textStats('a\r\n').lines, 1, 'CRLF 同样不多算');
+assert.equal(textTools.textStats('a\rb\r').lines, 2, '纯 CR 也按换行符计数');
+// 跨模块一致性：同一个文本在「文本工具」与「文本对比」里必须是同一个行数
+assert.equal(textTools.textStats('a\nb\n').lines, diffTools.diffLines('a\nb\n', 'a\nb').lines.length,
+  'TextTools 与 DiffTools 的行数口径必须一致');
 assert.equal(textTools.removeBlankLines('a\r\n  \r\nb\n'), 'a\nb');
 assert.equal(textTools.uniqueLines('a\r\na\nb\na'), 'a\nb');
 // --- 文本工具深化：统计口径与整理操作 ---
@@ -638,13 +1139,23 @@ assert.equal(textSample.words, 3);
 assert.equal(textSample.cjk, 4);
 assert.equal(textSample.paragraphs, 2);
 assert.equal(textTools.textStats('').words, 0);
+// 输入上限护栏（2026-10-20 审计 P1）：超限由页面拒绝并提示，不做静默截断
+assert.equal(textTools.TEXT_INPUT_MAX, 100000);
+assert.equal(textTools.textInputTooLong('abc'), false);
+assert.equal(textTools.textInputTooLong('a'.repeat(textTools.TEXT_INPUT_MAX)), false);
+assert.equal(textTools.textInputTooLong('a'.repeat(textTools.TEXT_INPUT_MAX + 1)), true);
+// 第 25 轮自查：该守卫此前只有 import、没有调用点（上限形同虚设），现在由
+// `TextPage.rejectIfTooLong()` 在整理/编码/摘要三类动作入口统一拒绝；这里钉住判据本身。
+assert.equal(textTools.textInputTooLong(''), false);
+assert.equal(textTools.textInputTooLong('中'.repeat(textTools.TEXT_INPUT_MAX)), false);
+assert.equal(textTools.textInputTooLong('中'.repeat(textTools.TEXT_INPUT_MAX + 1)), true);
 assert.equal(textTools.textStats('').paragraphs, 0);
 assert.equal(textTools.textStats('你好').words, 1);
 assert.equal(textTools.textStats('😀😀').characters, 2);
 assert.equal(textTools.textStats('😀😀').cjk, 0);
 assert.equal(textTools.textStats('a\n\n\nb\n').paragraphs, 2);
 assert.equal(textTools.textStats('\n\n').paragraphs, 0);
-assert.equal(textTools.textStats('\n\n').lines, 3);
+assert.equal(textTools.textStats('\n\n').lines, 2);
 assert.equal(textTools.textStats('  \n  \n').paragraphs, 0);
 assert.equal(textTools.trimLines('  a  \r\n b '), 'a\nb');
 assert.equal(textTools.trimLines(''), '');
@@ -664,6 +1175,76 @@ assert.equal(textTools.sortLines('', true, true), '');
 assert.equal(textTools.reverseLines('a\nb\nc'), 'c\nb\na');
 assert.equal(textTools.reverseLines('a'), 'a');
 assert.equal(textTools.reverseLines(''), '');
+// 第 101 轮：上面全是**点值断言**（手挑的输入 → 期望输出）。行变换的正确性其实是**结构性质**，
+// 点值碰不到「某些输入的排序把行弄丢/弄重」「倒序不是对合」「空白处理不幂等」这类错——这里按性质断言。
+{
+  const samples = ['b\na\nc', 'B\nb\na\nA\na', 'one\n\n two \n\nthree\n', 'x\r\ny\r\nz', 'a\na\na', '', '\n\n',
+    '  leading\ntrailing  ', 'dup\ndup\nother\nother\nsingle'];
+  // 行变换会把 CRLF 规范成 LF（有意为之：不规范化会在行尾留下 \r），因此不变量都拿**规范后**的输入比
+  const normalize = (text) => text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const splitLines = (text) => text.split('\n');
+  const multiset = (items) => items.slice().sort().join('¶');
+  for (const sample of samples) {
+    // ① 行倒序是**对合**：倒两次回到原样（按行尾规范化后比）
+    const once = textTools.reverseLines(sample);
+    assert.equal(textTools.reverseLines(once), normalize(sample), `行倒序应对合：${JSON.stringify(sample)}`);
+    assert.ok(!/\r/.test(once), '倒序后不应残留回车');
+    // ② 排序**不改变行的多重集**（只是换顺序），且升/降序都**幂等**
+    const ascending = textTools.sortLines(sample, true, false);
+    const descending = textTools.sortLines(sample, false, false);
+    assert.equal(multiset(splitLines(ascending)), multiset(splitLines(normalize(sample))),
+      `排序不得增删行：${JSON.stringify(sample)}`);
+    assert.equal(textTools.sortLines(ascending, true, false), ascending, '升序应幂等');
+    assert.equal(textTools.sortLines(descending, false, false), descending, '降序应幂等');
+    assert.equal(multiset(splitLines(textTools.sortLines(sample, true, true))), multiset(splitLines(normalize(sample))),
+      '忽略大小写排序同样不得增删行');
+    // ③ 空白处理**幂等**，且不留多空格/制表符/行首尾空白
+    const collapsed = textTools.collapseSpaces(sample);
+    assert.equal(textTools.collapseSpaces(collapsed), collapsed, `collapseSpaces 应幂等：${JSON.stringify(sample)}`);
+    assert.ok(!/ {2}/.test(collapsed) && !/\t/.test(collapsed), '压缩后不应有多空格或制表符');
+    assert.ok(splitLines(collapsed).every((line) => line === line.trim()), '压缩后不应有行首尾空白');
+    assert.equal(textTools.titleCase(textTools.titleCase(sample)), textTools.titleCase(sample), 'titleCase 应幂等');
+  }
+  // ④ `duplicateLines` 必须等于「按出现次数筛选去重行」的独立算法（不是手挑两个例子）
+  for (const sample of samples) {
+    const counts = new Map();
+    for (const line of splitLines(normalize(sample))) { counts.set(line, (counts.get(line) || 0) + 1); }
+    const expected = [...new Set(splitLines(normalize(sample)))].filter((line) => counts.get(line) >= 2);
+    assert.equal(splitLines(textTools.duplicateLines(sample)).filter((line) => line !== '').join('¶'),
+      expected.join('¶'), `比较重复行：${JSON.stringify(sample)}`);
+  }
+  // ⑤ 两种去重：结果无重复、且是输入的**子序列**（保持首次出现顺序）。
+  //    `uniqueLines` 是**大小写敏感**的（`B` 与 `b` 是两行，保留才对）；只有 `uniqueLinesIgnoreCase`
+  //    才要求「大小写等价的行只留一个」——我第一版对两者都按不敏感判，误报（实现是对的）。
+  for (const sample of samples) {
+    const input = splitLines(normalize(sample));
+    const isSubsequence = (out) => {
+      let cursor = 0;
+      for (const line of out) {
+        while (cursor < input.length && input[cursor] !== line) { cursor += 1; }
+        if (cursor >= input.length) { return false; }
+        cursor += 1;
+      }
+      return true;
+    };
+    const sensitive = splitLines(textTools.uniqueLines(sample)).filter((line) => line !== '');
+    assert.equal(new Set(sensitive).size, sensitive.length, `uniqueLines 不应有**完全相同**的行：${JSON.stringify(sample)}`);
+    assert.ok(isSubsequence(sensitive), `uniqueLines 结果应是子序列：${JSON.stringify(sample)}`);
+    const insensitive = splitLines(textTools.uniqueLinesIgnoreCase(sample)).filter((line) => line !== '');
+    const lowered = insensitive.map((line) => line.toLowerCase());
+    assert.equal(new Set(lowered).size, lowered.length, `忽略大小写去重后不应有等价重复：${JSON.stringify(sample)}`);
+    assert.ok(isSubsequence(insensitive), `uniqueLinesIgnoreCase 结果应是子序列（保留首次出现的原样行）`);
+  }
+  // 大小写敏感 vs 不敏感的分工要分明：`B` 与 `b` 只在忽略大小写时合并
+  assert.equal(textTools.uniqueLines('B\nb'), 'B\nb');
+  assert.equal(textTools.uniqueLinesIgnoreCase('B\nb'), 'B', '保留首次出现的原样行（B）');
+  // ⑥ `joinLines` 只管**行之间**用单空格分隔，**不压缩行内空格**（那是 `collapseSpaces` 的职责）——
+  //    第 101 轮我正是把两件事混成一条判据而误报（`joinLines('a  b\n c ')` 就是 `'a  b c'`）。
+  assert.equal(textTools.joinLines('a  b\n c '), 'a  b c');
+  assert.equal(textTools.collapseSpaces(textTools.joinLines('a  b\n c ')), 'a b c');
+  // ⑦ 去掉空行后，CRLF 与 LF 的行口径一致（换行风格不影响行数）
+  assert.equal(textTools.removeBlankLines('a\r\n\r\nb'), textTools.removeBlankLines('a\n\nb'));
+}
 assert.equal(textTools.titleCase('hello WORLD'), 'Hello World');
 assert.equal(textTools.titleCase('中文 abc'), '中文 Abc');
 assert.equal(textTools.titleCase(''), '');
@@ -674,6 +1255,15 @@ assert.equal(randomTools.randomInteger(4, 3, 0.5), undefined);
 assert.equal(randomTools.randomInteger(1, 6, 1), undefined);
 assert.equal(randomTools.randomInteger(1.2, 6, 0.5), undefined);
 assert.deepEqual(randomTools.candidates('甲, 乙\n甲；丙'), ['甲', '乙', '丙']);
+// 名单候选数上限护栏（2026-10-20 审计 P1）：超限时页面拒绝动作并提示，不静默截断
+assert.equal(randomTools.MAX_CANDIDATES, 5000);
+assert.equal(randomTools.candidatesWithinLimit(''), true);
+assert.equal(randomTools.candidatesWithinLimit('甲,乙,丙'), true);
+assert.equal(randomTools.candidatesWithinLimit(' , ,\n ,'), true);              // 空项不计
+assert.equal(randomTools.candidatesWithinLimit('a'.repeat(10)), true);
+const manyCandidates = new Array(randomTools.MAX_CANDIDATES).fill('x').join(',');
+assert.equal(randomTools.candidatesWithinLimit(manyCandidates), true);          // 恰好到上限
+assert.equal(randomTools.candidatesWithinLimit(manyCandidates + ',y'), false);  // 超出即拒绝
 assert.equal(randomTools.chooseCandidate('甲,乙,丙', 0.5), '乙');
 assert.equal(randomTools.chooseCandidate('  ', 0.5), undefined);
 // --- 随机选择深化：骰子、硬币、随机排序与分组 ---
@@ -799,6 +1389,60 @@ assert.equal(randomTools.diceNotationText(1, 20, 0), '1d20');
 assert.equal(randomTools.diceNotationText(2, 6, -1), '2d6-1');
 assert.equal(randomTools.diceTotal([4, 2], 3), 9);
 assert.equal(randomTools.diceTotal([4, 2], 0), 6);
+
+// --- §3.24 骰子记法输入：`2d6+3` / `d20` / `4D6-1`，面数必须与掷骰口径一致 ---
+const diceSpec = randomTools.parseDiceNotation('2d6+3');
+assert.equal(diceSpec.count, 2);
+assert.equal(diceSpec.sides, 6);
+assert.equal(diceSpec.modifier, 3);
+const diceBare = randomTools.parseDiceNotation('d20');          // 颗数可省略，默认 1
+assert.equal(diceBare.count, 1);
+assert.equal(diceBare.sides, 20);
+assert.equal(diceBare.modifier, 0);
+assert.deepEqual([randomTools.parseDiceNotation('4D6-1').count, randomTools.parseDiceNotation('4D6-1').sides,
+  randomTools.parseDiceNotation('4D6-1').modifier], [4, 6, -1]);  // 大写 D 与负加值
+assert.equal(randomTools.parseDiceNotation(' 2d6 ').sides, 6);     // 前后空白容忍
+// 面数必须在 DICE_SIDES 内：否则「能输入不能掷」，一律拒绝
+assert.equal(randomTools.parseDiceNotation('2d7'), undefined);
+assert.equal(randomTools.parseDiceNotation('1d100'), undefined);
+assert.equal(randomTools.parseDiceNotation('6d6'), undefined);     // 颗数上限 5
+assert.equal(randomTools.parseDiceNotation('0d6'), undefined);
+assert.equal(randomTools.parseDiceNotation('2d6+101'), undefined);
+assert.equal(randomTools.parseDiceNotation('2d6*2'), undefined);
+assert.equal(randomTools.parseDiceNotation('d'), undefined);
+assert.equal(randomTools.parseDiceNotation(''), undefined);
+assert.equal(randomTools.parseDiceNotation('2d6.5'), undefined);
+// 解析出来的记法必须能真的掷（口径闭环）
+const diceRolled = randomTools.rollDice(diceSpec.count, diceSpec.sides, () => 0);
+assert.deepEqual(diceRolled, [1, 1]);
+assert.equal(randomTools.diceTotal(diceRolled, diceSpec.modifier), 5);
+
+// --- §3.24 多轮不重复抽奖：按名字去重，跨轮累积 ---
+const poolNames = ['甲', '乙', '丙', '丁'];
+assert.deepEqual(randomTools.remainingCandidates(poolNames, []), poolNames);
+assert.deepEqual(randomTools.remainingCandidates(poolNames, ['甲', '丙']), ['乙', '丁']);
+assert.deepEqual(randomTools.remainingCandidates(poolNames, ['不在名单里的名字']), poolNames);
+assert.deepEqual(randomTools.mergeDrawn(['甲'], ['乙', '甲']), ['甲', '乙']);   // 去重且保序
+assert.deepEqual(randomTools.mergeDrawn([], ['甲', '乙']), ['甲', '乙']);
+assert.equal(randomTools.poolProgressText(4, 0, false), '已抽 0 / 共 4，还剩 4');
+assert.equal(randomTools.poolProgressText(4, 3, false), '已抽 3 / 共 4，还剩 1');
+assert.equal(randomTools.poolProgressText(4, 3, true), 'Drawn 3 / 4, 1 left');
+assert.equal(randomTools.poolProgressText(0, 0, false), '');
+assert.equal(randomTools.poolProgressText(4, 9, false), '已抽 9 / 共 4，还剩 0');   // 不会出现负数
+assert.equal(randomTools.poolExhaustedText(1, false), '');
+assert.ok(randomTools.poolExhaustedText(0, false).includes('重置'));
+assert.ok(randomTools.poolExhaustedText(0, true).includes('reset'));
+// 过滤时的**分隔符必须与输入口径一致**：输入支持换行/逗号/分号，页面里手写按换行切会把「甲,乙,丙」当一个名字
+assert.equal(randomTools.remainingCandidateTokens('甲,乙,丙', ['乙']), '甲\n丙');
+assert.equal(randomTools.remainingCandidateTokens('甲，乙；丙', ['丙']), '甲\n乙');
+assert.equal(randomTools.remainingCandidateTokens('甲,乙,丙', []), '甲,乙,丙');
+assert.equal(randomTools.remainingCandidateTokens('甲, 乙 , 丙', ['甲']), '乙\n丙');   // 去空白
+// 加权模式的 token 必须原样保留（丢权重会让「按权重」静默退化成等概率）
+assert.equal(randomTools.remainingCandidateTokens('甲*3, 乙*1', ['乙']), '甲*3');
+const poolAfterFilter = randomTools.remainingCandidateTokens('甲*3, 乙, 丙*2', ['甲']);
+assert.equal(poolAfterFilter.indexOf('丙*2') >= 0, true);        // 权重没被丢掉
+assert.deepEqual(randomTools.drawWeightedCandidates(poolAfterFilter, 1, () => 0.0), ['乙']);
+assert.deepEqual(randomTools.candidates(randomTools.remainingCandidateTokens('甲,乙,丙', ['乙'])), ['甲', '丙']);
 const weightedItems = randomTools.parseWeightedCandidates('a*3, b, c*2');
 assert.deepEqual(weightedItems.map((item) => [item.name, item.weight]), [['a', 3], ['b', 1], ['c', 2]]);
 assert.deepEqual(randomTools.parseWeightedCandidates('a*3, a, a*5').map((item) => [item.name, item.weight]),
@@ -807,9 +1451,74 @@ assert.deepEqual(randomTools.parseWeightedCandidates('a*x, b*0, c*-2, d*2000').m
   ['a*x', 'b*0', 'c*-2', 'd*2000']);
 assert.equal(randomTools.parseWeightedCandidates('a*x').every((item) => item.weight === 1), true);
 assert.deepEqual(randomTools.parseWeightedCandidates('  '), []);
+// 第 88 轮：**权重上限常量的闭端**必须钉住——`RandomPage` 的提示文案现在由 `MAX_WEIGHT` 插值
+// （「权重是 1 至 N 的整数」），所以「N 本身是合法权重、N+1 一定不是」这条边界必须有断言；
+// 此前 `MAX_WEIGHT` 这个常量**一条断言都没有**，边界值只测过 2000（越界一侧）。
+assert.equal(randomTools.MAX_WEIGHT, 1000);
+assert.deepEqual(randomTools.parseWeightedCandidates('甲*' + randomTools.MAX_WEIGHT.toString())
+  .map((item) => [item.name, item.weight]), [['甲', randomTools.MAX_WEIGHT]]);
+assert.deepEqual(randomTools.parseWeightedCandidates('甲*' + (randomTools.MAX_WEIGHT + 1).toString())
+  .map((item) => [item.name, item.weight]), [['甲*' + (randomTools.MAX_WEIGHT + 1).toString(), 1]],
+  '超过权重上限时整个 token 当名称、按无权重处理（与界面文案一致）');
 assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 0), ['a']);
 assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 0.5), ['b']);
 assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 0.999999), ['b']);
+// §3.24④ 越界取值用 `clampDrawFraction()` 统一夹取（不再是散落的魔法常量 0.999999999）
+assert.equal(randomTools.clampDrawFraction(0.5), 0.5);
+assert.equal(randomTools.clampDrawFraction(0), 0);
+assert.equal(randomTools.clampDrawFraction(-1), 0);
+assert.equal(randomTools.clampDrawFraction(Number.NaN), 0);
+assert.equal(randomTools.clampDrawFraction(Number.POSITIVE_INFINITY), 0);
+assert.equal(randomTools.clampDrawFraction(1) < 1, true);
+assert.equal(randomTools.clampDrawFraction(1) > 0.999999999999, true);
+assert.equal(randomTools.clampDrawFraction(2), randomTools.clampDrawFraction(1));
+// 夹取后的极端值仍能选中最后一个桶（不过界、不落到 undefined）
+assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 1), ['b']);
+assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => 5), ['b']);
+assert.deepEqual(randomTools.drawWeightedCandidates('a*1,b*3', 1, () => Number.NaN), ['a']);
+// §3.24⑥ 分组选项要按候选数收窄（不能从 3 个候选里选「10 组」）
+assert.deepEqual(randomTools.groupCountChoices(0), []);
+assert.deepEqual(randomTools.groupCountChoices(1), []);
+assert.deepEqual(randomTools.groupCountChoices(2), [2]);
+assert.deepEqual(randomTools.groupCountChoices(3), [2, 3]);
+assert.deepEqual(randomTools.groupCountChoices(20), [2, 3, 4, 5, 6, 8, 10]);
+assert.deepEqual(randomTools.groupSizeChoices(5), [2, 3, 4, 5]);
+assert.deepEqual(randomTools.groupSizeChoices(1), []);
+// 第 26 轮自查：历史归一化必须是「丢弃不可用 → 置顶优先排序 → 截断」，读侧同样如此。
+// 用一个「未排序且超过上限、置顶条目排在最后」的列表证明：置顶条目不会被 slice 丢掉。
+const histRaw = [];
+for (let index = 0; index < 55; index++) {
+  const item = new historyKinds.HistoryItem();
+  item.id = 'h' + index;
+  item.content = '内容' + index;
+  item.createdAt = 1000 + index;
+  item.pinned = false;
+  histRaw.push(item);
+}
+histRaw[54].pinned = true;   // 时间最新但排在数组末尾
+histRaw[0].pinned = true;    // 时间最旧且排在最前
+const histNorm = historyKinds.normalizeHistoryItems(histRaw, 50);
+assert.equal(histNorm.length, 50);
+assert.equal(histNorm[0].pinned, true);
+assert.equal(histNorm[1].pinned, true);
+assert.equal(histNorm[0].id, 'h54');
+assert.equal(histNorm[1].id, 'h0');
+assert.equal(histNorm.indexOf(histRaw[54]) >= 0, true);
+// 不可用条目被丢弃（缺 id / 缺内容 / 字段类型不对都不该让整表崩掉）
+const histBad = [];
+const noId = new historyKinds.HistoryItem();
+noId.id = ''; noId.content = 'x'; noId.createdAt = 1; noId.pinned = false;
+const noContent = new historyKinds.HistoryItem();
+noContent.id = 'k'; noContent.content = ''; noContent.createdAt = 2; noContent.pinned = false;
+histBad.push(noId, noContent, { id: 'obj', content: 'ok', createdAt: 3, pinned: false });
+assert.equal(historyKinds.normalizeHistoryItems(histBad, 50).length, 1);
+assert.equal(historyKinds.normalizeHistoryItems([], 50).length, 0);
+assert.equal(historyKinds.normalizeHistoryItems(histRaw, 0).length, 55);
+// 已选值不在可选列表里时收窄到「不超过它的最大值」
+assert.equal(randomTools.nearestChoice([2, 3, 4, 5], 5, 2), 5);
+assert.equal(randomTools.nearestChoice([2, 3], 5, 2), 3);
+assert.equal(randomTools.nearestChoice([2, 3], 1, 2), 2);
+assert.equal(randomTools.nearestChoice([], 3, 2), 2);
 assert.deepEqual(randomTools.drawWeightedCandidates('a,b,c', 2, seq([0])), ['a', 'b']);
 const weightedTwo = randomTools.drawWeightedCandidates('a*5,b*1', 2, seq([0]));
 assert.equal(weightedTwo.length, 2);
@@ -828,6 +1537,13 @@ assert.match(password, /[a-z]/);
 assert.match(password, /[0-9]/);
 assert.match(password, /[!@#$%^&*()\-_=+?]/);
 assert.equal(passwords.unbiasedIndex(10, (() => { let first = true; return () => first ? (first = false, 255) : 17; })()), 7);
+// §3.23① 不抛异常：非法区间/非法字节返回 -1，由调用方转成「无法生成」
+assert.equal(passwords.unbiasedIndex(0, () => 0), -1);
+assert.equal(passwords.unbiasedIndex(257, () => 0), -1);
+assert.equal(passwords.unbiasedIndex(1.5, () => 0), -1);
+assert.equal(passwords.unbiasedIndex(10, () => 300), -1);
+assert.equal(passwords.unbiasedIndex(10, () => -1), -1);
+assert.equal(passwords.unbiasedIndex(10, () => 1.5), -1);
 passwordOptions.length = 7;
 assert.equal(passwords.validPasswordOptions(passwordOptions), false);
 passwordOptions.length = 16;
@@ -836,6 +1552,26 @@ passwordOptions.lower = false;
 passwordOptions.digits = false;
 passwordOptions.symbols = false;
 assert.equal(passwords.validPasswordOptions(passwordOptions), false);
+// 长度上下限（2026-10-20 第 5 轮）：8–128，上限从 64 提到 128 以便导入到别的密码管理器
+assert.equal(passwords.PASSWORD_MIN_LENGTH, 8);
+assert.equal(passwords.PASSWORD_MAX_LENGTH, 128);
+const lengthOptions = new passwords.PasswordOptions();
+lengthOptions.length = 8;
+assert.equal(passwords.validPasswordOptions(lengthOptions), true);
+lengthOptions.length = 128;
+assert.equal(passwords.validPasswordOptions(lengthOptions), true);
+lengthOptions.length = 129;
+assert.equal(passwords.validPasswordOptions(lengthOptions), false);
+lengthOptions.length = 64;
+assert.equal(passwords.validPasswordOptions(lengthOptions), true);
+// 128 位也能真的生成出来，且覆盖四类字符
+lengthOptions.length = 128;
+const longPassword = passwords.generatePassword(lengthOptions, (() => { let n = 0; return () => (n = (n * 31 + 7) % 256); })());
+assert.equal(longPassword.length, 128);
+assert.match(longPassword, /[A-Z]/);
+assert.match(longPassword, /[a-z]/);
+assert.match(longPassword, /[0-9]/);
+assert.match(longPassword, /[!@#$%^&*()\-_=+?]/);
 
 assert.equal(levels.calculateLevel(0, 0, 9.81).tiltDegrees, 0);
 assert.equal(levels.calculateLevel(0, 0, -9.81).level, true);
@@ -845,6 +1581,38 @@ assert.equal(levels.calculateLevel(0, 0, 0), undefined);
 assert.equal(levels.calculateLevel(NaN, 0, 9.81), undefined);
 // --- 水平仪：显示单位 / 置零基准 / 峰值保持（2026-10-20 加）---
 assert.equal(levels.LEVEL_TOLERANCE_DEGREES, 2);
+// 「水平」判据容差可调（2026-10-20 审计 P1）：登记表 + 参数化纯函数
+assert.equal(levels.LEVEL_TOLERANCES.length, 4);
+assert.deepEqual(levels.LEVEL_TOLERANCES.map((entry) => entry.id), ['0.5', '1', '2', '5']);
+assert.equal(levels.DEFAULT_LEVEL_TOLERANCE, '2');
+assert.equal(levels.levelToleranceIndex('5'), 3);
+assert.equal(levels.levelToleranceIndex('nope'), -1);
+assert.equal(levels.levelToleranceDegrees('0.5'), 0.5);
+assert.equal(levels.levelToleranceDegrees('nope'), 2);      // 未知 id 回退默认，绝不返回 NaN
+assert.equal(levels.levelToleranceLabel('5'), '5°');
+assert.equal(levels.levelToleranceLabel('nope'), '2°');
+// 同一读数在不同容差下判定不同：1° 的斜面在 2° 容差下「水平」、在 0.5° 下不水平
+const toleranceReading = new levels.LevelReading();
+toleranceReading.xDegrees = 1;
+toleranceReading.tiltDegrees = 1;
+assert.equal(levels.applyOffset(toleranceReading, undefined, 2).level, true);
+assert.equal(levels.applyOffset(toleranceReading, undefined, 1).level, true);   // 边界含等号
+assert.equal(levels.applyOffset(toleranceReading, undefined, 0.5).level, false);
+assert.equal(levels.applyOffset(toleranceReading, undefined).level, true);      // 省略参数 = 默认 2°
+assert.equal(levels.applyOffset(toleranceReading, undefined, Number.NaN).level, true);  // 非法容差回退默认
+assert.equal(levels.applyOffset(toleranceReading, undefined, -1).level, true);
+// 置零后的相对读数同样按传入容差判定
+const toleranceOffset = new levels.LevelOffset();
+toleranceOffset.xDegrees = 0.5;
+toleranceOffset.yDegrees = 0;
+const relativeToleranceReading = new levels.LevelReading();
+relativeToleranceReading.xDegrees = 1;
+relativeToleranceReading.tiltDegrees = 1;
+assert.equal(levels.applyOffset(relativeToleranceReading, toleranceOffset, 2).level, true);
+assert.equal(levels.applyOffset(relativeToleranceReading, toleranceOffset, 0.2).level, false);
+assert.equal(levels.calculateLevel(0.02, 0, 9.81, 0.5).level, true);
+assert.equal(levels.calculateLevel(0.02, 0, 9.81, 5).level, true);
+assert.equal(levels.calculateLevel(9.81, 0, 0, 5).level, false);
 assert.equal(levels.LEVEL_UNITS.length, 4);
 assert.equal(new Set(levels.LEVEL_UNITS.map((entry) => entry.id)).size, 4);
 for (const entry of levels.LEVEL_UNITS) {
@@ -918,6 +1686,33 @@ peakReading.tiltDegrees = 12.5;
 assert.equal(levels.peakTilt(3, peakReading), 12.5);
 assert.equal(levels.peakTilt(30, peakReading), 30);
 assert.equal(levels.peakTilt(30, undefined), 30);
+// 第 38 轮探针补充的五条（其余 43 项检查与既有断言重合）：
+// ① 四档容差**逐一**验证「恰好等于容差算水平、超出一点点就不算」——既有断言只抽样了个别容差。
+for (const entry of levels.LEVEL_TOLERANCES) {
+  const tol = Number(entry.id);
+  const tangent = Math.tan(tol * Math.PI / 180);
+  assert.equal(levels.calculateLevel(tangent, 0, 1, tol).level, true, `${tol}° 恰好等于容差应算水平`);
+  assert.equal(levels.calculateLevel(tangent * 1.001, 0, 1, tol).level, false, `${tol}° 略超不应算水平`);
+}
+// ② 倾角与加速度向量的**整体缩放**无关（设备受震动时读数会一起缩放，角度不该跟着变）
+assert.ok(Math.abs(levels.calculateLevel(2 * Math.SQRT1_2, 0, 2 * Math.SQRT1_2).tiltDegrees - 45) < 1e-9);
+assert.ok(Math.abs(levels.calculateLevel(9.81 * Math.SQRT1_2, 0, 9.81 * Math.SQRT1_2).tiltDegrees - 45) < 1e-9);
+// ③ 气泡位移恒在 ±64 内且**符号跟着倾斜方向**（±64 是屏幕气泡半径的口径）
+const bubbleRight = levels.calculateLevel(0.2, 0, 1);
+const bubbleLeft = levels.calculateLevel(-0.2, 0, 1);
+assert.ok(Math.abs(bubbleRight.bubbleX) <= 64 && Math.abs(bubbleRight.bubbleY) <= 64);
+assert.ok(bubbleRight.bubbleX > 0 && bubbleLeft.bubbleX < 0);
+assert.equal(bubbleRight.bubbleY, 0);
+assert.equal(levels.calculateLevel(0, -0.2, 1).bubbleY < 0, true);
+// ④ 倾角 ≈ 两轴轴角的合成（小角度下）
+const combinedTilt = levels.calculateLevel(0.1, 0.05, 1);
+assert.ok(Math.abs(combinedTilt.tiltDegrees -
+  Math.sqrt(combinedTilt.xDegrees * combinedTilt.xDegrees +
+    combinedTilt.yDegrees * combinedTilt.yDegrees)) < 0.01);
+// ⑤ 模长 < 1 的读数一律视为无效（不只是全 0；半量级的加速度也说明设备不静置）
+assert.equal(levels.calculateLevel(0.5, 0, 0.5), undefined);
+assert.equal(levels.calculateLevel(0.3, 0.3, 0.3), undefined);
+assert.notEqual(levels.calculateLevel(0.6, 0, 0.9), undefined);   // 模长 1.08 → 有效
 // 复制整句：纯值 + 轴角，相对基准时另有措辞
 const copyReading = new levels.LevelReading();
 copyReading.tiltDegrees = 12.3;
@@ -930,6 +1725,16 @@ assert.equal(levels.levelCopyText(copyReading, 'percent', true, true),
 assert.equal(barcodes.barcodeInput('code128', 'AB-123'), 'AB-123');
 assert.equal(barcodes.barcodeInput('code128', '中文'), undefined);
 assert.equal(barcodes.barcodeInput('code128', 'A'.repeat(81)), undefined);
+// §3.2② Code 128 也要 trim：首尾空格/换行不该被判成「字符集不符」
+assert.equal(barcodes.barcodeInput('code128', '  AB-123  '), 'AB-123');
+assert.equal(barcodes.barcodeInput('code128', 'AB-123\n'), 'AB-123');
+assert.equal(barcodes.barcodeInput('code128', '   '), undefined);
+// §3.2① 未知码制不能再兜底成 ITF-14（将来加码制漏分支会静默走错）
+assert.equal(barcodes.barcodeInput('not-a-kind', '12345678901231'), undefined);
+assert.equal(barcodes.barcodeInput('not-a-kind', '123456789012'), undefined);
+// ITF-14 仍然按自己的规则工作（13 位数据位）
+assert.equal(barcodes.barcodeInput('itf14', '12345678901231'), '1234567890123');
+assert.equal(barcodes.barcodeInput('itf14', '123456789012'), undefined);
 assert.equal(barcodes.barcodeInput('ean13', '400638133393'), '400638133393');
 assert.equal(barcodes.barcodeInput('ean13', '4006381333931'), '400638133393');
 assert.equal(barcodes.barcodeDisplayValue('ean13', '400638133393'), '4006381333931');
@@ -985,6 +1790,77 @@ assert.equal(barcodes.barcodeInput('upce', '01234565'), '0123456');
 assert.equal(barcodes.barcodeInput('upce', '01234564'), undefined);
 assert.equal(barcodes.barcodeInput('upce', '012345'), undefined);
 assert.equal(barcodes.barcodeInput('upce', '2123456'), undefined);
+// 第 91 轮：上面的校验位断言全是**手挑的已知向量**（四个码制各一例）。这里补三件：
+// ① 用**独立实现的 GS1 模 10 算法**（从最右端数起权重 3/1 交替，写法与 `eanCheckDigit` 不同）
+//    对四种长度各 200 例随机数据交叉验证——点向量碰不到「某个位置权重写反」这类错；
+// ② **错误校验位必须被拒绝**（此前这条一条断言都没有：实现里有判断，但没被钉住）；
+// ③ UPC-E 的**五个压缩分支**逐个与独立参照对照（既有只覆盖 012/0 两个形态）。
+{
+  const referenceCheckDigit = (data) => {
+    let sum = 0;
+    for (let offset = 0; offset < data.length; offset++) {
+      sum += Number(data[data.length - 1 - offset]) * (offset % 2 === 0 ? 3 : 1);
+    }
+    return String((10 - (sum % 10)) % 10);
+  };
+  let seedState = 0x5150;
+  const nextInt = (bound) => {
+    seedState ^= seedState << 13; seedState >>>= 0;
+    seedState ^= seedState >>> 17;
+    seedState ^= seedState << 5; seedState >>>= 0;
+    return seedState % bound;
+  };
+  const specs = [
+    { kind: 'ean13', dataLength: 12, prefix: '1' },   // EAN-13 首位不能是 0（那是 UPC-A 的形态）
+    { kind: 'upca', dataLength: 11, prefix: '0' },
+    { kind: 'ean8', dataLength: 7, prefix: '' },
+    { kind: 'itf14', dataLength: 13, prefix: '' }
+  ];
+  for (const spec of specs) {
+    for (let round = 0; round < 200; round++) {
+      let data = spec.prefix;
+      while (data.length < spec.dataLength) { data += String(nextInt(10)); }
+      const check = referenceCheckDigit(data);
+      assert.equal(barcodes.barcodeDisplayValue(spec.kind, data), data + check,
+        `${spec.kind} 的校验位应与独立 GS1 实现一致：${data}`);
+      // 带正确校验位 → 接受；改动校验位 → 拒绝
+      assert.equal(barcodes.barcodeInput(spec.kind, data + check), data, `${spec.kind} 正确校验位应被接受`);
+      const wrong = String((Number(check) + 1) % 10);
+      assert.equal(barcodes.barcodeInput(spec.kind, data + wrong), undefined,
+        `${spec.kind} 错误校验位应被拒绝：${data}${wrong}`);
+    }
+  }
+  // 公开的标准示例（含 ISBN-13 与 GS1-14）
+  assert.equal(barcodes.barcodeDisplayValue('ean13', '978030640615'), '9780306406157');
+  assert.equal(barcodes.barcodeDisplayValue('itf14', '1001234500001'), '10012345000017');
+  assert.equal(barcodes.barcodeInput('ean13', '9780306406157'), '978030640615');
+  // UPC-E：五个压缩分支逐个对照独立参照
+  const referenceUpceToUpca = (upce7) => {
+    const numberSystem = upce7[0];
+    const digits = upce7.substring(1);
+    const last = digits[5];
+    if (last === '0' || last === '1' || last === '2') {
+      return numberSystem + digits.substring(0, 2) + last + '0000' + digits.substring(2, 5);
+    }
+    if (last === '3') { return numberSystem + digits.substring(0, 3) + '00000' + digits.substring(3, 5); }
+    if (last === '4') { return numberSystem + digits.substring(0, 4) + '00000' + digits.substring(4, 5); }
+    return numberSystem + digits.substring(0, 5) + '0000' + last;
+  };
+  for (const upce of ['0123450', '0123451', '0123452', '1123453', '0123454', '1123455', '0123459', '1999996']) {
+    const expanded = referenceUpceToUpca(upce);
+    assert.equal(barcodes.upceToUpcaData(upce), expanded, `UPC-E 展开应与 GS1 分支规则一致：${upce}`);
+    assert.equal(expanded.length, 11);
+    assert.equal(barcodes.barcodeDisplayValue('upce', upce), upce + referenceCheckDigit(expanded),
+      'UPC-E 的校验位应取自展开后的 UPC-A');
+  }
+  // 号制只能是 0 或 1（GS1 规定）；校验位只在需要的码制上加
+  assert.equal(barcodes.upceToUpcaData('2123456'), undefined);
+  assert.equal(barcodes.upceToUpcaData('9123456'), undefined);
+  for (const kind of ['code128', 'code39', 'code93', 'codabar', 'datamatrix', 'pdf417', 'aztec']) {
+    assert.equal(barcodes.barcodeDisplayValue(kind, 'SAMPLE'), 'SAMPLE',
+      `${kind} 不应自造校验位`);
+  }
+}
 
 // 二维码制：可打印 ASCII + 各自容量上限
 assert.equal(barcodes.barcodeInput('datamatrix', 'HELLO-123'), 'HELLO-123');
@@ -1118,6 +1994,92 @@ assert.equal(calculators.splitBill('100.00', '3', '10').totalCents, 11000);
 assert.equal(calculators.splitBill('0.05', '2', '10').tipCents, 1);
 assert.equal(calculators.splitBill('100.00', '2', '7.555'), undefined);
 assert.equal(calculators.splitBill('100.00', '0', '0'), undefined);
+// 第 36 轮探针补充：摊分的**核心不变量**——「每人 base 分 + 多出的 extraPeople 人各多 1 分」必须
+// **恰好**还原总额，一分不多一分不少。单独断言 baseCents/extraPeople 只能证明「这两个数算对了」，
+// 还原式才能证明「分钱过程中没有丢分或多分」（0.01 元 3 人这类极限值最容易暴露问题）。
+for (const [amount, people, tip] of [['10.00', '3', '0'], ['10.00', '7', '0'], ['0.01', '3', '0'],
+  ['999.99', '7', '0'], ['123.45', '11', '0'], ['0.00', '5', '0'], ['1234567.89', '13', '0'],
+  ['100.00', '3', '10'], ['55.55', '4', '12.5'], ['1000.00', '13', '0']]) {
+  const split = calculators.splitBill(amount, people, tip);
+  const count = Number(people);
+  const reconstructed = split.baseCents * (count - split.extraPeople) +
+    (split.baseCents + 1) * split.extraPeople;
+  assert.equal(reconstructed, split.totalCents, `${amount}/${people}/${tip} 摊分还原不等于总额`);
+  assert.equal(split.totalCents, calculators.moneyCents(amount) + split.tipCents);
+  assert.ok(split.extraPeople >= 0 && split.extraPeople < count, 'extraPeople 必须在 [0, 人数) 内');
+}
+// 折扣：正推 → 反推（含立减要先加回）在 1 分内回到原价
+for (const [price, fold, deduction] of [['100.00', '8.5', '0'], ['199.00', '7', '5.00'],
+  ['100.00', '10', '0'], ['50.00', '3.3', '0']]) {
+  const discounted = calculators.discountPrice(price, fold, deduction);
+  const reverse = calculators.originalFromFinal(
+    calculators.formatMoney(discounted.finalCents + calculators.moneyCents(deduction)), fold);
+  assert.ok(Math.abs(reverse.originalCents - calculators.moneyCents(price)) <= 1,
+    `${price} × ${fold} 折 − ${deduction} 反推原价偏差超过 1 分`);
+}
+// 毛利反推：毛利率按售价、加价率按成本，两个数不能混用
+for (const [cost, price, margin, markup] of [['50.00', '100.00', 50, 100], ['30.00', '40.00', 25, 100 / 3],
+  ['100.00', '80.00', -25, -20], ['1.00', '1.00', 0, 0]]) {
+  const result = calculators.marginFromPrices(cost, price);
+  assert.ok(Math.abs(result.marginPercent - margin) < 1e-9, `${cost}/${price} 毛利率`);
+  assert.ok(Math.abs(result.markupPercent - markup) < 1e-9, `${cost}/${price} 加价率`);
+}
+// 增减百分比：**返回的是数值（元），不是分**——页面用 formatValue 展示，不是 formatMoney；
+// 且实现刻意「先算增量再加减」，使 100 加 13% 得到**精确的** 113（而不是 113.00000000000001）。
+assert.equal(calculators.percentAdjust('100.00', '13').increased, 113);
+assert.equal(calculators.percentAdjust('100.00', '13').decreased, 87);
+assert.ok(calculators.percentAdjust('100.00', '13').increased !== 113.00000000000001);
+assert.equal(calculators.percentAdjust('100.00', '13').increased.toString(), '113');
+// 第 68 轮：互逆对与**按分级取整推导出来的容差**（不要随手写一个更紧的容差）。
+// ① 折数是「百分之一折」的整数口径（`hundredths`，最多两位小数、上限 10 折）。因此
+//    **折扣反推算出来的折数必须能用 `formatFold()` 显示后再喂回 `折扣计算`**——这是两个模式之间的
+//    真实衔接（用户看到 7.5 折、把它填进折扣计算）。全精度 `toString()` 超出输入域被拒是**对的**。
+for (const [original, final] of [['100.00', '80.00'], ['123.45', '92.59'], ['99.99', '33.33']]) {
+  const fold = calculators.foldFromPrices(original, final);
+  const shown = calculators.formatFold(fold.fold);
+  assert.equal(calculators.foldInputErrorText(shown, false), '',
+    `${original}→${final} 反推折数经 formatFold 显示（${shown}）后必须仍在输入域内`);
+  const rebuilt = calculators.discountPrice(original, shown, '0');
+  // 容差同样**按算术推导**，不凭感觉：折数被舍入到两位小数（±0.005 折 = 比值 ±0.0005），
+  // 加上金额取整的 ±0.5 分，上界 = 原价分 × 0.0005 + 0.5 分（99.99 元这档约 5.5 分——第一版
+  // 我随手写 ±2 分就把「3.33 折重算 33.30」误报成缺陷，实际它是折数量化的必然结果）。
+  const foldBound = calculators.moneyCents(original) * 0.0005 + 0.5 + 1e-9;
+  assert.ok(rebuilt !== undefined &&
+    Math.abs(rebuilt.finalCents - calculators.moneyCents(final)) <= foldBound,
+    `${original}→${final}：用显示折数 ${shown} 重算应回到输入（±${foldBound.toFixed(1)} 分内）`);
+}
+// 折后价高于原价时折数 > 10（界面显示「贵 X%」），而**折扣计算的输入域是 0–10 折**——
+// 所以「反推得出 15 折却填不进折扣计算」是**两个模式各自有意的口径**，不是缺陷。
+assert.ok(calculators.foldFromPrices('50.00', '75.00').fold > 10, '贵 50% 应得到 > 10 折');
+assert.equal(calculators.discountPrice('50.00', '15', '0'), undefined, '折扣计算只接受 0–10 折');
+assert.equal(calculators.foldInputErrorText('10.01', false).length > 0, true, '超过 10 折要给输入提示');
+// ② 加价 ↔ 毛利：售价是**整数分**，取整会带来 ≤0.5 分误差，折算成加价率偏差的上界是
+//    `0.5 / 成本分 × 100` 个百分点（实测成本 33.33、加价 50% 恰好落在半分钱边界：精确售价
+//    4999.5 分 → 5000 分，反推 50.0150%，正好等于上界 0.0150）。容差按这个上界来，不凭感觉收紧。
+for (const [cost, markup] of [['80.00', '25'], ['100.00', '0'], ['1000.00', '12.5'], ['7.77', '300']]) {
+  const priced = calculators.priceFromMarkup(cost, markup);
+  const back = calculators.marginFromPrices(cost, calculators.formatMoney(priced.priceCents));
+  const bound = 0.5 / calculators.moneyCents(cost) * 100 + 1e-9;
+  assert.ok(Math.abs(back.markupPercent - Number(markup)) <= bound,
+    `${cost} 加价 ${markup}% 反推得 ${back.markupPercent}，偏差应不超过 ${bound}`);
+}
+for (const [cost, markup] of [['80.00', '25'], ['1000.00', '12.5'], ['7.77', '300']]) {
+  const priced = calculators.priceFromMarkup(cost, markup);
+  const m = Number(markup);
+  const bound = 0.5 / calculators.moneyCents(cost) * 100 + 1e-9;
+  assert.ok(Math.abs(priced.marginPercent - m / (100 + m) * 100) <= bound,
+    '毛利率 = 加价率 ÷ (100 + 加价率) × 100（在分级取整容差内）');
+  assert.equal(priced.priceCents, calculators.moneyCents(cost) + priced.profitCents, '售价 = 成本 + 利润');
+}
+// ③ 百分比三函数互逆：percentageRatio 的输出喂回 percentageOf 必须回到原值
+for (const [part, whole] of [['13', '100'], ['92.59', '123.45'], ['1', '1000']]) {
+  const ratio = calculators.percentageRatio(part, whole);
+  assert.ok(Math.abs(calculators.percentageOf(whole, ratio.toString()) - Number(part)) < 1e-6,
+    `${part}/${whole} 的比例回灌 percentageOf 应回到原值`);
+  assert.ok(Math.abs(calculators.percentDelta(whole, part) - ratio) < 1e-9 ||
+    Math.abs(calculators.percentDelta(whole, part) + (100 - ratio)) < 1e-9,
+    `${part}/${whole} percentDelta 与 percentageRatio 应一致`);
+}
 
 // 计算类型登记表：五种计算，id 唯一、文案齐全、顺序即下拉顺序（页面「类型」下拉由它驱动）
 assert.equal(calculators.CALC_MODES.length, 5);
@@ -1245,6 +2207,121 @@ leapSample.day = 15;
 leapSample.isLeapMonth = true;
 assert.ok(lunarTools.lunarDateText(leapSample, false).includes('闰六月'));
 assert.equal(lunarTools.lunarDateText(new lunarTools.LunarDate(), false), '');
+// 第 35 轮探针补充：**生肖必须由地支（干支的第二个字）经对应表得出**——1900–2100 逐年核对中英两套，
+// 只抽查 1984/2026 是看不出地支表某一行写错的。
+const BRANCH_ZODIAC_ZH = { '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔', '辰': '龙', '巳': '蛇',
+  '午': '马', '未': '羊', '申': '猴', '酉': '鸡', '戌': '狗', '亥': '猪' };
+const BRANCH_ZODIAC_EN = { '子': 'Rat', '丑': 'Ox', '寅': 'Tiger', '卯': 'Rabbit', '辰': 'Dragon',
+  '巳': 'Snake', '午': 'Horse', '未': 'Goat', '申': 'Monkey', '酉': 'Rooster', '戌': 'Dog', '亥': 'Pig' };
+for (let year = 1900; year <= 2100; year++) {
+  const branch = lunarTools.ganZhiOfYear(year).charAt(1);
+  assert.equal(lunarTools.zodiacOfYear(year), BRANCH_ZODIAC_ZH[branch], `${year} 生肖(zh)`);
+  assert.equal(lunarTools.zodiacEnOfYear(year), BRANCH_ZODIAC_EN[branch], `${year} 生肖(en)`);
+  // 干支 60 年一循环
+  assert.equal(lunarTools.ganZhiOfYear(year + 60), lunarTools.ganZhiOfYear(year), `${year} 60 年周期`);
+}
+// 一个甲子内 60 个干支互不重复
+const cycleSet = new Set();
+for (let year = 1984; year < 1984 + 60; year++) { cycleSet.add(lunarTools.ganZhiOfYear(year)); }
+assert.equal(cycleSet.size, 60);
+// 序数入口与公历年入口必须给出一致结果（1984 = 甲子 = 序数 1）
+for (let year = 1984; year < 2044; year++) {
+  const cyclic = ((year - 1984) % 60) + 1;
+  assert.equal(lunarTools.ganZhiOfCyclic(cyclic), lunarTools.ganZhiOfYear(year), `${year} 两入口一致`);
+}
+// 农历日名的十位/个位读法边界（十、二十、廿 x 三档各不相同）
+assert.equal(lunarTools.lunarDayText(10, false), '初十');
+assert.equal(lunarTools.lunarDayText(11, false), '十一');
+assert.equal(lunarTools.lunarDayText(19, false), '十九');
+assert.equal(lunarTools.lunarDayText(21, false), '廿一');
+assert.equal(lunarTools.lunarDayText(29, false), '廿九');
+assert.equal(lunarTools.lunarDayText(21, true), '21st');
+assert.equal(lunarTools.lunarMonthText(12, false, false), '腊月');
+// 第 70 轮：干支/生肖的**结构判据与外部锚点**（上面只有 2 个干支取值 + 一个 60 年窗口）。
+// ① 干支序列必须等于「天干[(i−1)%10] + 地支[(i−1)%12]」——这是干支的定义规则，
+//    用外部的天干/地支表核对，而不是只钉两个点；
+// ② 生肖必须与**地支**一一对应（子鼠、丑牛…午马…亥猪）；
+// ③ 外部锚点（真实历法事实，不是从代码推出来的）：公元 1 年辛酉、公元 4 年甲子、
+//    1984 甲子、2000 庚辰（龙）、2026 丙午（马）、2033 癸丑（牛）；
+// ④ 两条入口的交叉互证要**跨出单个 60 年窗口**（1–2200 年），锚点算错在小年份上更容易暴露。
+{
+  const lunarGan = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
+  const lunarZhi = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+  const lunarZodiac = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];
+  const lunarCycle = (year) => (((year - 4) % 60) + 60) % 60 + 1;
+  for (let index = 1; index <= 60; index++) {
+    assert.equal(lunarTools.ganZhiOfCyclic(index),
+      lunarGan[(index - 1) % 10] + lunarZhi[(index - 1) % 12], `序数 ${index} 的干支分解`);
+    assert.equal(lunarTools.zodiacOfCyclic(index), lunarZodiac[(index - 1) % 12],
+      `序数 ${index} 的生肖应随地支`);
+  }
+  // 外部锚点
+  assert.equal(lunarTools.ganZhiOfYear(1), '辛酉');
+  assert.equal(lunarTools.ganZhiOfYear(4), '甲子');
+  assert.equal(lunarTools.ganZhiOfYear(2000), '庚辰');
+  assert.equal(lunarTools.zodiacOfYear(2000), '龙');
+  assert.equal(lunarTools.ganZhiOfYear(2033), '癸丑');
+  assert.equal(lunarTools.zodiacOfYear(2033), '牛');
+  assert.equal(lunarTools.zodiacEnOfYear(2026), 'Horse');
+  // 跨 22 个世纪的两入口交叉互证
+  let lunarCrossChecked = 0;
+  for (let year = 1; year <= 2200; year++) {
+    lunarCrossChecked += 1;
+    assert.equal(lunarTools.ganZhiOfYear(year), lunarTools.ganZhiOfCyclic(lunarCycle(year)),
+      `${year} 年两条入口应一致`);
+    assert.equal(lunarTools.zodiacOfYear(year), lunarTools.zodiacOfCyclic(lunarCycle(year)),
+      `${year} 年生肖两条入口应一致`);
+  }
+  assert.ok(lunarCrossChecked === 2200, `交叉检查数应为 2200，实际 ${lunarCrossChecked}`);
+  // 越界输入**夹取而不是抛异常**（系统历法只会给合法值，但页面构造 LunarDate 时不该崩）
+  assert.equal(lunarTools.lunarDayText(0, false), '初一');
+  assert.equal(lunarTools.lunarDayText(31, false), '三十');
+  assert.equal(lunarTools.lunarMonthText(13, false, false), '腊月');
+  assert.equal(lunarTools.lunarMonthText(0, false, false), '正月');
+  assert.equal(lunarTools.ganZhiOfCyclic(61), lunarTools.ganZhiOfCyclic(1));
+}
+assert.equal(lunarTools.lunarMonthText(1, true, false), '闰正月');
+// 第 95 轮：日名/月名此前只点了**边界**（1/10/11/19/20/21/29/30 与 1/6/12），中间值一个没验——
+// 于是「初五」写成「初四」、「冬月」写成「十一月」这类**中段抄错照样通过**。这里用按传统规则
+// 生成的参照表把 1–30 与 1–12 全覆盖（含闰月前缀），只补这一处，干支/生肖已在上面的块里被穷举。
+{
+  const dayDigits = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  const refDay = (day) => {
+    if (day <= 10) { return '初' + dayDigits[day - 1]; }
+    if (day <= 19) { return '十' + dayDigits[day - 11]; }
+    if (day === 20) { return '二十'; }
+    if (day <= 29) { return '廿' + dayDigits[day - 21]; }
+    return '三十';
+  };
+  const producedDays = [];
+  for (let day = 1; day <= 30; day++) {
+    const text = lunarTools.lunarDayText(day, false);
+    producedDays.push(text);
+    assert.equal(text, refDay(day), `农历第 ${day} 日的名称`);
+    // 英文侧同样要有序数后缀，且与中文一一对应（不重复、不空）。
+    // 注意 11/12/13 是英语序数的**例外**（11th/12th/13th，不是 11st），这一条正好把它钉住。
+    const suffix = (day % 100 >= 11 && day % 100 <= 13) ? 'th'
+      : day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th';
+    const en = lunarTools.lunarDayText(day, true);
+    assert.equal(en, `${day}${suffix}`, `农历第 ${day} 日的英文名称（11/12/13 用 th）`);
+  }
+  assert.equal(new Set(producedDays).size, 30, '30 个日名应互不相同');
+  assert.deepEqual(producedDays.slice(0, 10), ['初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十']);
+  assert.deepEqual(producedDays.slice(19), ['二十', '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十']);
+  const refMonths = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'];
+  for (let month = 1; month <= 12; month++) {
+    assert.equal(lunarTools.lunarMonthText(month, false, false), refMonths[month - 1], `农历第 ${month} 月`);
+    assert.equal(lunarTools.lunarMonthText(month, true, false), '闰' + refMonths[month - 1], `农历闰 ${month} 月`);
+    // 第 11 月是「冬月」而不是「十一月」——这是最常被写错的一个，单独强调
+    assert.notEqual(lunarTools.lunarMonthText(month, false, false), month + '月', `第 ${month} 月不该用数字写法`);
+  }
+  assert.deepEqual(refMonths, ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月']);
+  // 中英两侧都要能区分「闰」：英文也要与平月不同
+  for (let month = 1; month <= 12; month++) {
+    assert.notEqual(lunarTools.lunarMonthText(month, true, true), lunarTools.lunarMonthText(month, false, true),
+      `英文闰 ${month} 月应与平月不同`);
+  }
+}
 
 // --- 节假日 ICS 解析（纯逻辑；使用合成日历，不代表任何真实日期或真实节假日）---
 const sampleIcs = [
@@ -1281,6 +2358,100 @@ assert.deepEqual(parsedRange.holidays, ['2026-10-01', '2026-10-02', '2026-10-03'
 assert.deepEqual(parsedRange.workdays, ['2026-10-10', '2026-10-11']);
 assert.equal(parsedRange.names['2026-10-03'], 'Sample holiday');
 assert.equal(parsedRange.dataDate, '2026-10-16');
+
+// --- §3.15④ RFC 5545 折行：续行必须以空格/制表符开头，解析前先展开 ---
+const foldedIcs = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0',
+  'X-POCKET-TOOLBOX-FETCHED:2026-10-16',
+  'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261001',
+  'SUMMARY:Sample holiday long na',
+  ' me continued here', 'END:VEVENT',
+  // 关键点：折行把「班」拆到续行时，展开前会被丢掉、误判成休假日而不是调休上班日
+  'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261010',
+  'SUMMARY:Sample make-up workday ',
+  ' 班', 'END:VEVENT',
+  'END:VCALENDAR'
+].join('\r\n');
+assert.deepEqual(holidayIcs.unfoldIcsLines(foldedIcs).filter((line) => line.startsWith('SUMMARY')), [
+  'SUMMARY:Sample holiday long name continued here',
+  'SUMMARY:Sample make-up workday 班'
+]);
+const parsedFolded = holidayIcs.parseHolidayIcs(foldedIcs);
+assert.equal(parsedFolded.names['2026-10-01'], 'Sample holiday long name continued here');
+assert.deepEqual(parsedFolded.holidays, ['2026-10-01']);
+assert.deepEqual(parsedFolded.workdays, ['2026-10-10']);
+// 展开只作用于「续行」，独立行不受影响；制表符同样算续行
+assert.deepEqual(holidayIcs.unfoldIcsLines('A:1\nB:2\n\tBcont'), ['A:1', 'B:2Bcont']);
+assert.deepEqual(holidayIcs.unfoldIcsLines('A:1\n\nB:2'), ['A:1', '', 'B:2']);
+// 首行以空格开头时不应被吞掉（没有上一行可续）
+assert.deepEqual(holidayIcs.unfoldIcsLines(' lead'), [' lead']);
+
+// --- §3.15⑤ 「远端比本地旧」的判定规则（纯函数，服务端据此拒绝用旧快照覆盖本地）---
+assert.equal(holidayIcs.holidayDataIsStale('2026-10-19', '2026-10-20'), true);
+assert.equal(holidayIcs.holidayDataIsStale('2026-10-20', '2026-10-20'), false);   // 同一天允许覆盖
+assert.equal(holidayIcs.holidayDataIsStale('2026-10-21', '2026-10-20'), false);
+assert.equal(holidayIcs.holidayDataIsStale('2025-12-31', '2026-01-01'), true);
+// §3.13 新增：覆盖年份提示（查的年份不在范围内时，界面要能说明「数据没覆盖」）
+const coverageTable = new holidayIcs.HolidayTable();
+assert.deepEqual(holidayIcs.holidayCoverageYears(coverageTable), []);
+assert.equal(holidayIcs.holidayCoverageText(coverageTable, false), '');
+coverageTable.holidays = ['2024-10-01', '2025-05-01', '2026-01-01'];
+coverageTable.workdays = ['2025-09-28'];
+assert.deepEqual(holidayIcs.holidayCoverageYears(coverageTable), [2024, 2025, 2026]);
+assert.equal(holidayIcs.holidayCoverageText(coverageTable, false), '覆盖年份：2024–2026');
+assert.equal(holidayIcs.holidayCoverageText(coverageTable, true), 'Years covered: 2024–2026');
+assert.equal(holidayIcs.holidayCoversYear(coverageTable, 2025), true);
+assert.equal(holidayIcs.holidayCoversYear(coverageTable, 2027), false);
+// 单年数据不写成区间
+const singleYear = new holidayIcs.HolidayTable();
+singleYear.holidays = ['2026-01-01', '2026-10-01'];
+assert.equal(holidayIcs.holidayCoverageText(singleYear, false), '覆盖年份：2026');
+// 形状不对的日期不参与统计（不猜年份）
+const badYear = new holidayIcs.HolidayTable();
+badYear.holidays = ['not-a-date', '2026-1-1'];
+assert.deepEqual(holidayIcs.holidayCoverageYears(badYear), []);
+assert.equal(holidayIcs.holidayDataIsStale('2026-01-01', '2025-12-31'), false);   // 跨年比较按日期序
+// 缺元数据（老文件没有溯源行）时不判旧，否则会把正常更新挡掉
+assert.equal(holidayIcs.holidayDataIsStale('', '2026-10-20'), false);
+assert.equal(holidayIcs.holidayDataIsStale('2026-10-19', ''), false);
+assert.equal(holidayIcs.holidayDataIsStale('20261019', '2026-10-20'), false);
+assert.equal(holidayIcs.holidayDataIsStale('2026-10-19', 'not a date'), false);
+
+// --- §3.15③ 区间被截断要计数并如实提示，不再静默少算假期 ---
+const longRangeIcs = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0',
+  'BEGIN:VEVENT', 'SUMMARY:Broken range', 'DTSTART;VALUE=DATE:20260101',
+  'DTEND;VALUE=DATE:20270101', 'END:VEVENT',
+  'END:VCALENDAR'
+].join('\r\n');
+const parsedLongRange = holidayIcs.parseHolidayIcs(longRangeIcs);
+assert.equal(parsedLongRange.holidays.length, 60);          // MAX_RANGE_DAYS 上限
+assert.equal(parsedLongRange.truncated, 1);
+assert.ok(holidayIcs.holidayTruncationNote(parsedLongRange, false).includes('1 个假期区间'));
+assert.ok(holidayIcs.holidayTruncationNote(parsedLongRange, true).includes('exceeded 60 days'));
+assert.equal(parsedLongRange.holidays[0], '2026-01-01');
+assert.equal(parsedLongRange.holidays[59], '2026-03-01');
+// 第 32 轮探针补充：截断计数必须「真的丢了天」才算——恰好 60 天的区间一天没丢，
+// 不能提示「有区间被截断」（此前用 rangeDates().length >= MAX 判断，恰好 60 天被误报）。
+const boundaryIcs = (endDate) => [
+  'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'SUMMARY:Boundary', 'DTSTART;VALUE=DATE:20260101',
+  'DTEND;VALUE=DATE:' + endDate, 'END:VEVENT', 'END:VCALENDAR'
+].join('\r\n');
+const exactlyLimit = holidayIcs.parseHolidayIcs(boundaryIcs('20260302'));   // 1/1..3/1 = 恰好 60 天
+assert.equal(exactlyLimit.holidays.length, 60);
+assert.equal(exactlyLimit.truncated, 0);
+assert.equal(holidayIcs.holidayTruncationNote(exactlyLimit, false), '');
+const oneOverLimit = holidayIcs.parseHolidayIcs(boundaryIcs('20260303'));   // 61 天 → 丢 1 天
+assert.equal(oneOverLimit.holidays.length, 60);
+assert.equal(oneOverLimit.truncated, 1);
+assert.ok(holidayIcs.holidayTruncationNote(oneOverLimit, false).includes('1 个假期区间'));
+const underLimit = holidayIcs.parseHolidayIcs(boundaryIcs('20260301'));    // 59 天
+assert.equal(underLimit.holidays.length, 59);
+assert.equal(underLimit.truncated, 0);
+// 正常区间不计数、不提示
+assert.equal(parsedRange.truncated, 0);
+assert.equal(holidayIcs.holidayTruncationNote(parsedRange, false), '');
+assert.equal(holidayIcs.holidayTruncationNote(parsedIcs, true), '');
 // 跨月/跨年边界与异常区间（DTEND 不晚于 DTSTART 时退化为单天）
 const crossIcs = [
   'BEGIN:VCALENDAR',
@@ -1513,6 +2684,93 @@ for (const entry of qrContent.QR_KINDS) {
   assert.ok(entry.id.length > 0 && entry.zh.length > 0 && entry.en.length > 0, `incomplete QR kind ${entry.id}`);
 }
 assert.deepEqual(qrContent.WIFI_SECURITIES.map((entry) => entry.id), ['WPA', 'WEP', 'nopass']);
+// 第 92 轮：转义的**解码侧**与两处此前没覆盖的编码面。
+// 既有断言是「精确字符串」（钉住了编码写法），但没验证「按规范实现的读取端能还原原文」——
+// 而这正是用户看到的效果（扫出来的 WiFi 能连上、名片字段没串位）。这里另写读取端做往返。
+{
+  // 独立读取端①：按 ZXing 的 WiFi 记法（只按**未转义**的 `;` 切分、`\X` → `X`）
+  const decodeWifi = (payload) => {
+    const body = payload.startsWith('WIFI:') ? payload.substring(5) : payload;
+    const fields = {};
+    let current = '';
+    const parts = [];
+    for (let index = 0; index < body.length; index++) {
+      const ch = body[index];
+      if (ch === '\\' && index + 1 < body.length) { current += ch + body[index + 1]; index += 1; continue; }
+      if (ch === ';') { parts.push(current); current = ''; continue; }
+      current += ch;
+    }
+    parts.push(current);
+    for (const part of parts) {
+      const separator = part.indexOf(':');
+      if (separator < 0) { continue; }
+      fields[part.substring(0, separator)] = part.substring(separator + 1).replace(/\\(.)/g, '$1');
+    }
+    return fields;
+  };
+  const wifiCases = [
+    ['simple', 'password'],
+    ['my;net', 'p;a;s;s'],
+    ['a,b:c"d', 'x,y:z"w'],
+    ['back\\slash', 'pw\\with\\backslash'],
+    ['中文网络', '密码；含全角分号'],
+    ['semi;colon;everywhere', ';;;']
+  ];
+  for (const [ssid, password] of wifiCases) {
+    const payload = qrContent.wifiPayload(ssid, password, 'WPA', false);
+    assert.ok(payload.ok, `WiFi 载荷应生成成功：${ssid}`);
+    const decoded = decodeWifi(payload.text);
+    assert.equal(decoded['S'], ssid, `S 字段应还原原文：${payload.text}`);
+    assert.equal(decoded['P'], password, `P 字段应还原原文：${payload.text}`);
+    assert.equal(decoded['T'], 'WPA');
+    assert.equal(decoded['H'], 'false');
+  }
+  // 独立读取端②：vCard 文本值解转义（RFC 6350 §3.4：`\n` → 换行、`\;`/`\,`/`\\` → 原字符）
+  const decodeVcardValue = (value) => value.replace(/\\(.)/g, (whole, ch) => (ch === 'n' || ch === 'N' ? '\n' : ch));
+  for (const [name, org, title] of [
+    ['张;三,四', '公司;部门', '经理,高级'],
+    ['back\\slash', '', ''],
+    ['逗号,分号;都有', 'a,b;c', 'd\\e']
+  ]) {
+    const text = qrContent.vcardPayload(name, '', '', org, title).text;
+    const lineValue = (prefix) => {
+      const line = text.split('\n').find((item) => item.startsWith(prefix));
+      return line === undefined ? undefined : decodeVcardValue(line.substring(prefix.length));
+    };
+    assert.equal(lineValue('N:'), name, `N 字段应还原原文：${text}`);
+    assert.equal(lineValue('FN:'), name);
+    if (org.length > 0) { assert.equal(lineValue('ORG:'), org); }
+    if (title.length > 0) { assert.equal(lineValue('TITLE:'), title); }
+  }
+  // **属性注入防护**：值里的换行必须转义成 `\n`，不能变成新的属性行
+  const injected = qrContent.vcardPayload('a\nURL:http://evil.example', '', '', '', '').text;
+  const baselineLines = qrContent.vcardPayload('a', '', '', '', '').text.split('\n').length;
+  assert.equal(injected.split('\n').length, baselineLines, '值里的换行不得产生额外属性行');
+  assert.ok(!injected.split('\n').some((line) => line.startsWith('URL:')), '值里的内容不得变成新属性');
+  // mailto：RFC 6068 的 hfield 里，`&` 是字段分隔符、`?`/`#` 是 URI 分隔符、`%` 是转义引导符，
+  // 换行更会直接破坏 URI。既有断言只覆盖了空格与 `&`，这里补齐其余保留字符。
+  assert.equal(qrContent.mailPayload('a@b.com', 'a?b', 'c').text,
+    'mailto:a@b.com?subject=a%3Fb&body=c');
+  assert.equal(qrContent.mailPayload('a@b.com', 'a#b', 'c').text,
+    'mailto:a@b.com?subject=a%23b&body=c');
+  assert.equal(qrContent.mailPayload('a@b.com', 'a%b', 'c').text,
+    'mailto:a@b.com?subject=a%25b&body=c');
+  assert.equal(qrContent.mailPayload('a@b.com', 's', 'line1\nline2').text,
+    'mailto:a@b.com?subject=s&body=line1%0Aline2');
+  // 判据：hfield 的值里不得出现未编码的 `&`/`?`/`#`/换行，也不得有「裸 `%`」（不是 %XX 三元组）
+  for (const uri of [
+    qrContent.mailPayload('a@b.com', 'a&b', 'x').text,
+    qrContent.mailPayload('a@b.com', 'a?b', 'c#d').text,
+    qrContent.mailPayload('a@b.com', 's', 'x\ny').text,
+    qrContent.mailPayload('a@b.com', '100%', '%').text
+  ]) {
+    const values = uri.substring(uri.indexOf('?') + 1).split('&').map((part) => part.split('=').slice(1).join('='));
+    for (const value of values) {
+      assert.ok(!/[?#\n\r]/.test(value) && !value.includes('&') && !/%(?![0-9A-Fa-f]{2})/.test(value),
+        `hfield 里不应出现未编码的保留字符：${uri}`);
+    }
+  }
+}
 // 错误码双语化：所有可能出现的码都要有文案，未知码回退到通用提示
 for (const code of ['empty', 'url', 'email', 'phone', 'range', 'wifi']) {
   assert.ok(qrContent.errorText(code, false).length > 0, `missing zh text for ${code}`);
@@ -1561,6 +2819,53 @@ assert.equal(encodingTools.urlDecode('%zz').error, 'format');
 assert.equal(encodingTools.urlDecode('%FF').error, 'format');
 assert.ok(encodingTools.codecErrorText('empty', false).length > 0);
 assert.ok(encodingTools.codecErrorText('format', true).length > 0);
+// 第 80 轮：两处**此前没有外部参照**的核对（其余已被上面的往返/非法序列/摘要对照覆盖，故不重复造）。
+// ① `utf8Bytes` 与 **Node 的 UTF-8 编码**逐字节对照——UTF-8 是标准，用 Node 当参照比自己数一遍字节可靠。
+//    覆盖 CJK、emoji、**零宽连接序列**（👨‍👩‍👧‍👦 是多个码点）、控制字符与空串。
+{
+  const utf8Texts = ['', 'a', 'hello', '中', '中文测试', '😀', 'a😀中b', '\u0000', 'é', '𝄞',
+    '👨‍👩‍👧‍👦', 'a\u007Fb', 'line\nbreak', 'A'.repeat(100)];
+  for (const text of utf8Texts) {
+    const got = encodingTools.utf8Bytes(text);
+    const want = [...Buffer.from(text, 'utf8')];
+    assert.equal(got.length, want.length, `utf8Bytes(${JSON.stringify(text)}) 字节数`);
+    want.forEach((byte, index) => {
+      assert.equal(got[index], byte, `utf8Bytes(${JSON.stringify(text)}) 第 ${index} 字节`);
+    });
+  }
+  assert.deepEqual(encodingTools.utf8Bytes('😀'), [0xF0, 0x9F, 0x98, 0x80], '代理对应编成 4 字节');
+}
+// ② `urlEncode` 的注释**声明等价于 `encodeURIComponent`**——那就直接与 Node 的实现逐字符比较。
+//    重点覆盖**不转义集合**（`!*'()` 与 `~`）与被转义的分隔符，这一档最容易「自己实现时多转义/少转义」。
+{
+  const urlTexts = ['', 'abc', 'a b', '中文', '😀', 'a/b?c=d&e=f', "!*'()", '~', '-._', 'a+b', '%20',
+    '?#[]@', '$,;:', 'line\nbreak', 'tab\there'];
+  for (const text of urlTexts) {
+    assert.equal(encodingTools.urlEncode(text), encodeURIComponent(text),
+      `urlEncode(${JSON.stringify(text)}) 应与 encodeURIComponent 一致`);
+    // 往返：解回来必须还是原串
+    const back = encodingTools.urlDecode(encodingTools.urlEncode(text));
+    if (text.length === 0) {
+      assert.equal(back.error, 'empty', '空串按「还没填」处理（不是可解码的空结果）');
+    } else {
+      assert.equal(back.ok, true, `urlDecode(urlEncode(${JSON.stringify(text)})) 应成功`);
+      assert.equal(back.text, text, `urlEncode/urlDecode 往返应无损：${JSON.stringify(text)}`);
+    }
+  }
+  assert.equal(encodingTools.urlEncode('a b'), 'a%20b', '空格用 %20，不能用 +');
+  assert.equal(encodingTools.urlEncode('中'), '%E4%B8%AD', '百分号用大写十六进制');
+}
+// ③ 两个解码入口都要**区分「还没填」与「填错了」**（返回不同错误码），且 Base64 的填充比 Node 更严格。
+assert.equal(encodingTools.base64Decode('').error, 'empty');
+assert.equal(encodingTools.base64Decode('Zm9').error, 'format');
+assert.equal(encodingTools.base64Decode('Zm9v').ok, true);
+// Node 会把 `YWJjZA`（缺填充）宽松解出来（实测得到 'abcd'），本实现按文档**要求正确填充**
+// （注释写明「错误的填充返回 undefined」）——这里同时钉住「我们更严格」与「Node 确实更宽松」两件事。
+assert.equal(encodingTools.base64Decode('YWJjZA').ok, false, '缺填充应按 format 拒绝（比 Node 严格）');
+assert.equal(Buffer.from('YWJjZA', 'base64').toString('utf8'), 'abcd', '（Node 会宽松解出 abcd）');
+// 摘要的两种入参形态必须等价（内部同一套 UTF-8）
+assert.equal(hashTools.md5('中文😀'), hashTools.md5(encodingTools.utf8Bytes('中文😀')));
+assert.equal(hashTools.sha256(''), hashTools.sha256([]));
 assert.ok(encodingTools.codecErrorText('unknown', true).length > 0);
 
 // --- 消息摘要：已知向量 + 与 Node crypto 交叉验证（含填充边界与多块） ---
@@ -1671,6 +2976,34 @@ assert.equal(historyKinds.historyRefill('timestamp', 'zone · 2026-10-19 16:30:4
 assert.equal(historyKinds.historyRefill('timestamp', '2026-10-19 15:48:01'), '2026-10-19 15:48:01');
 assert.equal(historyKinds.historyRefill('timestamp', 'sec · 1792396081…'), '');
 
+// --- 历史置顶（2026-10-20 审计 P1）：置顶优先、其余按时间倒序，顺序即落盘顺序 ---
+const pinnedSample = [
+  new historyKinds.HistoryItem(), new historyKinds.HistoryItem(), new historyKinds.HistoryItem()
+];
+pinnedSample[0].id = 'a'; pinnedSample[0].createdAt = 100;
+pinnedSample[1].id = 'b'; pinnedSample[1].createdAt = 300;
+pinnedSample[2].id = 'c'; pinnedSample[2].createdAt = 200;
+assert.equal(historyKinds.pinnedFirst(pinnedSample).map((item) => item.id).join(''), 'bca');
+// 置顶后跑到最前，其余相对顺序不变
+const pinToggled = historyKinds.withToggledPin(pinnedSample, 'c');
+assert.equal(pinToggled.map((item) => item.id).join(''), 'abc');
+assert.equal(historyKinds.pinnedFirst(pinToggled).map((item) => item.id).join(''), 'cba');
+assert.equal(historyKinds.historyItemPinned(pinToggled, 'c'), true);
+assert.equal(historyKinds.historyItemPinned(pinToggled, 'a'), false);
+// 再点一次取消置顶
+const unpinned = historyKinds.withToggledPin(pinToggled, 'c');
+assert.equal(historyKinds.historyItemPinned(unpinned, 'c'), false);
+assert.equal(historyKinds.pinnedFirst(unpinned).map((item) => item.id).join(''), 'bca');
+// 未知 id 不改变任何东西；空列表安全
+assert.equal(historyKinds.withToggledPin(pinnedSample, 'zzz').map((item) => item.id).join(''), 'abc');
+assert.equal(historyKinds.pinnedFirst([]).length, 0);
+assert.equal(historyKinds.historyItemPinned([], 'a'), false);
+// 同一个时间戳（同一次复制里的多条）也必须是稳定顺序，不能来回跳
+const sameTime = [new historyKinds.HistoryItem(), new historyKinds.HistoryItem()];
+sameTime[0].id = 'x'; sameTime[0].createdAt = 500;
+sameTime[1].id = 'y'; sameTime[1].createdAt = 500;
+assert.equal(historyKinds.pinnedFirst(sameTime).map((item) => item.id).join(''), 'xy');
+
 // --- 时区换算：登记表、偏移文案、按偏移换算瞬间、与本机差值 ---
 assert.ok(timeZones.TIME_ZONES.length >= 15, 'time zone registry is too small');
 assert.equal(timeZones.TIME_ZONES[0].id, timeZones.LOCAL_ZONE_ID);
@@ -1687,7 +3020,10 @@ assert.equal(timeZones.timeZoneLabel('nope', false), '本机');
 assert.equal(timeZones.timeZoneEntry('Europe/London').en, 'London');
 
 // 固定偏移条目：只有 `UTC±HH:MM` 有固定偏移，城市条目必须交给系统算（含夏令时）
-assert.equal(timeZones.TIME_ZONES.length, 27);
+assert.equal(timeZones.TIME_ZONES.length, 28);
+// 纯 UTC 必须可选（伦敦有夏令时，不等价于 UTC+00:00）；零偏移的规范 id 是 'UTC'
+assert.equal(timeZones.timeZoneEntry('UTC').fixedOffsetMinutes, 0);
+assert.equal(timeZones.timeZoneIndex('UTC') > 0, true);
 const fixedZone = timeZones.timeZoneEntry('UTC+10:00');
 assert.equal(fixedZone.fixedOffsetMinutes, 600);
 assert.equal(fixedZone.en, 'UTC+10:00');
@@ -1717,8 +3053,7 @@ assert.equal(timeZones.localZoneDisplay('UTC+10:00', false), '本机 · UTC+10:0
 // 偏移文案
 assert.equal(timeZones.formatOffsetText(480), 'UTC+08:00');
 assert.equal(timeZones.formatOffsetText(0), 'UTC');
-assert.equal(timeZones.formatOffsetText(-210), 'UTC-03:30');
-assert.equal(timeZones.formatOffsetText(330), 'UTC+05:30');
+assert.equal(timeZones.formatOffsetText(-210), 'UTC-03:30');assert.equal(timeZones.formatOffsetText(330), 'UTC+05:30');
 assert.equal(timeZones.formatOffsetText(765), 'UTC+12:45');
 assert.equal(timeZones.formatOffsetText(NaN), '');
 
@@ -1762,6 +3097,93 @@ assert.equal(qrStyle.qrLevelLabel('Q', false), '较高（25%）');
 assert.equal(qrStyle.qrLevelLabel('Q', true), 'Quartile (25%)');
 assert.equal(qrStyle.qrLevelLabel('nope', false), '中（15%）');
 assert.equal(qrStyle.DEFAULT_QR_LEVEL, 'M');
+// §3.1 新增：生成前的容量预校验（超长内容要能说清字节数，而不是笼统「生成失败」）
+// 第 61 轮补齐：预校验的意义是「预校验通过就一定能生成」，所以**它数的字节必须与生成器一致**——
+// 手写 UTF-8 计数只在 emoji（代理对 4 字节）、组合字符、BOM、孤立代理项这些地方才会露馅，
+// 因此这里**与 `Buffer.byteLength` 交叉验证**（本文件此前只硬编码了 `abc`/`中文` 两例）。
+const qrByteCases = [
+  ['Hello', 5], ['中文测试', 12], ['QR码 code 123', 14], ['😀', 4], ['😀😀🎉', 12],
+  ['👨‍👩‍👧', 18], ['❤️', 6], ['e\u0301', 3], ['ＡＢＣ', 9], ['こんにちは', 15],
+  ['a\tb\nc', 5], ['\uFEFFabc', 6], ['a\u200Bb', 5], ['\u{20000}', 4], ['', 0]
+];
+for (const [text, expected] of qrByteCases) {
+  assert.equal(qrStyle.qrByteLength(text), expected, `UTF-8 字节数：${JSON.stringify(text)}`);
+  assert.equal(qrStyle.qrByteLength(text), Buffer.byteLength(text, 'utf8'),
+    `应与非手写实现一致：${JSON.stringify(text)}`);
+}
+// 孤立代理项（界面不可产生，但计数口径要与系统一致：都按 U+FFFD 的 3 字节）
+assert.equal(qrStyle.qrByteLength('\uD800'), Buffer.byteLength('\uD800', 'utf8'));
+assert.equal(qrStyle.qrByteLength('a\uD800b'), Buffer.byteLength('a\uD800b', 'utf8'));
+// 四个等级的容量边界都要「恰好通过、多一字节拒绝」（此前只细测了 H）
+assert.ok(qrStyle.qrCapacityBytes('L') > qrStyle.qrCapacityBytes('M') &&
+  qrStyle.qrCapacityBytes('M') > qrStyle.qrCapacityBytes('Q') &&
+  qrStyle.qrCapacityBytes('Q') > qrStyle.qrCapacityBytes('H'), '容错越强容量越小');
+for (const level of ['L', 'M', 'Q', 'H']) {
+  const limit = qrStyle.qrCapacityBytes(level);
+  assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(limit), level), false, `${level} 恰好等于上限应通过`);
+  assert.equal(qrStyle.qrCapacityErrorText('a'.repeat(limit), level, false), '', `${level} 恰好等于上限不应提示`);
+  assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(limit + 1), level), true, `${level} 多 1 字节应超限`);
+}
+// 汉字按字节判而不是按字符判
+assert.equal(qrStyle.qrByteLength('中'), 3);
+const chineseAtLimit = '中'.repeat(Math.floor(qrStyle.qrCapacityBytes('H') / 3));
+assert.equal(qrStyle.qrByteLength(chineseAtLimit), 1272);
+assert.equal(qrStyle.qrCapacityExceeded(chineseAtLimit, 'H'), false);
+assert.equal(qrStyle.qrCapacityExceeded(chineseAtLimit + '中', 'H'), true);
+// 第 85 轮：上面只断言了四个容量的**大小关系**（`>`），没钉住**具体数值**——把某个容量写错一个数字，
+// 大小关系照样成立、边界自洽也照样成立（因为边界用的是 `qrCapacityBytes()` 自身）。这里按 **QR 规范表**
+// （版本 40、字节模式）钉住绝对值，并顺手钉住闸门的整体自洽性与「浅底深码」的亮度关系。
+{
+  const specCapacity = { L: 2953, M: 2331, Q: 1663, H: 1273 };
+  for (const [levelId, expected] of Object.entries(specCapacity)) {
+    assert.equal(qrStyle.qrCapacityBytes(levelId), expected,
+      `${levelId} 级容量应等于 QR 规范表的 ${expected} 字节`);
+  }
+  // 闸门必须等价于「字节数 > 容量」（三者自洽，任何一处改动都会在这里露出来）
+  for (const text of ['', 'a', '中', '😀', 'x'.repeat(1273), 'x'.repeat(1274), 'x'.repeat(2954)]) {
+    for (const levelId of ['L', 'M', 'Q', 'H']) {
+      assert.equal(qrStyle.qrCapacityExceeded(text, levelId),
+        qrStyle.qrByteLength(text) > qrStyle.qrCapacityBytes(levelId),
+        `闸门应与「字节数 > 容量」等价：${levelId} / ${qrStyle.qrByteLength(text)} 字节`);
+    }
+  }
+  // 未知容错等级回退默认等级（不把 undefined 传给系统）
+  assert.equal(qrStyle.qrCapacityBytes('nope'), qrStyle.qrCapacityBytes(qrStyle.DEFAULT_QR_LEVEL));
+  assert.equal(qrStyle.qrLevelValue('nope'), qrStyle.qrLevelValue(qrStyle.DEFAULT_QR_LEVEL));
+  assert.equal(qrStyle.qrLevelIndex('nope'), -1);
+  // 码色预设的**亮度关系**：全部保持「浅底深码」（源码注释写明反色会显著降低扫码识别率）
+  const luminanceOf = (rgb) => {
+    const r = (rgb >> 16) & 0xFF;
+    const g = (rgb >> 8) & 0xFF;
+    const b = rgb & 0xFF;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  for (const entry of qrStyle.QR_COLORS) {
+    assert.ok(luminanceOf(entry.background) > luminanceOf(entry.foreground),
+      `${entry.id} 必须是浅底深码（背景比前景亮）`);
+  }
+}
+assert.equal(qrStyle.qrCapacityBytes('L'), 2953);
+assert.equal(qrStyle.qrCapacityBytes('M'), 2331);
+assert.equal(qrStyle.qrCapacityBytes('Q'), 1663);
+assert.equal(qrStyle.qrCapacityBytes('H'), 1273);
+assert.equal(qrStyle.qrCapacityBytes('nope'), 2331);
+assert.equal(qrStyle.qrByteLength('abc'), 3);
+assert.equal(qrStyle.qrByteLength('中文'), 6);
+assert.equal(qrStyle.qrByteLength(''), 0);
+assert.equal(qrStyle.qrCapacityExceeded('abc', 'H'), false);
+assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(1273), 'H'), false);
+assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(1274), 'H'), true);
+assert.equal(qrStyle.qrCapacityErrorText('abc', 'H', false), '');
+assert.ok(qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false).includes('1273'));
+assert.ok(qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false).includes('1274'));
+assert.ok(qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', true).includes('Too long'));
+// 同一段内容在低容错等级下能过、在高等级下不能过（等级影响容量的真实体现）
+const capacityBody = 'a'.repeat(1500);
+assert.equal(qrStyle.qrCapacityExceeded(capacityBody, 'L'), false);
+assert.equal(qrStyle.qrCapacityExceeded(capacityBody, 'M'), false);
+assert.equal(qrStyle.qrCapacityExceeded(capacityBody, 'Q'), false);
+assert.equal(qrStyle.qrCapacityExceeded(capacityBody, 'H'), true);
 
 assert.equal(qrStyle.QR_COLORS.length, 3);
 assert.equal(qrStyle.qrColorIndex('classic'), 0);
@@ -1796,6 +3218,18 @@ assert.equal(loans.MAX_LOAN_MONTHS, 600);
 assert.equal(loans.loanMonths(30, 0), 360);
 assert.equal(loans.loanMonths(1, 6), 18);
 assert.equal(loans.loanMonths(0, 6), 6);
+// §3.9② 两框是「相加」关系，界面必须能显示合计期限
+assert.equal(loans.loanMonths(30, 6), 366);
+assert.equal(loans.loanTermText(30, 6, false), '366 期（30 年 6 个月）');
+assert.equal(loans.loanTermText(30, 6, true), '366 payments (30 years 6 months)');
+assert.equal(loans.loanTermText(2, 0, false), '24 期（2 年）');
+assert.equal(loans.loanTermText(1, 0, true), '12 payments (1 year)');
+assert.equal(loans.loanTermText(0, 6, false), '6 期（6 个月）');
+assert.equal(loans.loanTermText(0, 1, true), '1 payment (1 month)');
+assert.equal(loans.loanTermText(30, 6, false).startsWith('366'), true);
+// 两个框都为 0、或合计超过上限时不显示合计（由错误文案负责解释）
+assert.equal(loans.loanTermText(0, 0, false), '');
+assert.equal(loans.loanTermText(60, 0, false), '');
 assert.equal(loans.loanMonths(50, 0), 600);
 assert.equal(loans.loanMonths(51, 0), 0);
 assert.equal(loans.loanMonths(0, 0), 0);
@@ -1878,8 +3312,189 @@ for (const error of ['principal', 'rate', 'months']) {
   assert.ok(loans.loanErrorText(error, false).length > 0, `missing loan error text ${error}`);
   assert.ok(loans.loanErrorText(error, true).length > 0, `missing loan error text ${error} en`);
 }
+// --- 还款计划表（2026-10-20 第 3 轮）：与结果卡共用同一套摊还规则 ---
+const scheduleRows = loans.loanSchedule(100000000, 4.9, 240, 'equalInstallment');
+assert.equal(scheduleRows.length, 240);
+assert.equal(scheduleRows[0].index, 1);
+assert.equal(scheduleRows[239].index, 240);
+let schedulePrincipal = 0;
+let scheduleInterest = 0;
+for (const row of scheduleRows) {
+  schedulePrincipal += row.principalCents;
+  scheduleInterest += row.interestCents;
+}
+assert.equal(schedulePrincipal, 100000000);            // 本金恰好结清，不多不少
+assert.equal(scheduleRows[239].remainingCents, 0);      // 末期还完后剩余本金为 0
+const scheduleSummary = loans.calculateLoan(100000000, 4.9, 240, 'equalInstallment');
+assert.equal(scheduleRows[0].paymentCents, scheduleSummary.monthlyPaymentCents);  // 首期月供与结果卡一致
+assert.equal(scheduleRows[239].paymentCents, scheduleSummary.lastPaymentCents);   // 末期月供与结果卡一致
+assert.equal(scheduleInterest, scheduleSummary.totalInterestCents);               // 利息合计一致
+assert.equal(scheduleRows[0].interestCents, scheduleSummary.firstInterestCents);
+// 等额本金：每期本金固定（末期补齐）、月供逐期递减
+const equalPrincipalRows = loans.loanSchedule(120000000, 4.9, 12, 'equalPrincipal');
+assert.equal(equalPrincipalRows.length, 12);
+assert.equal(equalPrincipalRows[0].paymentCents > equalPrincipalRows[11].paymentCents, true);
+assert.equal(equalPrincipalRows[5].principalCents, equalPrincipalRows[0].principalCents);
+// 零利率：每期只有本金、利息全为 0
+const zeroRateRows = loans.loanSchedule(120000, 0, 12, 'equalInstallment');
+assert.equal(zeroRateRows.every((row) => row.interestCents === 0), true);
+assert.equal(zeroRateRows.every((row) => row.paymentCents === 10000), true);
+// 参数非法 → 空表（页面据此不渲染表格，而不是渲染一堆 0）
+assert.equal(loans.loanSchedule(0, 4.9, 12, 'equalInstallment').length, 0);
+assert.equal(loans.loanSchedule(100000, -1, 12, 'equalInstallment').length, 0);
+assert.equal(loans.loanSchedule(100000, 4.9, 0, 'equalInstallment').length, 0);
+assert.equal(loans.loanSchedule(100000, 4.9, 601, 'equalInstallment').length, 0);
+// 一期（1 个月）也要能结清
+const singleInstallmentRow = loans.loanSchedule(100000, 4.9, 1, 'equalInstallment');
+assert.equal(singleInstallmentRow.length, 1);
+assert.equal(singleInstallmentRow[0].remainingCents, 0);
+assert.equal(singleInstallmentRow[0].principalCents, 100000);
 
-// --- 颜色工具：解析、HEX/RGB/HSL 互转、对比度与 WCAG 判定 ---
+// --- 「最近使用」工具（2026-10-20 第 4 轮）：顺序语义与上限 ---
+assert.equal(recents.RECENT_MAX, 6);
+assert.deepEqual(recents.parseRecents('nope'), []);
+assert.deepEqual(recents.parseRecents('{}'), []);
+assert.deepEqual(recents.parseRecents('[]'), []);
+const recentSample = recents.parseRecents('[{"id":"qr","usedAt":10},{"id":"tax","usedAt":20},{"id":"qr","usedAt":30}]');
+assert.equal(recentSample.length, 2);              // 重复 id 只留第一次出现的（先到先得）
+assert.equal(recentSample[0].id, 'qr');
+assert.equal(recents.parseRecents('[{"id":"  ","usedAt":1},{"id":"tax"}]').length, 1);  // 空 id 丢弃
+assert.equal(recents.parseRecents('[{"id":"tax"}]')[0].usedAt, 0);                      // 缺 usedAt 记 0
+// pushRecent：新工具插到最前，已存在的移到最前且不重复，其余相对顺序不变
+const pushed = recents.pushRecent(recentSample, 'units', 40);
+assert.deepEqual(pushed.map((entry) => entry.id), ['units', 'qr', 'tax']);
+const rePushed = recents.pushRecent(pushed, 'tax', 50);
+assert.deepEqual(rePushed.map((entry) => entry.id), ['tax', 'units', 'qr']);
+assert.equal(recents.pushRecent(pushed, '  ', 60).length, pushed.length);               // 空 id 不动
+// 上限：只保留最近 RECENT_MAX 条
+let many = [];
+for (let index = 0; index < recents.RECENT_MAX + 4; index++) { many = recents.pushRecent(many, 'tool' + index, index); }
+assert.equal(many.length, recents.RECENT_MAX);
+assert.equal(many[0].id, 'tool' + (recents.RECENT_MAX + 3));
+assert.equal(many[recents.RECENT_MAX - 1].id, 'tool4');
+// 白名单过滤：升级后已删除的工具 id 不再出现
+assert.deepEqual(recents.allowedRecents(many, ['tool4', 'tool5']).map((entry) => entry.id), ['tool5', 'tool4']);
+assert.deepEqual(recents.allowedRecents(many, []).length, 0);
+// 落盘往返
+const recentJson = recents.serializeRecents(rePushed);
+assert.deepEqual(recents.parseRecents(recentJson).map((entry) => entry.id), ['tax', 'units', 'qr']);
+assert.equal(recents.serializeRecents(many).length > 0, true);
+
+// --- 本机数据导出（2026-10-20 第 6 轮）：信封、文件名、摘要与历史文本 ---
+assert.equal(dataExport.EXPORT_APP_ID, 'pocket-toolbox');
+assert.equal(dataExport.EXPORT_SCHEMA_VERSION, 1);
+assert.equal(dataExport.EXPORT_HISTORY_MAX, 50);
+assert.equal(dataExport.backupFileName(0), 'PocketToolbox-backup.json');
+assert.equal(dataExport.backupFileName(Number.NaN), 'PocketToolbox-backup.json');
+const exportStamp = new Date(2026, 9, 20, 21, 15, 0).getTime();   // 本机时区 2026-10-20 21:15
+assert.equal(dataExport.backupFileName(exportStamp), 'PocketToolbox-backup-20261020-2115.json');
+assert.equal(dataExport.historyFileName(exportStamp), 'PocketToolbox-history-20261020-2115.txt');
+// 信封：app/schema/exportedAt/data 四段；空值与空键跳过（不写出占位，免得还原时误解）
+const exportValues = new Map();
+exportValues.set('history', '[{"id":"a","kind":"text","content":"hi","createdAt":1}]');
+exportValues.set('favorite_tools', '["qr","tax"]');
+exportValues.set('anniversaries', '[]');
+exportValues.set('language', '');
+const backupJson = dataExport.buildBackupJson(exportValues, exportStamp);
+const backupParsed = JSON.parse(backupJson);
+assert.equal(backupParsed.app, 'pocket-toolbox');
+assert.equal(backupParsed.schema, 1);
+assert.equal(backupParsed.exportedAt, exportStamp);
+assert.equal(backupParsed.data.history.length > 0, true);
+assert.deepEqual(Object.keys(backupParsed.data), ['history', 'favorite_tools', 'anniversaries']);
+assert.equal('language' in backupParsed.data, false);
+assert.equal(dataExport.buildBackupJson(new Map(), 0).includes('"data":{}'), true);
+// 摘要按实际条数统计，并明确「文件由你选择位置、不会上传」
+const backupSummary = dataExport.backupSummaryText(exportValues, false);
+assert.ok(backupSummary.includes('历史记录 1 条'));
+assert.ok(backupSummary.includes('收藏 2 个'));
+assert.ok(backupSummary.includes('纪念日 0 条'));
+assert.ok(backupSummary.includes('不会上传'));
+assert.ok(dataExport.backupSummaryText(exportValues, true).includes('history records'));
+assert.equal(dataExport.backupSummaryText(new Map(), true).includes('0 history records'), true);
+// 历史文本导出：一行一条、内容里的换行被压平、空列表返回空串
+const exportItems = [new historyKinds.HistoryItem(), new historyKinds.HistoryItem()];
+exportItems[0].id = 'x'; exportItems[0].kind = 'text'; exportItems[0].content = '第一行\n第二行';
+exportItems[0].createdAt = exportStamp;
+exportItems[1].id = 'y'; exportItems[1].kind = 'units'; exportItems[1].content = '100 cm = 1 m';
+exportItems[1].createdAt = exportStamp;
+const historyText = dataExport.historyExportText(exportItems, false);
+assert.equal(historyText.split('\n').length, 2);
+assert.ok(historyText.includes('第一行 第二行'));
+assert.ok(historyText.includes('10-20 21:15'));
+assert.ok(historyText.includes('文本结果'));
+assert.ok(historyText.includes('换算结果'));
+assert.equal(dataExport.historyExportText([], false), '');
+// 超过上限只导出前 EXPORT_HISTORY_MAX 条
+const manyExportItems = [];
+for (let index = 0; index < dataExport.EXPORT_HISTORY_MAX + 3; index++) {
+  const item = new historyKinds.HistoryItem();
+  item.id = 'i' + index; item.kind = 'text'; item.content = 'row' + index; item.createdAt = exportStamp;
+  manyExportItems.push(item);
+}
+assert.equal(dataExport.historyExportText(manyExportItems, false).split('\n').length,
+  dataExport.EXPORT_HISTORY_MAX);
+
+// --- 本机数据导入（2026-10-20 第 7 轮）：只认自己导出的信封、只写白名单里的键 ---
+const importKeys = ['history', 'favorite_tools', 'timers', 'language'];
+assert.equal(dataImport.parseBackupJson('', importKeys).error, 'empty');
+assert.equal(dataImport.parseBackupJson('   ', importKeys).error, 'empty');
+assert.equal(dataImport.parseBackupJson('not json', importKeys).error, 'json');
+assert.equal(dataImport.parseBackupJson('[]', importKeys).error, 'shape');
+assert.equal(dataImport.parseBackupJson('null', importKeys).error, 'shape');
+assert.equal(dataImport.parseBackupJson('{"app":"other","schema":1,"data":{}}', importKeys).error, 'app');
+assert.equal(dataImport.parseBackupJson('{"app":"pocket-toolbox","schema":1}', importKeys).error, 'shape');
+assert.equal(dataImport.parseBackupJson('{"app":"pocket-toolbox","schema":1,"data":[]}', importKeys).error, 'shape');
+// 未来版本（schema 更高）必须拒绝，避免「导入一半」
+assert.equal(dataImport.parseBackupJson('{"app":"pocket-toolbox","schema":2,"data":{"language":"zh"}}', importKeys).error,
+  'schema');
+assert.equal(dataImport.parseBackupJson('{"app":"pocket-toolbox","schema":0,"data":{"language":"zh"}}', importKeys).error,
+  'schema');
+// 白名单外的键被忽略；全是陌生键时视为「没有可还原的数据」
+const unknownOnly = dataImport.parseBackupJson(
+  '{"app":"pocket-toolbox","schema":1,"data":{"evil_key":"x"}}', importKeys);
+assert.equal(unknownOnly.error, 'keys');
+assert.equal(unknownOnly.ignored, 1);
+const mixedImport = dataImport.parseBackupJson(
+  '{"app":"pocket-toolbox","schema":1,"exportedAt":123,"data":{"language":"en","evil_key":"x","history":""}}',
+  importKeys);
+assert.equal(mixedImport.ok, true);
+assert.equal(mixedImport.schema, 1);
+assert.equal(mixedImport.exportedAt, 123);
+assert.deepEqual([...mixedImport.values.keys()], ['language']);   // 陌生键与空串都进 ignored
+assert.equal(mixedImport.ignored, 2);
+// 不传白名单时不做键过滤（仅供单测直接验证解析）
+assert.equal(dataImport.parseBackupJson(
+  '{"app":"pocket-toolbox","schema":1,"data":{"anything":"x"}}', []).values.size, 1);
+// 与导出的往返：本应用导出的内容必须能被自己导入
+const importRoundTrip = dataImport.parseBackupJson(backupJson, importKeys);
+assert.equal(importRoundTrip.ok, true);
+assert.deepEqual([...importRoundTrip.values.keys()], ['history', 'favorite_tools']);
+assert.equal(importRoundTrip.values.get('favorite_tools'), '["qr","tax"]');
+// 摘要与错误文案
+const importSummary = dataImport.importSummaryText(mixedImport, false);
+assert.ok(importSummary.includes('将覆盖 1 项'));
+assert.ok(importSummary.includes('语言偏好'));
+assert.ok(importSummary.includes('不可撤销'));
+assert.ok(dataImport.importSummaryText(mixedImport, true).includes('Will overwrite 1 item'));
+// 超过 5 项时折叠为「等 N 项」
+const bigImportValues = new Map();
+['history', 'favorite_tools', 'timers', 'stopwatch', 'anniversaries', 'fx_rates', 'language'].forEach((key) => {
+  bigImportValues.set(key, 'x');
+});
+const bigPlan = new dataImport.ImportPlan();
+bigPlan.ok = true; bigPlan.values = bigImportValues;
+assert.ok(dataImport.importSummaryText(bigPlan, false).includes('等 2 项'));
+assert.equal(dataImport.importKeyLabel('favorite_tools', false), '收藏');
+assert.equal(dataImport.importKeyLabel('favorite_tools', true), 'favourites');
+assert.equal(dataImport.importKeyLabel('unknown_key', false), 'unknown_key');
+for (const code of ['empty', 'json', 'app', 'shape', 'schema', 'keys']) {
+  assert.ok(dataImport.importErrorText(code, false).length > 0, `missing import error text ${code}`);
+  assert.ok(dataImport.importErrorText(code, true).length > 0, `missing import error text ${code} en`);
+}
+assert.equal(dataImport.importErrorText('nope', false), '');
+
+
 assert.deepEqual([colors.parseColor('#0D3B66').r, colors.parseColor('#0D3B66').g, colors.parseColor('#0D3B66').b],
   [13, 59, 102]);
 assert.deepEqual([colors.parseColor('0d3b66').r, colors.parseColor('0d3b66').g, colors.parseColor('0d3b66').b],
@@ -1896,6 +3511,15 @@ assert.deepEqual([colors.parseColorInput('rgb(13, 59, 102)').r, colors.parseColo
   [13, 102]);
 assert.equal(colors.parseColorInput('rgb(300, 0, 0)'), undefined);
 assert.equal(colors.parseColorInput('#0D3B66') !== undefined, true);
+// §3.11 复核「rgb() 只收整数、与界面文案不一致」这条：界面提示的例子就是 `rgb(13, 59, 102)`，
+// 它能正常解析，所以「文案与实现不符」**不成立**（审计 §2 的口径要求把不成立的条目记下来，不要乱改）。
+assert.equal(colors.toHex(colors.parseColorInput('rgb(13, 59, 102)')), '#0D3B66');
+assert.equal(colors.toHex(colors.parseColorInput('rgb(13,59,102)')), '#0D3B66');
+// 百分比写法界面从未承诺支持，保持拒绝（要支持就得同时改提示文案，属另一件事）
+assert.equal(colors.parseColorInput('rgb(50%, 20%, 30%)'), undefined);
+// 小数写法同样不在承诺范围内（提示只写 rgb(r, g, b)）
+assert.equal(colors.parseColorInput('rgb(13.5, 59, 102)'), undefined);
+assert.equal(colors.parseColorInput('rgba(13, 59, 102, 0.5)'), undefined);
 
 // 系统颜色选择器回传值：`#RRGGBB` 与带透明度的 `#AARRGGBB`（ARGB）都取 RGB 部分
 assert.equal(colors.toHex(colors.parsePickedColor('#0D3B66')), '#0D3B66');
@@ -2014,6 +3638,73 @@ assert.equal(health.bmiCategoryText('under', false), '偏瘦');
 assert.equal(health.bmiCategoryText('over', true), 'Overweight');
 assert.equal(health.bmiCategoryText('obese', false), '肥胖');
 assert.equal(health.bmiCategoryText('normal', true), 'Normal');
+// 第 98 轮缺陷：`bmiCategoryText` 原来**没有 `normal` 分支**，「正常」是靠**兜底**返回的，于是任何未知/
+// 拼错的 id 都会被显示成「正常」——这与 `destinationName()` 的教训同源（查表兜底不要返回一个具体的
+// 正常值），而这里谎报的是**健康结论**。现在四个 id 各有分支，未知值必须给「未知分类」。
+{
+  const known = { under: '偏瘦', normal: '正常', over: '超重', obese: '肥胖' };
+  const seen = new Set();
+  // ① 四个 id 各有独立文案（互不相同、中英都非空）
+  for (const [id, zh] of Object.entries(known)) {
+    assert.equal(health.bmiCategoryText(id, false), zh, `${id} 的中文分类`);
+    assert.ok(health.bmiCategoryText(id, true).length > 0, `${id} 应有英文分类`);
+    seen.add(zh);
+  }
+  assert.equal(seen.size, 4, '四类文案不能重复（尤其「正常」不能兼职兜底）');
+  // ② 未知 id **绝不能**回退成「正常」或任何已知分类
+  for (const unknownId of ['', 'nope', 'unknown', 'thin', 'underweight', 'overweight', 'NORMAL', '正常']) {
+    const zh = health.bmiCategoryText(unknownId, false);
+    const en = health.bmiCategoryText(unknownId, true);
+    assert.ok(!Object.values(known).includes(zh), `未知 id ${JSON.stringify(unknownId)} 不得显示成 ${zh}`);
+    assert.notEqual(zh, 'Normal');
+    assert.notEqual(en, 'Normal');
+    assert.ok(zh.length > 0 && en.length > 0, '未知 id 也要有可显示的文案（不能空白）');
+  }
+  // ③ **漏登记守卫**：`bmi()` 可能产出的每个分类都必须有自己的文案（将来给它加第五档时这条会失败）
+  for (let tenths = 100; tenths <= 400; tenths += 1) {
+    const category = health.bmi(tenths / 10, 100).category;
+    const text = health.bmiCategoryText(category, false);
+    assert.ok(Object.values(known).includes(text),
+      `bmi() 产出的分类 ${category} 竟然没有对应文案（显示成了 ${text}）`);
+  }
+  // ④ 同类的另一半：**错误文案不能指错字段**。`healthErrorText` 此前只被断言「非空」，
+  //    于是「身高越界却提示年龄」这种错位照样通过（`loanErrorText('method')` 在第 48 轮就栽过一模一样的跟头）。
+  {
+    const fields = ['height', 'weight', 'age'];
+    const texts = fields.map((field) => health.healthErrorText(field, false));
+    assert.equal(new Set(texts).size, fields.length, '三个字段的错误文案必须互不相同');
+    assert.ok(texts[0].includes('身高'), '身高提示要写身高');
+    assert.ok(texts[1].includes('体重'), '体重提示要写体重');
+    assert.ok(texts[2].includes('年龄'), '年龄提示要写年龄');
+    // 每条都要带自己的单位/范围，避免「看起来对但说的是别人的字段」
+    assert.ok(/cm/.test(texts[0]) && /kg/.test(texts[1]) && /1–120/.test(texts[2]));
+    assert.ok(fields.map((field) => health.healthErrorText(field, true)).every((text) => /cm|kg|1–120/.test(text)));
+  }
+}
+// 第 37 轮探针补充：**超重档的两个边界**（23.9 仍属正常、24.0 起为超重、27.9 仍属超重、28.0 起为肥胖）。
+// 已有断言只覆盖了 18.5 与 28 两个切点，中间这一档的边界完全没样本——`>`/`>=` 写反或切点写错都看不出来。
+// 身高 175cm 时 BMI = 体重 / 1.75²（实现把显示值四舍五入到 1 位后再分类，这里按同一口径取体重）。
+const weightAtBmi = (bmi) => bmi * 1.75 * 1.75;
+assert.equal(health.bmi(weightAtBmi(health.BMI_NORMAL_MAX), 175).category, 'normal');      // 23.9 正常
+assert.equal(health.bmi(weightAtBmi(health.BMI_OVERWEIGHT_MIN), 175).category, 'over');     // 24.0 超重
+assert.equal(health.bmi(weightAtBmi(health.BMI_OVERWEIGHT_MAX), 175).category, 'over');     // 27.9 超重
+assert.equal(health.bmi(weightAtBmi(health.BMI_OBESE_MIN), 175).category, 'obese');         // 28.0 肥胖
+assert.equal(health.bmi(weightAtBmi(health.BMI_OVERWEIGHT_MIN - 0.1), 175).category, 'normal');
+assert.equal(health.bmi(weightAtBmi(health.BMI_OBESE_MIN - 0.1), 175).category, 'over');
+// 超重档的上下界必须首尾相接（23.9 → 24.0、27.9 → 28.0），中间不能有缝或有重叠
+assert.equal(health.BMI_NORMAL_MAX + 0.1, health.BMI_OVERWEIGHT_MIN);
+assert.equal(health.BMI_OVERWEIGHT_MAX + 0.1, health.BMI_OBESE_MIN);
+// 第 37 轮探针补充：`urlPayload` 的契约是 `^https?://\S+$`——**含空格直接拒绝**，不是自动编码。
+// （写断言时先确认 `ok === false`；只在返回串上找空格是**空真**断言，空串也能通过。）
+const spacedUrl = qrContent.urlPayload('https://example.com/a b');
+assert.equal(spacedUrl.ok, false);
+assert.equal(spacedUrl.error, 'url');
+assert.equal(qrContent.urlPayload('ftp://x/y').ok, false);
+assert.equal(qrContent.urlPayload('example.com').ok, false);
+assert.equal(qrContent.urlPayload('https://example.com/a?b=1').text, 'https://example.com/a?b=1');
+// 短信模板用 `SMSTO:号码:正文`（不是 `sms:`），正文首尾空白被裁
+assert.equal(qrContent.smsPayload('13800000000', '  hi  ').text, 'SMSTO:13800000000:hi');
+assert.equal(qrContent.smsPayload('abc', 'hi').error, 'phone');
 
 // 正常体重范围 = 身高² × (18.5–23.9)
 const range = health.normalWeightRange(175);
@@ -2035,11 +3726,87 @@ assert.equal(health.tdee(1649, 'sedentary'), Math.round(1649 * 1.2));
 assert.equal(health.tdee(1649, 'extra'), Math.round(1649 * 1.9));
 assert.equal(health.tdee(0, 'light'), undefined);
 assert.equal(health.tdee(NaN, 'light'), undefined);
+// 第 74 轮：与**外部公认公式**对照（上面是少量代表值，这里覆盖矩阵与边界）。
+// ① BMI = 体重(kg) ÷ 身高(m)²，**结果四舍五入到一位小数**（`70kg/175cm` 精确 22.857… → 显示 22.9）；
+// ② BMR 用 Mifflin-St Jeor：男 `10w + 6.25h − 5a + 5`、女 `10w + 6.25h − 5a − 161`，保留整数；
+// ③ 正常体重区间必须能**反算回** BMI 18.5–23.9（区间与 BMI 是同一口径的互证）。
+{
+  for (const [kg, cm] of [[70, 175], [50, 160], [100, 180], [45.5, 155.5], [60, 170], [80, 190]]) {
+    const exact = kg / Math.pow(cm / 100, 2);
+    assert.equal(health.bmi(kg, cm).value, Math.round(exact * 10) / 10,
+      `${kg}kg/${cm}cm 的 BMI 应四舍五入到一位小数`);
+  }
+  const mifflin = (gender, kg, cm, age) =>
+    10 * kg + 6.25 * cm - 5 * age + (gender === 'male' ? 5 : -161);
+  for (const gender of ['male', 'female']) {
+    for (const [kg, cm, age] of [[70, 175, 30], [55, 162, 25], [90, 180, 45], [45, 150, 70], [120, 195, 18]]) {
+      assert.equal(health.bmr(gender, kg, cm, age), Math.round(mifflin(gender, kg, cm, age)),
+        `${gender} ${kg}kg ${cm}cm ${age}岁 的 BMR 应符合 Mifflin-St Jeor`);
+    }
+  }
+  // 正常体重区间 ↔ BMI 互证：区间两端反算出的 BMI 应恰为 18.5 与 23.9
+  for (const heightCm of [150, 160, 170, 175, 180, 195]) {
+    const range = health.normalWeightRange(heightCm);
+    assert.ok(range.min < range.max, `${heightCm}cm 的正常区间应有序`);
+    assert.ok(Math.abs(health.bmi(range.min, heightCm).value - 18.5) <= 0.1,
+      `${heightCm}cm 区间下限应对应 BMI 18.5`);
+    assert.ok(Math.abs(health.bmi(range.max, heightCm).value - 23.9) <= 0.1,
+      `${heightCm}cm 区间上限应对应 BMI 23.9`);
+  }
+  // 分类切点：注释写明用「≥」（24.0 属超重、28.0 属肥胖），真实类别 id 是 under/normal/over/obese
+  const categoryAtBmi = (bmiValue) => {
+    const heightCm = 170;
+    return health.bmi(bmiValue * Math.pow(heightCm / 100, 2), heightCm).category;
+  };
+  assert.equal(categoryAtBmi(18.4), 'under');
+  assert.equal(categoryAtBmi(18.5), 'normal');
+  assert.equal(categoryAtBmi(23.9), 'normal');
+  assert.equal(categoryAtBmi(24), 'over');
+  assert.equal(categoryAtBmi(27.9), 'over');
+  assert.equal(categoryAtBmi(28), 'obese');
+  // 分类随 BMI 单调不降（10–45 扫描，步长 0.1）
+  const healthOrder = ['under', 'normal', 'over', 'obese'];
+  let healthPreviousRank = 0;
+  for (let bmiValue = 10; bmiValue <= 45; bmiValue += 0.1) {
+    const rank = healthOrder.indexOf(categoryAtBmi(bmiValue));
+    assert.ok(rank >= healthPreviousRank, `BMI ${bmiValue.toFixed(1)} 处分类倒退`);
+    healthPreviousRank = rank;
+  }
+}
 
 // 错误文案
 for (const field of ['height', 'weight', 'age']) {
   assert.ok(health.healthErrorText(field, false).length > 0, `missing health error ${field}`);
   assert.ok(health.healthErrorText(field, true).length > 0, `missing health error ${field} en`);
+}
+
+// 字段范围校验（与 bmi()/bmr()/healthErrorText() 同一组边界）：页面用它替代「只判下界」的旧写法
+assert.equal(health.HEALTH_HEIGHT_MIN_CM, 50);
+assert.equal(health.HEALTH_HEIGHT_MAX_CM, 260);
+assert.equal(health.HEALTH_WEIGHT_MIN_KG, 1);
+assert.equal(health.HEALTH_WEIGHT_MAX_KG, 500);
+assert.equal(health.HEALTH_AGE_MIN_YEARS, 1);
+assert.equal(health.HEALTH_AGE_MAX_YEARS, 120);
+assert.equal(health.healthFieldValid('height', 175), true);
+assert.equal(health.healthFieldValid('height', 50), true);
+assert.equal(health.healthFieldValid('height', 49.9), false);
+assert.equal(health.healthFieldValid('height', 300), false);   // 旧写法会提示「输入有效」
+assert.equal(health.healthFieldValid('height', undefined), false);
+assert.equal(health.healthFieldValid('height', NaN), false);
+assert.equal(health.healthFieldValid('weight', 70), true);
+assert.equal(health.healthFieldValid('weight', 0.5), false);
+assert.equal(health.healthFieldValid('weight', 600), false);   // 旧写法会提示「输入有效」
+assert.equal(health.healthFieldValid('age', 40), true);
+assert.equal(health.healthFieldValid('age', 1), true);
+assert.equal(health.healthFieldValid('age', 0), false);
+assert.equal(health.healthFieldValid('age', 200), false);      // 旧写法会提示「输入有效」
+// 校验通过的高度/体重必须真的能算出结果（避免「输入有效但结果为空」再次出现）
+for (const heightCm of [50, 175, 260]) {
+  for (const weightKg of [1, 70, 500]) {
+    assert.ok(health.healthFieldValid('height', heightCm) && health.healthFieldValid('weight', weightKg));
+    assert.notEqual(health.bmi(weightKg, heightCm), undefined,
+      `bmi(${weightKg}, ${heightCm}) 不应为空`);
+  }
 }
 
 // --- 科学计算器：优先级、结合性、函数、常量、错误码 ---
@@ -2095,6 +3862,45 @@ assert.equal(err('log(-1)'), 'domain');
 assert.equal(err('asin(2)'), 'domain');
 assert.equal(err('tan(90)'), 'domain');
 assert.equal(err('2^10000'), 'overflow');
+// 负数的非整数次幂是定义域问题而非溢出（此前一律报 overflow，2026-10-20 审计）
+assert.equal(err('(-8)^0.5'), 'domain');
+assert.equal(err('(-8)^(1/3)'), 'domain');
+assert.equal(err('(-2)^3'), '');            // 整数次幂有实数解
+assert.equal(val('(-2)^3'), -8);
+// 表达式长度上限：先挡长度再解析，避免超长/超深输入拖住主线程（审计 P1）
+assert.equal(science.MAX_EXPRESSION_LENGTH, 2000);
+assert.equal(err('1'.repeat(science.MAX_EXPRESSION_LENGTH + 1)), 'toolarge');
+assert.equal(err('('.repeat(10000)), 'toolarge');
+assert.equal(val('('.repeat(0) + '1+1'), 2);
+assert.ok(science.calcErrorText('toolarge', false).includes('2000'));
+assert.ok(science.calcErrorText('toolarge', true).length > 0);
+// 第 103 轮缺陷：**页面的 `mod` 快速键拼不出能算的表达式**。
+// 解析层把 `mod` 当**关键字运算符**、标识符扫描会贪婪吞数字，所以合法写法是 `7 mod 3`（两侧要有分隔），
+// 而 `7mod3` 是**有意的**语法错误（文件头写明）。但页面原来是 `expression + key.id`，于是
+// 「输 7 → 点 mod → 输 3」得到 `7mod3` → 语法错误；同一屏的提示写的却是 `7 mod 3`，而且按键里
+// **没有空格键**——用户只能自己猜。修法：把拼接收进纯逻辑 `appendQuickKey()` 并补上需要的分隔。
+assert.equal(science.appendQuickKey('7', 'mod'), '7 mod ');
+assert.equal(science.appendQuickKey('', 'mod'), 'mod ');
+assert.equal(science.appendQuickKey(' ', 'mod'), ' mod ', '已有分隔就不再叠空格');
+assert.equal(science.appendQuickKey('(7', 'mod'), '(7 mod ');
+assert.equal(science.evaluate(science.appendQuickKey('7', 'mod') + '3', 'deg').value, 1, '点 mod 键后必须能算出结果');
+assert.equal(science.evaluate(science.appendQuickKey('10', 'mod') + '4', 'deg').value, 2);
+assert.equal(science.evaluate(science.appendQuickKey('(7', 'mod') + '3)', 'deg').value, 1);
+assert.equal(science.evaluate('7mod3', 'deg').error, 'syntax', '直接输入的 `7mod3` 仍是有意的语法错误（不改解析层）');
+// 其余按键**行为不变**：`2pi`、`5!`、`sqrt(` 这类依赖紧邻的写法不能被加上空格
+assert.equal(science.appendQuickKey('2', 'pi'), '2pi');
+assert.equal(science.appendQuickKey('5', '!'), '5!');
+assert.equal(science.appendQuickKey('', 'sqrt('), 'sqrt(');
+assert.equal(science.appendQuickKey('(1+2', ')'), '(1+2)');
+for (const key of [...science.QUICK_KEYS, ...science.FUNCTION_KEYS]) {
+  if (key.id === 'mod') { continue; }
+  assert.equal(science.appendQuickKey('1+2', key.id), '1+2' + key.id, `${key.id} 的拼接不能被改动`);
+}
+// 通用护栏：`mod` 键插在**两个操作数之间**时必须产出可解析的表达式（任意左操作数都成立）
+for (const left of ['1', '10', '3.5', '(1+2)', '5!', '2^3']) {
+  const built = science.appendQuickKey(left, 'mod') + '2';
+  assert.equal(science.evaluate(built, 'deg').error, '', `${left} 点 mod 再输 2 应可解析：${built}`);
+}
 assert.equal(err('1..2'), 'syntax');
 assert.equal(err('1,2'), 'syntax');
 
@@ -2285,6 +4091,42 @@ for (const id of ['qr', 'barcode', 'science', 'timers']) {
   startup.setStartupTool(startup.pickStartupTool({ tool: id }));
   assert.equal(startup.consumeStartupTool(), id, `shortcut parameter failed for ${id}`);
 }
+// 第 75 轮：`pickStartupTool` **有意不做校验**（实现注释：「未知 id 交给 `setStartupTool()` 按 `TOOL_IDS`
+// 白名单过滤，这里不做校验」）。所以「pick 会原样返回未知 id」是**设计**，不是漏校验——
+// 真正要钉的是**两个函数组合起来安全**：pick 出来的未知 id 经 set 之后不会留在意图里。
+{
+  const unknownPicked = startup.pickStartupTool({ tool: 'not-a-tool' });
+  assert.equal(unknownPicked, 'not-a-tool', 'pick 只负责取值（不校验）');
+  startup.setStartupTool(unknownPicked);
+  assert.equal(startup.peekStartupTool(), '', 'set 必须用白名单兜住未知 id');
+  // 已知工具走同一条组合链路必须能取回
+  startup.setStartupTool(startup.pickStartupTool({ tool: '  qr  ' }));
+  assert.equal(startup.peekStartupTool(), 'qr', '组合链路应能取回已知工具（含去空白）');
+  startup.clearStartupTool();
+}
+// 第 75 轮：语言偏好「下拉下标 ↔ 偏好 id」必须**互逆**（上面是点断言；这里扫全表 + 未知 id 归默认）
+{
+  for (let index = 0; index < language.LANGUAGE_OPTIONS.length; index++) {
+    const id = language.languagePreferenceAt(index);
+    assert.equal(language.languagePreferenceIndex(id), index, `下标 ${index} 与偏好 id 应互逆`);
+  }
+  for (const bogus of ['nope', '', undefined]) {
+    const index = language.languagePreferenceIndex(bogus);
+    assert.ok(index >= 0 && index < language.LANGUAGE_OPTIONS.length, `未知偏好应落到合法下标：${bogus}`);
+    assert.equal(language.languagePreferenceAt(index), language.DEFAULT_LANGUAGE_PREFERENCE,
+      '未知偏好应归到默认项');
+  }
+}
+// 第 75 轮：`SensorAccuracy` 的四个常量必须与 SDK 枚举序号一致——
+// 外部依据：`@ohos.sensor.d.ts` 的 `enum SensorAccuracy { ACCURACY_UNRELIABLE = 0, ACCURACY_LOW = 1,
+// ACCURACY_MEDIUM = 2, ACCURACY_HIGH = 3 }`（本轮用脚本查过 SDK 源文件核对）。
+// 序号写错会让「精度不足」的提示在真机上错位（把 LOW 当 MEDIUM 等）。
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_UNRELIABLE, 0);
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_LOW, 1);
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_MEDIUM, 2);
+assert.equal(sensorAccuracy.SENSOR_ACCURACY_HIGH, 3);
+assert.equal(sensorAccuracy.sensorAccuracyReliable(undefined), true, '取不到字段按可信处理');
+assert.equal(sensorAccuracy.sensorAccuracyReliable(Number.POSITIVE_INFINITY), true, '异常数值按可信处理');
 
 // --- 指南针：方位归一化、十六方位命名、跨 0° 平滑 ---
 assert.equal(compass.COMPASS_DIRECTIONS.length, 16);
@@ -2340,6 +4182,10 @@ assert.equal(compass.headingDelta(0, 181), 179);
 assert.equal(Number.isNaN(compass.headingDelta(Number.NaN, 0)), true);
 // 不可用文案
 assert.ok(compass.headingErrorText(false).length > 0 && compass.headingErrorText(true).length > 0);
+// 传感器不可用文案**不得**提权限：方向传感器订阅不需要权限（2026-10-20 审计 §3.21③）
+assert.equal(compass.headingErrorText(false).includes('权限'), false);
+assert.equal(compass.headingErrorText(true).toLowerCase().includes('permission'), false);
+assert.equal(compass.headingErrorText(true).toLowerCase().includes('denied'), false);
 // 水平判定：alpha 只在设备接近水平时可靠，斜着拿要给提示
 assert.equal(compass.COMPASS_FLAT_LIMIT_DEGREES, 25);
 assert.equal(compass.isCompassFlat(0, 0), true);
@@ -2352,6 +4198,48 @@ assert.equal(compass.isCompassFlat(1, 0, 0), false);
 assert.equal(compass.isCompassFlat(Number.NaN, 0), false);
 assert.equal(compass.isCompassFlat(0, Number.POSITIVE_INFINITY), false);
 assert.ok(compass.compassTiltHint(false).length > 0 && compass.compassTiltHint(true).length > 0);
+// --- 指南针：手动磁偏角 / 真北校正（2026-10-20 第 3 轮）---
+assert.equal(compass.DECLINATION_LIMIT_DEGREES, 180);
+assert.equal(compass.parseDeclination(''), undefined);
+assert.equal(compass.parseDeclination('   '), undefined);
+assert.equal(compass.parseDeclination('abc'), undefined);
+assert.equal(compass.parseDeclination('7.5'), 7.5);
+assert.equal(compass.parseDeclination('+7.5'), 7.5);
+assert.equal(compass.parseDeclination('-7.5'), -7.5);
+assert.equal(compass.parseDeclination('7.5E'), 7.5);      // 东偏为正
+assert.equal(compass.parseDeclination('7.5e'), 7.5);
+assert.equal(compass.parseDeclination('7.5W'), -7.5);     // 西偏为负
+assert.equal(compass.parseDeclination('7.5西'), -7.5);
+assert.equal(compass.parseDeclination('东偏7.5'), 7.5);
+assert.equal(compass.parseDeclination('西偏 7.5'), -7.5);
+assert.equal(compass.parseDeclination('0'), 0);
+assert.equal(compass.parseDeclination('180'), 180);
+// 第 88 轮：闭端与「刚越界」两侧都要钉住——罗盘页的提示文案现在由 `DECLINATION_LIMIT_DEGREES` 插值
+// （「请输入 -N 到 N 之间的度数」），所以 ±N 必须是合法输入、±(N+1) 必须被拒。
+assert.equal(compass.parseDeclination('-180'), -180);
+assert.equal(compass.parseDeclination('-180.0'), -180, '小数形式的边界值同样合法');
+assert.equal(compass.parseDeclination('181'), undefined);
+assert.equal(compass.parseDeclination('-181'), undefined);
+assert.equal(compass.parseDeclination('180.1'), undefined);
+assert.equal(compass.parseDeclination('181'), undefined); // 越界一定写错了
+assert.equal(compass.parseDeclination('-181'), undefined);
+assert.equal(compass.parseDeclination('E'), undefined);
+// 真北 = 磁北 + 磁偏角（东偏为正），未输入时原样返回并归一
+assert.equal(compass.trueHeading(100, 7.5), 107.5);
+assert.equal(compass.trueHeading(100, -7.5), 92.5);
+assert.equal(compass.trueHeading(0, -10), 350);
+assert.equal(compass.trueHeading(350, 20), 10);
+assert.equal(compass.trueHeading(100, 0), 100);
+assert.equal(compass.trueHeading(100, undefined), 100);
+assert.equal(compass.trueHeading(100, Number.NaN), 100);
+assert.equal(compass.trueHeading(400, undefined), 40);    // 未校正也要归一
+assert.equal(Number.isNaN(compass.trueHeading(Number.NaN, 10)), true);
+// 文案：含方向词；未输入给空串（界面据此隐藏该行，不显示误导性的 0）
+assert.equal(compass.declinationText(undefined, false), '');
+assert.equal(compass.declinationText(Number.NaN, true), '');
+assert.equal(compass.declinationText(0, false), '磁偏角 0°');
+assert.equal(compass.declinationText(7.5, false), '磁偏角 东偏 7.5°');
+assert.equal(compass.declinationText(-7.5, true), 'Declination 7.5° west');
 assert.ok(compass.compassCalibrationHint(false).length > 0 &&
   compass.compassCalibrationHint(true).length > 0);
 // --- 指南针：显示单位（度 / 北约密位）、锁定方位、复制整句（2026-10-20 加）---
@@ -2376,6 +4264,58 @@ assert.equal(compass.headingTextInUnit(90, 'mil'), '1600 mil');
 assert.equal(compass.headingTextInUnit(90, 'degree'), '90.0°');
 assert.equal(compass.headingTextInUnit(90, 'nope'), '90.0°');   // 未知单位回退到度
 assert.equal(compass.headingTextInUnit(Number.NaN, 'mil'), '');
+// 第 78 轮：把「点断言」补成**性质/扫描**形式（上面已有大量点断言，这里补的是它们覆盖不到的整体性质）。
+// ① 十六方位名必须与**标准罗经表**逐项一致（N/NNE/…/NNW 顺时针），且 16 个档位中心值恰好落在自己的下标上
+assert.deepEqual(compass.COMPASS_DIRECTIONS.map((entry) => entry.en),
+  ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']);
+for (let step = 0; step < 16; step++) {
+  assert.equal(compass.directionIndex(step * 22.5), step, `第 ${step} 档中心值 ${step * 22.5}° 应落在该档`);
+}
+// 档位边界：正好 11.25° 归入 NNE（四舍五入向上一档），正好 348.75° 归回正北（跨 0° 的那一档）
+assert.equal(compass.directionIndex(11.25), 1);
+assert.equal(compass.directionIndex(11.24), 0);
+assert.equal(compass.directionIndex(348.75), 0);
+assert.equal(compass.directionIndex(348.74), 15);
+// ② 密位必须**始终**折进 [0,6400)（含 360° 与负角），整圈扫描
+assert.equal(compass.headingMils(360), 0);
+assert.equal(compass.headingMils(0), 0);
+{
+  let milsOutOfRange = 0;
+  for (let degrees = -720; degrees <= 720; degrees += 0.5) {
+    const mils = compass.headingMils(degrees);
+    if (!(mils >= 0 && mils < compass.MILS_PER_TURN)) { milsOutOfRange += 1; }
+  }
+  assert.equal(milsOutOfRange, 0, '密位应始终落在 [0, MILS_PER_TURN)');
+}
+// ③ 最短夹角必须**对称**（200 组随机），且恒在 [0,180]
+for (let index = 0; index < 200; index++) {
+  const first = (index * 37) % 360;
+  const second = (index * 113) % 360;
+  const delta = compass.headingDelta(first, second);
+  assert.ok(delta >= 0 && delta <= 180, `最短夹角应在 [0,180]：${first}/${second}`);
+  assert.ok(Math.abs(delta - compass.headingDelta(second, first)) < 1e-9, '最短夹角应对称');
+}
+// ④ 跨 0° 平滑的结果必须恒在 [0,360)，且走的是**最短弧**（350°→10° 应朝 0° 走，不是朝 180° 走）
+assert.ok(Math.abs(compass.smoothHeading(350, 10) - compass.normalizeHeading(350 + 0.2 * 20)) < 1e-6,
+  '跨 0° 平滑应走最短弧');
+{
+  let smoothOutOfRange = 0;
+  for (let index = 0; index < 200; index++) {
+    const value = compass.smoothHeading((index * 37) % 360, (index * 113) % 360);
+    if (!(value >= 0 && value < 360)) { smoothOutOfRange += 1; }
+  }
+  assert.equal(smoothOutOfRange, 0, '平滑结果应始终落在 [0,360)');
+}
+// ⑤ 磁偏角符号的**外部标准**（本轮核对的核心风险点）：真北 = 磁北 + 东偏，东偏为正、西偏为负。
+// 写成「标准陈述 + 具体值」，并附一个真实地点锚点：北京磁偏角约 −7°（西偏），磁北 0° → 真北 353°。
+assert.equal(compass.trueHeading(0, 7.5), 7.5, '东偏应加到磁北上得到真北');
+assert.equal(compass.trueHeading(0, -7.5), 352.5, '西偏应从磁北减去');
+assert.equal(compass.trueHeading(0, -7), 353, '北京（约 −7° 西偏）磁北 0° → 真北 353°');
+assert.equal(compass.trueHeading(90, -10), 80);
+assert.equal(compass.trueHeading(350, 20), 10, '加偏角后要按 [0,360) 回绕');
+// ⑥ headingText 的可见性约定：非法角度给空串（界面不显示「0.0°」以免被读成正北）
+assert.equal(compass.headingText(Number.NaN), '');
+assert.equal(compass.headingText(359.96), '0.0°', '进位后归零，不能显示 360.0°');
 // 锁定方位：最短弧偏差、左右转语义（设备该怎么转）与对准容差
 assert.equal(compass.BEARING_ALIGN_TOLERANCE_DEGREES, 3);
 const alignedBearing = compass.bearingDeviation(90, 92);
@@ -2566,6 +4506,59 @@ assert.deepEqual(kinship.normalizeKinPath(['youngerSister', 'youngerSister'], 'f
 assert.deepEqual(kinship.normalizeKinPath(['father', 'son', 'mother'], 'male'), ['mother']);
 // 长幼有歧义的关系不动：爸爸的儿子保持原样，交给登记表给并列称谓
 assert.deepEqual(kinship.normalizeKinPath(['father', 'son'], 'male'), ['father', 'son']);
+// 第 69 轮：亲戚称呼的**性质**（上面都是手挑的点断言）。三条判据：
+//  ① 辈分取反——反向路径是「从对方视角走回我」，所以 `kinGeneration` 必须变号；
+//  ② 对合性——反两次要回到原链（**第二次反向时「本人」变成了对方**，其性别取原链最后一步的 gender，
+//     因为 10 个原子关系都是性别确定的）；
+//  ③ 归一化幂等——归一化结果再归一化必须不变（`normalizeKinPath` 是不动点）。
+// 注意 `result.path` 的真实形状是**步骤 id 的字符串数组**（`['father','olderBrother']`），
+// 不是 KinStep 对象数组：第一版我写 `path.map(s => s.id)`，于是每条路径都变成 `[null]`，
+// 幂等检查退化成「null 与 null 相等」的**假绿**。所以下面同时断言检查数足够多。
+{
+  const kinChains = ['爸爸', '妈妈', '哥哥', '姐姐', '弟弟', '妹妹', '儿子', '女儿',
+    '爸爸的哥哥', '爸爸的爸爸', '哥哥的儿子', '妈妈的姐姐', '儿子的儿子',
+    '爸爸的哥哥的儿子', '妈妈的妈妈', '姐姐的女儿', '爸爸的爸爸的爸爸'];
+  const kinPathOf = (outcome) => (outcome && outcome.result ? outcome.result.path : undefined);
+  let kinGenerationChecked = 0;
+  let kinIdempotentChecked = 0;
+  let kinInvolutionChecked = 0;
+  for (const chain of kinChains) {
+    for (const ego of ['male', 'female']) {
+      const forwardPath = kinPathOf(kinship.computeKinship(chain, ego));
+      assert.ok(Array.isArray(forwardPath) && forwardPath.length > 0, `${chain}/${ego} 应有路径`);
+      // 路径元素必须是已登记的步骤 id（否则关系链描述会漏词或报错）
+      assert.ok(forwardPath.every((id) => kinship.kinStepById(id) !== undefined),
+        `${chain}/${ego} 的路径含未登记步骤：${JSON.stringify(forwardPath)}`);
+      // ③ 幂等（真实比较字符串数组，且计数以防空转）
+      kinIdempotentChecked += 1;
+      assert.deepEqual(kinship.normalizeKinPath(forwardPath, ego), forwardPath,
+        `${chain}/${ego} 归一化必须幂等`);
+      // ① 辈分取反
+      const reverseOutcome = kinship.computeReverseKinship(chain, ego);
+      const reversePath = kinPathOf(reverseOutcome);
+      if (reversePath !== undefined && reversePath.length > 0) {
+        kinGenerationChecked += 1;
+        // 注意：用**和为零**来判断「辈分取反」，不要写 `assert.equal(rg, -fg)`——
+        // 本文件用的是 `node:assert/strict`，它的 `assert.equal` 按 `Object.is` 语义比较，
+        // 于是**同辈**（fg = 0、-fg = -0）会被判成不相等（`Object.is(0, -0) === false`）。
+        // 实测「哥哥/male」就是被这一条卡住的——数学上 0 与 -0 是同一个辈分，是断言写法的问题。
+        assert.equal(
+          kinship.kinGeneration(reversePath) + kinship.kinGeneration(forwardPath), 0,
+          `${chain}/${ego} 反向辈分应为正向的相反数`);
+        // ② 对合性
+        const lastStep = kinship.kinStepById(forwardPath[forwardPath.length - 1]);
+        const otherGender = lastStep && lastStep.gender ? lastStep.gender : 'male';
+        const secondReverse = kinPathOf(kinship.computeReverseKinship(reversePath.join('的'), otherGender));
+        kinInvolutionChecked += 1;
+        assert.deepEqual(secondReverse, kinship.normalizeKinPath(forwardPath, ego),
+          `${chain}/${ego} 反两次应回到原链：${JSON.stringify(reversePath)}`);
+      }
+    }
+  }
+  assert.ok(kinIdempotentChecked >= 30, `幂等检查数应足够多（否则是空转）：${kinIdempotentChecked}`);
+  assert.ok(kinGenerationChecked >= 30, `辈分取反检查数应足够多：${kinGenerationChecked}`);
+  assert.ok(kinInvolutionChecked >= 30, `对合性检查数应足够多：${kinInvolutionChecked}`);
+}
 
 // 称谓登记表：常见关系逐条核对（表驱动）
 const kinCases = [
@@ -2592,7 +4585,10 @@ const kinCases = [
   ['爸爸的爸爸的哥哥', 'male', '伯祖父'],
   ['爸爸的爸爸的弟弟', 'male', '叔祖父'],
   ['爸爸的爸爸的姐姐', 'male', '姑奶奶'],
-  ['妈妈的爸爸的哥哥', 'male', '舅公'],
+  // §3.25① 外公一侧与外婆一侧是两条不同的关系，不能共用「舅公」/「姨婆」
+  ['妈妈的爸爸的哥哥', 'male', '外伯公'],
+  ['妈妈的爸爸的弟弟', 'male', '外叔公'],
+  ['妈妈的妈妈的哥哥', 'male', '舅公'],
   ['妈妈的妈妈的姐姐', 'male', '姨婆'],
   ['爸爸的哥哥的儿子', 'male', '堂兄弟'],
   ['爸爸的哥哥的女儿', 'male', '堂姐妹'],
@@ -2695,6 +4691,61 @@ assert.equal(kinship.removeLastKinStep('爸爸的哥哥'), '爸爸');
 assert.equal(kinship.removeLastKinStep('爸爸'), '');
 assert.equal(kinship.removeLastKinStep("father's older brother"), 'father');
 assert.equal(kinship.removeLastKinStep(''), '');
+// 无分隔符的手输链：按尾部称呼（长词优先）退一格，不再一次清光（2026-10-20 第 4 轮）
+assert.equal(kinship.removeLastKinStep('爸爸哥哥'), '爸爸');
+assert.equal(kinship.removeLastKinStep('爸爸妈妈'), '爸爸');
+assert.equal(kinship.removeLastKinStep('哥哥'), '');
+assert.equal(kinship.removeLastKinStep('爸爸父亲'), '爸爸');       // 别名匹配
+assert.equal(kinship.removeLastKinStep('abc'), 'ab');              // 认不出来就退一个字符
+assert.equal(kinship.removeLastKinStep('的爸爸'), '');             // 分隔符在开头仍是清空
+// 反向称呼（「他该怎么称呼我」）：与正向链互为镜像，结果仍走同一张称谓表
+const reverseMale = kinship.computeReverseKinship('爸爸的哥哥', 'male');
+assert.equal(reverseMale.error, '');
+assert.equal(reverseMale.result.named, true);
+assert.equal(reverseMale.result.zh, '侄子');          // 伯父管我叫侄子
+assert.equal(reverseMale.result.en, "younger brother's son");
+assert.deepEqual(reverseMale.result.path, ['youngerBrother', 'son']);
+const reverseFemale = kinship.computeReverseKinship('爸爸的哥哥', 'female');
+assert.equal(reverseFemale.result.zh, '侄女');
+assert.equal(reverseFemale.result.named, true);
+// 配偶方向：老婆的爸爸（岳父）反过来叫我「女婿」
+const reverseInLaw = kinship.computeReverseKinship('老婆的爸爸', 'male');
+assert.equal(reverseInLaw.error, '');
+assert.equal(reverseInLaw.result.zh, '女婿');
+// 上下各一代：儿子 → 爸爸/妈妈（随本人性别）；爸爸 → 儿子/女儿
+assert.equal(kinship.computeReverseKinship('儿子', 'male').result.zh, '爸爸');
+assert.equal(kinship.computeReverseKinship('儿子', 'female').result.zh, '妈妈');
+assert.equal(kinship.computeReverseKinship('爸爸', 'male').result.zh, '儿子');
+assert.equal(kinship.computeReverseKinship('爸爸', 'female').result.zh, '女儿');
+// 同胞长幼互换：哥哥 → 弟弟/妹妹
+assert.equal(kinship.computeReverseKinship('哥哥', 'male').result.zh, '弟弟');
+assert.equal(kinship.computeReverseKinship('哥哥', 'female').result.zh, '妹妹');
+// 第 27 轮探针发现：配偶的逆关系也必须由**本人性别**决定，不能写死成「对方性别的反面」。
+// 男性本人把「老公」当关系链时，他是我的丈夫 → 我是他的丈夫（此前返回「老婆」，见「我是他老婆」）。
+assert.equal(kinship.computeReverseKinship('老公', 'male').result.zh, '老公');
+assert.equal(kinship.computeReverseKinship('老公', 'female').result.zh, '老婆');
+assert.equal(kinship.computeReverseKinship('老婆', 'male').result.zh, '老公');
+assert.equal(kinship.computeReverseKinship('老婆', 'female').result.zh, '老婆');
+// 与父母/同胞规则同一口径：逆关系只取决于本人性别，与「对方性别」无关
+assert.equal(kinship.computeReverseKinship('老公', 'male').result.zh,
+  kinship.computeReverseKinship('老婆', 'male').result.zh);
+// 本人 & 错误码沿用正向口径
+assert.equal(kinship.computeReverseKinship('', 'male').error, 'empty');
+assert.equal(kinship.computeReverseKinship('不认识', 'male').error, 'unknown');
+// 「归一化后就是本人」的链：老婆的老公 = 自己，反向仍是自己
+const reverseSelf = kinship.computeReverseKinship('老婆的老公', 'male');
+assert.equal(reverseSelf.error, '');
+assert.equal(reverseSelf.result.named, true);
+assert.equal(reverseSelf.result.zh, '自己');
+// 远亲未收录时不猜：给关系链描述
+const reverseFar = kinship.computeReverseKinship('妈妈的妈妈的爸爸的哥哥', 'male');
+assert.equal(reverseFar.error, '');
+assert.ok(reverseFar.result.zh.length > 0);
+// 往返：把反向结果再反一次，回到正向归一后的路径
+const forwardAgain = kinship.computeReverseKinship('爸爸', 'male');
+assert.equal(forwardAgain.result.path.join('>'), 'son');
+const backToForward = kinship.computeReverseKinship('儿子', 'male');
+assert.equal(backToForward.result.path.join('>'), 'father');
 // 往返：拼两次再退两次回到空串
 const built = kinship.appendKinStep(kinship.appendKinStep('', '爸爸'), '哥哥');
 assert.equal(kinship.removeLastKinStep(kinship.removeLastKinStep(built)), '');
@@ -2908,6 +4959,39 @@ assert.equal(torchSignal.morseCode('0'), '-----');
 assert.equal(torchSignal.morseCode('9'), '----.');
 assert.equal(torchSignal.morseCode('中'), '');
 assert.equal(torchSignal.morseCode(' '), '');
+// 第 93 轮：**整张码表与 ITU-R M.1677 逐字符对照**。上面只把 A/S/O/0/9 五个码写成了字面量，
+// 其余 31 个字符仅断言「非空」——**表里抄错一个字符（例如 H 写成 `....` 的邻居）照样通过**，
+// 而摩尔斯发错就是对方收到另一个字母。这里用手写的国际标准表钉住全部 36 个。
+{
+  const ituTable = {
+    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---',
+    K: '-.-', L: '.-..', M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-',
+    U: '..-', V: '...-', W: '.--', X: '-..-', Y: '-.--', Z: '--..',
+    '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+    '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.'
+  };
+  for (const [char, code] of Object.entries(ituTable)) {
+    assert.equal(torchSignal.morseCode(char), code, `${char} 的摩尔斯码应与 ITU-R M.1677 一致`);
+  }
+  // 点划串本身必须只由 `.`/`-` 组成（防止表里混入空格之类的分隔符）
+  for (const code of Object.values(ituTable)) {
+    assert.ok(/^[.-]+$/.test(code));
+  }
+  // 编码 → 解码 往返（大小写归一、连续空格折叠、非法字符丢弃、首尾空白丢弃）
+  for (const [input, expected] of [
+    ['SOS', 'SOS'], ['sos', 'SOS'], ['HELLO WORLD', 'HELLO WORLD'],
+    ['  hello   world  ', 'HELLO WORLD'], ['A1B2', 'A1B2'], ['中a中b!', 'AB'], ['E', 'E'], ['', '']
+  ]) {
+    const encoded = torchSignal.morseEncodeText(input);
+    const decoded = torchSignal.morseDecodeText(encoded);
+    assert.equal(decoded.text, expected, `${JSON.stringify(input)} → ${JSON.stringify(encoded)} 应还原为 ${expected}`);
+    assert.equal(decoded.unknown, 0, `${JSON.stringify(input)} 不应产生无法识别的记号`);
+  }
+  // 超长解码要如实回报 truncated（编码侧上限同为 MORSE_TEXT_MAX）
+  const overLongMorse = '... '.repeat(torchSignal.MORSE_TEXT_MAX + 50);
+  assert.equal(torchSignal.morseDecodeText(overLongMorse).truncated, true, '超长点划串应回报 truncated');
+  assert.equal(torchSignal.morseDecodeText('... --- ...').truncated, false);
+}
 
 // 输入解析：大写化、连续空白折叠成一个词间隔、首尾空白丢弃
 assert.deepEqual(torchSignal.morseChars(' sos ', 20).map((entry) => entry.char), ['S', 'O', 'S']);
@@ -2949,6 +5033,21 @@ assert.equal(torchSignal.morseDecodeText('/ ... --- ... /').text, 'SOS');
 const decodedUnknown = torchSignal.morseDecodeText('....-. ...');
 assert.equal(decodedUnknown.text, 'S');
 assert.equal(decodedUnknown.unknown, 1);
+// 解码侧长度上限与编码侧同值：超出只解前 N 个字符并用 truncated 如实回报（2026-10-20 审计 P1）
+const longMorse = '.- '.repeat(torchSignal.MORSE_TEXT_MAX);
+const decodedLong = torchSignal.morseDecodeText(longMorse + '.- ');
+assert.equal(longMorse.length >= torchSignal.MORSE_TEXT_MAX, true);
+assert.equal(decodedLong.truncated, true);
+assert.ok(decodedLong.text.length > 0);
+assert.equal(torchSignal.morseDecodeText('... --- ...').truncated, false);
+// 第 33 轮探针补充：`truncated` 必须按**原始长度**判定——恰好等于上限时不能虚报（与节假日边界同一类）。
+assert.equal(torchSignal.morseDecodeText('.- '.repeat(400)).truncated, false);
+assert.equal(torchSignal.morseDecodeText('.'.repeat(torchSignal.MORSE_TEXT_MAX)).truncated, false);
+assert.equal(torchSignal.morseDecodeText('.'.repeat(torchSignal.MORSE_TEXT_MAX + 1)).truncated, true);
+// 截断后仍要产出可用结果（用带分隔的记号，单个超长记号本来就无法识别、属正常拒绝）
+const spacedMorse = torchSignal.morseDecodeText('. '.repeat(torchSignal.MORSE_TEXT_MAX));
+assert.equal(spacedMorse.truncated, true);
+assert.ok(spacedMorse.text.length > 0);
 assert.equal(torchSignal.morseDecodeText('').text, '');
 assert.equal(torchSignal.morseDecodeText('   ').text, '');
 assert.equal(torchSignal.morseDecodeText('中文').unknown, 1);
@@ -3022,6 +5121,69 @@ assert.ok(diffTools.diffErrorText('toolarge', true).includes('600'));
 assert.ok(diffTools.diffErrorText('empty', false).length > 0);
 assert.ok(diffTools.diffErrorText('empty', true).length > 0);
 assert.equal(diffTools.diffErrorText('', false), '');
+// 第 83 轮：与**独立 LCS 动态规划**对照过计数与重构（第 63 轮已做，见文件后部的 LCS 最优性/重建不变量），
+// 本轮只补当时没覆盖的**结构与归一化**判据：行号语义、输出顺序、CRLF、错误码与 600 行边界。
+{
+  // ① 行号语义：`same` 两侧相等且非 0；`removed` 只有左侧、`added` 只有右侧
+  const replaced = diffTools.diffLines('a\nb\nc', 'a\nx\nc');
+  assert.ok(replaced.lines.every((line) => {
+    if (line.kind === 'same') { return line.leftNo > 0 && line.leftNo === line.rightNo; }
+    if (line.kind === 'removed') { return line.leftNo > 0 && line.rightNo === 0; }
+    return line.rightNo > 0 && line.leftNo === 0;
+  }), '行号与 kind 必须一一对应（没有对应行时行号为 0）');
+  // ② 同侧行号单调不减（不会来回跳），且左侧/右侧各自覆盖到实际行数
+  {
+    let lastLeft = 0;
+    let lastRight = 0;
+    let monotone = true;
+    for (const line of replaced.lines) {
+      if (line.leftNo !== 0) { if (line.leftNo < lastLeft) { monotone = false; } lastLeft = line.leftNo; }
+      if (line.rightNo !== 0) { if (line.rightNo < lastRight) { monotone = false; } lastRight = line.rightNo; }
+    }
+    assert.ok(monotone, '同侧行号应单调不减');
+    assert.equal(lastLeft, 3);
+    assert.equal(lastRight, 3);
+  }
+  // ③ 输出顺序：删除紧挨在新增之前（实现注释写明的口径，便于人读「先减后加」）
+  {
+    const index = replaced.lines.findIndex((line) => line.kind === 'removed');
+    assert.equal(replaced.lines[index + 1].kind, 'added', '删除行应紧接新增行');
+  }
+  // ④ CRLF/CR 归一：同一份内容用不同换行符不应产生差异
+  assert.equal(diffTools.diffLines('a\r\nb\r\n', 'a\nb\n').added, 0);
+  assert.equal(diffTools.diffLines('a\r\nb\r\n', 'a\nb\n').removed, 0);
+  assert.equal(diffTools.diffLines('a\rb\r', 'a\nb\n').removed, 0, '老式 CR 也要归一');
+  // ⑤ 末尾换行不算差异；但**多一个空行**要算（「a\nb」→「a\nb\n\n」多出一行空行）
+  assert.equal(diffTools.diffLines('a\nb', 'a\nb\n').added, 0);
+  assert.equal(diffTools.diffLines('a\nb', 'a\nb\n\n').added, 1);
+  // ⑥ 双侧都空 → `empty`（不是「零处差异」），失败时复制文本为空串
+  const emptyResult = diffTools.diffLines('', '');
+  assert.equal(emptyResult.ok, false);
+  assert.equal(emptyResult.error, 'empty');
+  assert.equal(diffTools.diffCopyText(emptyResult), '');
+  // ⑦ 上限边界：600 行**允许**、601 行拒绝（两侧任一侧超限都拒绝；第 72 轮已断言 601 侧）
+  assert.equal(diffTools.diffLines(Array.from({ length: 600 }, () => 'x').join('\n'), 'x').ok, true);
+  assert.equal(diffTools.diffLines('x', Array.from({ length: 600 }, () => 'x').join('\n')).ok, true);
+  assert.equal(diffTools.diffLines(Array.from({ length: 601 }, () => 'x').join('\n'), 'x').error, 'toolarge');
+  // 第 102 轮：失败结果**不留半截**——三类计数为 0、行表为空（与「日期无效不留半截结果」同一口径）
+  assert.equal(emptyResult.added, 0);
+  assert.equal(emptyResult.removed, 0);
+  assert.equal(emptyResult.unchanged, 0);
+  assert.equal(emptyResult.lines.length, 0);
+  assert.equal(diffTools.diffLines(Array.from({ length: 601 }, () => 'x').join('\n'), 'x').lines.length, 0);
+  // 第 102 轮：**LCS 对齐不是对称的，而且不该被「修」成对称**。
+  // 多解时（存在多个等长最长公共子序列）回溯只会挑一个；交换两侧后挑到的是**另一个同样最优**的对齐。
+  // 实测这对样本的 LCS 上界是 2：正向对齐 `h…a`、反向对齐 `h…d`——**两个方向都达到上界 2**，
+  // 所以「交换两侧后增删互换」**不是** LCS 差异应有的性质（第 102 轮我按它判，误报了 9 处）。
+  // 真正该断言的是「两个方向各自最优」，见文件后部的独立 DP 对照；这里把多解性钉住，防止有人把它「修」掉。
+  const tieForward = diffTools.diffLines('h\nd\na', 'h\nf\nh\nf\nf\na\nh\nd');
+  const tieBackward = diffTools.diffLines('h\nf\nh\nf\nf\na\nh\nd', 'h\nd\na');
+  const tieSame = (result) => result.lines.filter((line) => line.kind === 'same').map((line) => line.text).join(',');
+  assert.equal(tieForward.unchanged, 2, '正向必须达到 LCS 上界 2');
+  assert.equal(tieBackward.unchanged, 2, '反向也必须达到 LCS 上界 2');
+  assert.notEqual(tieSame(tieForward), tieSame(tieBackward), '多解时两个方向挑选的对齐可以不同（这是允许的）');
+  assert.equal(tieForward.unchanged === tieBackward.unchanged, true, '两个方向的最优值必须相同（都最优）');
+}
 
 // --- 密码类型（密码 / PIN）、PIN 生成与强度预估 ---
 function byteSequence(values) {
@@ -3035,7 +5197,60 @@ assert.equal(passwords.passwordModeIndex('pin'), 1);
 assert.equal(passwords.passwordModeIndex('nope'), -1);
 assert.equal(passwords.passwordModeById('pin').zh, 'PIN 码');
 assert.equal(passwords.passwordModeById('nope'), undefined);
-assert.deepEqual(passwords.PIN_LENGTHS, [4, 6, 8]);
+// --- §3.12 健康页复制摘要的输入上下文（纯逻辑，可测）---
+assert.equal(health.healthContextText('', '', '', 'male', false), '');
+assert.equal(health.healthContextText(' ', '', '', 'male', true), '');
+assert.equal(health.healthContextText('175', '70', '30', 'male', false), '身高 175 cm · 体重 70 kg · 年龄 30 · 男');
+assert.equal(health.healthContextText('175', '70', '30', 'female', true),
+  'Height 175 cm · Weight 70 kg · Age 30 · Female');
+// 只填了身高也应给上下文（且带上性别）
+assert.equal(health.healthContextText('175', '', '', 'male', false), '身高 175 cm · 男');
+// 只有性别、没有任何数值时返回空串（这种「上下文」不提供信息，调用方不加前缀）
+assert.equal(health.healthContextText('abc', '', '', 'male', false), '');
+assert.equal(health.healthContextText('abc', 'x', 'y', 'female', true), '');
+// 小数按最多两位、去掉尾零
+assert.equal(health.healthContextText('175.5', '70.25', '', 'male', false), '身高 175.5 cm · 体重 70.25 kg · 男');
+
+// --- §3.7① 折数/比率格式：不再把浮点噪声摆到界面上 ---
+assert.equal(calculators.formatFold(6.666666666666667), '6.67');
+assert.equal(calculators.formatFold(8), '8');
+assert.equal(calculators.formatFold(7.5), '7.5');
+assert.equal(calculators.formatFold(0), '0');
+// 四舍五入按 `toFixed` 的二进制语义（-1.005 实际略小于 -1.005 → -1，是 JS 标准行为，不是本函数的问题）
+assert.equal(calculators.formatFold(-1.234), '-1.23');
+assert.equal(calculators.formatFold(-1.005), '-1');
+assert.equal(calculators.formatFold(Number.NaN), '—');
+assert.equal(calculators.formatFold(Infinity), '—');
+// 等效折扣走的是同一个格式化：100 元 8 折立减 0 → 8 折；立减 20 元 → 等效 6 折
+assert.equal(calculators.formatFold(calculators.discountPrice('100.00', '8', '0').equivalentFold), '8');
+assert.equal(calculators.formatFold(calculators.discountPrice('100.00', '8', '20.00').equivalentFold), '6');
+assert.equal(calculators.formatPercent(13, true), '+13%');
+assert.equal(calculators.formatPercent(-19.999999999999996, true), '-20%');
+assert.equal(calculators.formatPercent(-3, false), '-3%');
+assert.equal(calculators.formatPercent(0, true), '0%');
+assert.equal(calculators.formatPercent(Number.NaN, true), '—');
+// §3.7② 非法输入要说清是哪一格错了（空串 = 还没填，不算错误）
+assert.equal(calculators.moneyInputErrorText('', false), '');
+assert.equal(calculators.moneyInputErrorText('   ', false), '');
+assert.equal(calculators.moneyInputErrorText('100', false), '');
+assert.equal(calculators.moneyInputErrorText('100.25', false), '');
+assert.ok(calculators.moneyInputErrorText('abc', false).includes('金额'));
+assert.ok(calculators.moneyInputErrorText('1.234', false).includes('两位小数'));
+assert.ok(calculators.moneyInputErrorText('-5', false).includes('金额'));
+assert.ok(calculators.moneyInputErrorText('abc', true).includes('Amounts'));
+assert.equal(calculators.foldInputErrorText('', false), '');
+assert.equal(calculators.foldInputErrorText('8.5', false), '');
+assert.equal(calculators.foldInputErrorText('10', false), '');
+assert.ok(calculators.foldInputErrorText('11', false).includes('0–10'));
+assert.ok(calculators.foldInputErrorText('8折', false).includes('折数'));
+assert.ok(calculators.foldInputErrorText('11', true).includes('between 0 and 10'));
+assert.equal(calculators.rateInputErrorText('', false), '');
+assert.equal(calculators.rateInputErrorText('13', false), '');
+assert.ok(calculators.rateInputErrorText('1001', false).includes('百分比'));
+assert.ok(calculators.rateInputErrorText('13%', false).includes('百分比'));
+// 三类判据互不串味：折数上限 10 与百分比上限 1000 是两套
+assert.equal(calculators.foldInputErrorText('100', false).length > 0, true);
+assert.equal(calculators.rateInputErrorText('100', false), '');
 assert.equal(passwords.DEFAULT_PIN_LENGTH, 6);
 assert.equal(passwords.pinLengthIndex(6), 1);
 assert.equal(passwords.pinLengthIndex(5), -1);
@@ -3055,18 +5270,22 @@ assert.equal(passwords.generatePin(4, () => 0), '2222');
 assert.equal(passwords.generatePin(6, byteSequence([0, 0, 0, 0, 0, 1])), '222223');
 assert.equal(passwords.generatePin(6, byteSequence([1, 2, 3, 4, 5, 6])).length, 6);
 assert.ok(/^[2-9]{6}$/.test(passwords.generatePin(6, byteSequence([1, 2, 3, 4, 5, 7]))));
-assert.throws(() => passwords.generatePin(3, () => 0));
-assert.throws(() => passwords.generatePin(13, () => 0));
+assert.equal(passwords.generatePin(3, () => 0), undefined);
 // 强度预估：阈值 40/60/80，非法输入当 0 处理
-assert.equal(passwords.strengthLevel(0), 'weak');
+assert.equal(passwords.strengthLevel(0), 'unknown');
 assert.equal(passwords.strengthLevel(39.9), 'weak');
 assert.equal(passwords.strengthLevel(40), 'fair');
 assert.equal(passwords.strengthLevel(59), 'fair');
 assert.equal(passwords.strengthLevel(60), 'strong');
 assert.equal(passwords.strengthLevel(79), 'strong');
 assert.equal(passwords.strengthLevel(80), 'excellent');
-assert.equal(passwords.strengthLevel(Number.NaN), 'weak');
-assert.equal(passwords.strengthLevel(-5), 'weak');
+assert.equal(passwords.strengthLevel(Number.NaN), 'unknown');
+assert.equal(passwords.strengthLevel(-5), 'unknown');
+assert.equal(passwords.strengthLevel(0), 'unknown');
+// §3.23③ 非法输入下 strengthLevel 与 strengthText 必须给同一个结论（都表示「无法估算」）
+assert.equal(passwords.strengthText(passwords.strengthLevel(Number.NaN), Number.NaN, false), '无法估算');
+assert.equal(passwords.strengthText(passwords.strengthLevel(-5), -5, true), 'Cannot estimate');
+assert.equal(passwords.strengthText('unknown', 0, false), '无法估算');
 assert.equal(passwords.strengthText('strong', 78, false), '强 · 约 78 位熵');
 assert.equal(passwords.strengthText('strong', 78, true), 'Strong · about 78 bits');
 assert.equal(passwords.strengthText('weak', 0, false), '无法估算');
@@ -3085,9 +5304,205 @@ noSetOptions.lower = false;
 noSetOptions.digits = false;
 noSetOptions.symbols = false;
 assert.equal(passwords.entropyBits(noSetOptions), 0);
+// 第 82 轮：**分布性质**（既有断言都是点断言/构造序列，对「取模无偏」这种性质不敏感）。
+// `unbiasedIndex` 的拒绝采样若被改回朴素的 `byte % bound`，点断言全过、但下面的 χ² 立刻炸。
+{
+  const byteStream = (seed) => {
+    let state = seed >>> 0 || 0x9e3779b9;
+    return () => {
+      state ^= state << 13; state >>>= 0;
+      state ^= state >>> 17;
+      state ^= state << 5; state >>>= 0;
+      return state % 256;
+    };
+  };
+  // ① 均匀性：界值取「整除 256」与「不整除 256」两类（后者才真正考验拒绝采样）
+  for (const bound of [2, 10, 26, 62, 100]) {
+    const bytes = byteStream(0x1234 + bound);
+    const counts = new Array(bound).fill(0);
+    const trials = 20000;
+    for (let index = 0; index < trials; index++) { counts[passwords.unbiasedIndex(bound, bytes)] += 1; }
+    const expected = trials / bound;
+    const chiSquare = counts.reduce((sum, count) => sum + Math.pow(count - expected, 2) / expected, 0);
+    // 宽松阈值：df=99 时 p=0.001 的临界值约 148，取 170 兜住；df 更小时余量更大
+    assert.ok(chiSquare < 170, `unbiasedIndex(${bound}) 应无偏，实测 χ² = ${chiSquare.toFixed(1)}`);
+    assert.ok(Math.min(...counts) > 0, `unbiasedIndex(${bound}) 每个取值都应出现`);
+  }
+  // ② 拒绝采样的边界：bound=100 → limit=200，故 200..255 必须被丢弃
+  {
+    const sequence = [200, 255, 250, 199];
+    let cursor = 0;
+    assert.equal(passwords.unbiasedIndex(100, () => sequence[cursor++]), 99, '应取到第一个 < 200 的字节');
+  }
+  // ③ PIN 的数字必须**在真实字符集上**均匀（字符集是 8 个：`23456789`，故意排除了易混的 0/1）
+  {
+    const bytes = byteStream(0xABC);
+    const counts = new Array(10).fill(0);
+    const pins = [];
+    for (let index = 0; index < 2000; index++) {
+      const pin = passwords.generatePin(6, bytes);
+      pins.push(pin);
+      for (const ch of pin) { counts[Number(ch)] += 1; }
+    }
+    // 0 与 1 **永不出现**（这是界面文案写明的「已排除易混数字」）；2..9 应各占约 1/8
+    assert.equal(counts[0], 0, 'PIN 不应出现 0（易混数字已排除）');
+    assert.equal(counts[1], 0, 'PIN 不应出现 1（易混数字已排除）');
+    const expected = 2000 * 6 / 8;
+    const chiSquare = counts.slice(2).reduce((sum, count) => sum + Math.pow(count - expected, 2) / expected, 0);
+    assert.ok(chiSquare < 30, `PIN 的 2–9 应均匀，实测 χ² = ${chiSquare.toFixed(1)}`);
+    // 每个 PIN 的位数都必须精确（前导零不会出现，但位数不能少）
+    assert.ok(pins.every((pin) => pin !== undefined && pin.length === 6 && /^[2-9]{6}$/.test(pin)));
+  }
+  // ④ `generatePassword` 的分组覆盖保证：每个启用的字符集至少出现一次
+  {
+    const options = new passwords.PasswordOptions();
+    options.length = 12;
+    const bytes = byteStream(0x5150);
+    const groups = [
+      { pattern: /[A-Z]/, enabled: true },
+      { pattern: /[a-z]/, enabled: true },
+      { pattern: /[2-9]/, enabled: true },
+      { pattern: /[!@#$%^&*()\-_=+?]/, enabled: true }
+    ];
+    for (let index = 0; index < 200; index++) {
+      const value = passwords.generatePassword(options, bytes);
+      assert.equal(value.length, 12);
+      for (const group of groups) {
+        assert.ok(group.pattern.test(value), `第 ${index + 1} 个密码应至少含一个该类字符：${value}`);
+      }
+      // 不应出现被排除的易混字符（I/O/l/0/1）
+      assert.ok(!/[IOl01]/.test(value), `生成的密码不应含易混字符：${value}`);
+    }
+  }
+}
+
+// --- §3.23 自定义字符集（2026-10-20 第 11 轮）---
+const customOptions = new passwords.PasswordOptions();
+customOptions.custom = 'aabbcc';                    // 去重后 3 个不同字符
+assert.equal(passwords.customCharset(customOptions), 'abc');
+assert.equal(passwords.customCharsetError(customOptions), '');
+customOptions.custom = ' a\tb\nc ';                 // 空白/制表/换行不参与
+assert.equal(passwords.customCharset(customOptions), 'abc');
+customOptions.custom = 'a';
+assert.equal(passwords.customCharsetError(customOptions), 'too_few');
+assert.equal(passwords.validPasswordOptions(customOptions), false);
+// 第 31 轮探针补充：上下限按**去重后**的不同字符数算，因此边界样本必须是互不相同的字符。
+// （用同一字符重复 N 次去测上限是无效样本——去重后只有 1 个，测到的是 too_few。）
+const distinctChars = (count) => Array.from({ length: count }, (_, i) => String.fromCharCode(0x4e00 + i)).join('');
+customOptions.custom = distinctChars(passwords.PASSWORD_CUSTOM_MAX);
+assert.equal(passwords.customCharset(customOptions).length, passwords.PASSWORD_CUSTOM_MAX);
+assert.equal(passwords.customCharsetError(customOptions), '');            // 恰好上限 → 合法
+customOptions.custom = distinctChars(passwords.PASSWORD_CUSTOM_MAX + 1);
+assert.equal(passwords.customCharset(customOptions).length, passwords.PASSWORD_CUSTOM_MAX + 1);
+assert.equal(passwords.customCharsetError(customOptions), 'too_many');
+assert.ok(passwords.customCharsetErrorText(customOptions, false).includes(String(passwords.PASSWORD_CUSTOM_MAX)));
+customOptions.custom = 'x'.repeat(passwords.PASSWORD_CUSTOM_MAX + 1);     // 去重后只有 1 个不同字符
+assert.equal(passwords.customCharsetError(customOptions), 'too_few');
+
+// 第 31 轮探针补充：无偏性用**穷举**验证——在拒绝采样区间内每个下标必须拿到完全相同的字节数。
+// `limit = floor(256/bound)*bound`；朴素「取模不拒绝」在 bound=10 时会出现 26/25 的偏差（见下）。
+for (const bound of [2, 3, 5, 7, 10, 26, 52, 62, 94, 100, 128, 200, 255, 256]) {
+  const limit = Math.floor(256 / bound) * bound;
+  const counts = new Array(bound).fill(0);
+  for (let byte = 0; byte < limit; byte++) {
+    const index = passwords.unbiasedIndex(bound, () => byte);
+    assert.ok(index >= 0 && index < bound);
+    counts[index] += 1;
+  }
+  assert.equal(Math.max(...counts), Math.min(...counts));                 // 严格无偏
+  assert.equal(Math.min(...counts), Math.floor(limit / bound));
+}
+// 对照组：朴素取模确实有偏，说明上面的检验不是「永远通过」
+const naiveCounts = new Array(10).fill(0);
+for (let byte = 0; byte < 256; byte++) { naiveCounts[byte % 10] += 1; }
+assert.notEqual(Math.max(...naiveCounts), Math.min(...naiveCounts));
+assert.ok(passwords.customCharsetErrorText(customOptions, false).includes('至少'));
+assert.ok(passwords.customCharsetErrorText(customOptions, true).includes('at least'));
+customOptions.custom = 'ab';
+assert.equal(passwords.validPasswordOptions(customOptions), true);
+// 自定义字符集**取代**四个开关：全关掉 + 有自定义字符集仍然合法
+const customOnly = new passwords.PasswordOptions();
+customOnly.upper = false; customOnly.lower = false; customOnly.digits = false; customOnly.symbols = false;
+customOnly.custom = 'xyz';
+assert.equal(passwords.validPasswordOptions(customOnly), true);
+assert.deepEqual(passwords.passwordGroups(customOnly), ['xyz']);
+// 超过 bound ≤ 256 是硬约束，必须拒绝（否则 unbiasedIndex 会拿不到 -1 之外的合法结果）
+const tooManyOptions = new passwords.PasswordOptions();
+let manyChars = '';
+for (let code = 33; code < 33 + 260; code++) { manyChars += String.fromCharCode(code); }
+tooManyOptions.custom = manyChars;
+assert.equal(passwords.PASSWORD_CUSTOM_MAX, 256);
+assert.equal(passwords.customCharsetError(tooManyOptions), 'too_many');
+assert.equal(passwords.validPasswordOptions(tooManyOptions), false);
+assert.ok(passwords.customCharsetErrorText(tooManyOptions, false).includes('256'));
+// 生成结果只能由自定义字符组成，且长度正确
+const customGenerated = passwords.generatePassword(customOnly, (() => { let n = 0; return () => (n = (n * 7 + 3) % 256); })());
+assert.equal(customGenerated.length, customOnly.length);
+for (const character of customGenerated) {
+  assert.ok('xyz'.indexOf(character) >= 0, `unexpected char ${character}`);
+}
+assert.equal(passwords.entropyBits(customOnly), customOnly.length * Math.log2(3));
+// §3.23⑤ 长度即时校验文案
+assert.equal(passwords.passwordLengthErrorText(16, false), '');
+assert.equal(passwords.passwordLengthErrorText(8, false), '');
+assert.equal(passwords.passwordLengthErrorText(128, true), '');
+assert.ok(passwords.passwordLengthErrorText(7, false).includes('8–128'));
+assert.ok(passwords.passwordLengthErrorText(129, false).length > 0);
+assert.ok(passwords.passwordLengthErrorText(Number.NaN, false).length > 0);
+assert.ok(passwords.passwordLengthErrorText(16.5, true).includes('whole number'));
+// §3.23① 选项非法时 generatePassword 返回 undefined（以前抛异常）
+const badOptions = new passwords.PasswordOptions();
+badOptions.length = 4;
+assert.equal(passwords.generatePassword(badOptions, () => 0), undefined);
+// 随机源异常时也是 undefined，而不是异常冒到页面
+assert.equal(passwords.generatePassword(new passwords.PasswordOptions(), () => 999), undefined);
+assert.equal(passwords.generatePin(6, () => 999), undefined);
+// §3.23④ 位数走 PIN_LENGTHS 登记表
+assert.equal(passwords.generatePin(10, byteSequence([1, 2, 3, 4, 5, 7, 8, 9, 10, 11])).length, 10);
+assert.equal(passwords.generatePin(7, () => 0), undefined);
+assert.equal(passwords.generatePin(13, () => 0), undefined);
+// §3.23② 熵估算口径说明必须存在且中英各一
+assert.ok(passwords.entropyNoteText(false).includes('理论熵'));
+assert.ok(passwords.entropyNoteText(true).includes('character-set entropy'));
 
 // --- 个税：年终奖单独计税（奖金 ÷ 12 定档 + 临界点提示）---
-assert.deepEqual(tax.BONUS_LIMITS, [300000, 1200000, 2500000, 3500000, 5500000, 8000000]);
+// §3.8 速算扣除数只有一处定档实现（页面不再自己写循环），且政策复核日期可被界面读取
+assert.equal(tax.TAX_RULES_REVIEWED, '2026-10-12');
+assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(tax.TAX_RULES_REVIEWED));
+assert.equal(tax.bonusQuickDeductionCents(0), 0);
+assert.equal(tax.bonusQuickDeductionCents(-100), 0);
+// 与 bonusTax 用的同一档：36000 元奖金 ÷ 12 = 3000 → 3% 档，速算扣除数 0
+assert.equal(tax.bonusQuickDeductionCents(3600000), 0);
+assert.equal(tax.bonusTax(3600000).ratePercent, 3);
+// 36001 元 → ÷12 ≈ 3000.08 → 跨到 10% 档，速算扣除数 210 元
+assert.equal(tax.bonusQuickDeductionCents(3600100), 21000);
+assert.equal(tax.bonusTax(3600100).ratePercent, 10);
+// 速算扣除数必须与税率档一一对应（同一次定档，不允许两处不一致）
+for (const gross of [1000000, 3600000, 12000000, 25000000, 35000000, 55000000, 80000000, 100000000]) {
+  const result = tax.bonusTax(gross);
+  const index = tax.BONUS_RATES.indexOf(result.ratePercent);
+  assert.equal(tax.bonusQuickDeductionCents(gross), tax.BONUS_QUICK[index],
+    `quick deduction mismatch at ${gross}`);
+}
+
+// §3.10④ 单位换算输入只收十进制数字（不再静默接受 0x10 / 1e3 / Infinity）
+assert.equal(units.parseUnitInput('12.5'), 12.5);
+assert.equal(units.parseUnitInput('-7'), -7);
+assert.equal(units.parseUnitInput('.5'), 0.5);
+assert.equal(units.parseUnitInput('+3'), 3);
+assert.equal(units.parseUnitInput(' 42 '), 42);
+assert.equal(units.parseUnitInput('0x10'), undefined);
+assert.equal(units.parseUnitInput('1e3'), undefined);
+assert.equal(units.parseUnitInput('Infinity'), undefined);
+assert.equal(units.parseUnitInput('NaN'), undefined);
+assert.equal(units.parseUnitInput('1,000'), undefined);
+assert.equal(units.parseUnitInput('12 分'), undefined);
+assert.equal(units.parseUnitInput(''), undefined);
+assert.equal(units.parseUnitInput('   '), undefined);
+assert.equal(units.parseUnitInput('1.2.3'), undefined);
+// 合法输入仍然能算出结果（与既有换算函数串起来）
+assert.equal(units.convert(units.parseUnitInput('1'), category('length'), unit(category('length'), 'm'),
+  unit(category('length'), 'cm')), 100);
 assert.equal(tax.BONUS_RATES.length, tax.BONUS_LIMITS.length + 1);
 assert.equal(tax.BONUS_QUICK.length, tax.BONUS_LIMITS.length + 1);
 assert.deepEqual(tax.BONUS_TRAPS, [3600000, 14400000, 30000000, 42000000, 66000000, 96000000]);
@@ -3185,6 +5600,32 @@ assert.equal(baseTools.radixIndex('hex'), 3);
 assert.equal(baseTools.radixIndex('nope'), -1);
 assert.equal(baseTools.radixOption('hex').radix, 16);
 assert.equal(baseTools.radixOption('nope'), undefined);
+// §3.5② 位运算操作数可选进制：id → 基数/前缀（未知 id 回退十进制口径）
+assert.equal(baseTools.radixBase('bin'), 2);
+assert.equal(baseTools.radixBase('oct'), 8);
+assert.equal(baseTools.radixBase('dec'), 10);
+assert.equal(baseTools.radixBase('hex'), 16);
+assert.equal(baseTools.radixBase('nope'), 10);
+assert.equal(baseTools.radixInputPrefix('hex'), '0x');
+assert.equal(baseTools.radixInputPrefix('bin'), '0b');
+assert.equal(baseTools.radixInputPrefix('oct'), '0o');
+assert.equal(baseTools.radixInputPrefix('dec'), '');
+assert.equal(baseTools.radixInputPrefix('nope'), '');
+// 位运算按所选进制解析：同样的字符串在不同进制下是不同的数
+assert.equal(baseTools.parseRadix('10', baseTools.radixBase('bin')).value, 2);
+assert.equal(baseTools.parseRadix('10', baseTools.radixBase('oct')).value, 8);
+assert.equal(baseTools.parseRadix('10', baseTools.radixBase('dec')).value, 10);
+assert.equal(baseTools.parseRadix('10', baseTools.radixBase('hex')).value, 16);
+// 溢出与其他进制的非法字符仍然被拒
+assert.equal(baseTools.parseRadix('2', baseTools.radixBase('bin')).error, 'invalid');
+assert.equal(baseTools.parseRadix('g', baseTools.radixBase('hex')).error, 'invalid');
+// §3.5④ 位运算的错误文案与进制换算分开，且能区分三类原因
+assert.equal(baseTools.bitwiseParseError('', false), '');
+assert.ok(baseTools.bitwiseParseError('empty', false).includes('操作数'));
+assert.ok(baseTools.bitwiseParseError('invalid', false).includes('4294967295'));
+assert.ok(baseTools.bitwiseParseError('invalid', true).includes('32-bit'));
+assert.ok(baseTools.bitwiseParseError('overflow', false).includes('2^53'));
+assert.notEqual(baseTools.bitwiseParseError('invalid', false), baseTools.baseErrorText('invalid', false));
 assert.equal(baseTools.parseRadix('ff', 16).value, 255);
 assert.equal(baseTools.parseRadix('ff', 16).ok, true);
 assert.equal(baseTools.parseRadix('FF', 16).value, 255);
@@ -3220,7 +5661,67 @@ assert.equal(baseTools.bitwiseOpById('not').unary, true);
 assert.equal(baseTools.bitwiseOpById('and').unary, false);
 assert.equal(baseTools.bitwiseOpById('nope'), undefined);
 assert.equal(baseTools.UINT32_MAX, 4294967295);
+// 第 34 轮探针补充：**全部四个进制**做 radixText → parseRadix 往返（含 0 与 UINT32_MAX 两端），
+// 单点样例只能证明「那几个数对」，往返才能证明两条实现没有单边偏差。
+for (const option of baseTools.BASE_RADIXES) {
+  for (const value of [0, 1, 9, 10, 15, 16, 255, 256, 4095, 65535, 1000000, 2147483647, 4294967295]) {
+    const text = baseTools.radixText(value, option.radix);
+    const parsed = baseTools.parseRadix(text, option.radix);
+    assert.equal(parsed.ok, true, `${option.id} ${value} 应可解析：${text}`);
+    assert.equal(parsed.value, value, `${option.id} ${value} 往返不一致：${text}`);
+    // 第 62 轮：再加一层**独立参照**——往返只证明「自己跟自己对上」，与 `Number#toString(radix)`
+    // 对照才能证明编码本身符合常规（`parseRadix` 万一与 `radixText` 同向错，往返照样通过）。
+    assert.equal(text.toLowerCase(), value.toString(option.radix),
+      `${option.id} ${value} 应与 Number#toString 一致：${text}`);
+  }
+  // 该进制的输入前缀必须能被同一进制解析（前缀不是摆设）
+  const prefixed = baseTools.parseRadix(baseTools.radixInputPrefix(option.id) +
+    baseTools.radixText(255, option.radix), option.radix);
+  assert.equal(prefixed.ok, true);
+  assert.equal(prefixed.value, 255);
+}
 assert.equal(baseTools.bitwiseOp('and', 240, 15).value, 0);
+// 第 62 轮：位运算与**独立参考实现（BigInt 手算 32 位无界语义）**做系统对照。
+// 为什么值得单独做：上面这些点断言都是**手挑的样本**，只能证明「这几个值对」；位运算最容易错的是
+// ① 右移用了算术 `>>` 而不是逻辑 `>>>`（0x80000000 会变负数）；② 移位量 ≥32 被 JS **静默取模**
+// （`1 << 32 === 1`）。用 BigInt 复算一整片操作数矩阵，才能覆盖到没人手挑过的组合。
+{
+  const u32Ref = (value) => Number(BigInt.asUintN(32, value));
+  const reference = {
+    and: (a, b) => u32Ref(BigInt(a) & BigInt(b)),
+    or: (a, b) => u32Ref(BigInt(a) | BigInt(b)),
+    xor: (a, b) => u32Ref(BigInt(a) ^ BigInt(b)),
+    not: (a) => u32Ref(~BigInt(a)),
+    shl: (a, b) => u32Ref(BigInt(a) << BigInt(b)),
+    shr: (a, b) => u32Ref(BigInt(a) >> BigInt(b))
+  };
+  // 覆盖 0、1、边界位（0x7FFFFFFF / 0x80000000 / 0xFFFFFFFF）与一个普通值
+  const operands = [0, 1, 255, 65535, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFE, 0xFFFFFFFF, 123456789];
+  let checked = 0;
+  for (const opId of ['and', 'or', 'xor']) {
+    for (const a of operands) {
+      for (const b of operands) {
+        const got = baseTools.bitwiseOp(opId, a, b);
+        assert.equal(got.ok, true, `${opId}(${a}, ${b}) 应成功`);
+        assert.equal(got.value, reference[opId](a, b), `${opId}(${a}, ${b}) 应与参考实现一致`);
+        checked += 1;
+      }
+    }
+  }
+  for (const a of operands) {
+    assert.equal(baseTools.bitwiseOp('not', a, 0).value, reference.not(a), `not(${a})`);
+    for (let b = 0; b < 32; b++) {
+      assert.equal(baseTools.bitwiseOp('shl', a, b).value, reference.shl(a, b), `shl(${a}, ${b})`);
+      assert.equal(baseTools.bitwiseOp('shr', a, b).value, reference.shr(a, b), `shr(${a}, ${b})`);
+      checked += 2;
+    }
+    checked += 1;
+  }
+  assert.ok(checked > 500, `对照组合数应足够多，实际 ${checked}`);
+  // 最锋利的两个判别点单独再钉一次
+  assert.equal(baseTools.bitwiseOp('shr', 0x80000000, 1).value, 0x40000000, 'shr 必须是逻辑右移');
+  assert.equal(baseTools.bitwiseOp('shl', 0xFFFFFFFF, 1).value, 0xFFFFFFFE, 'shl 溢出仍是无符号 32 位');
+}
 assert.equal(baseTools.bitwiseOp('or', 240, 15).value, 255);
 assert.equal(baseTools.bitwiseOp('xor', 255, 15).value, 240);
 assert.equal(baseTools.bitwiseOp('not', 0, 0).value, 4294967295);
@@ -3234,6 +5735,33 @@ assert.equal(baseTools.bitwiseOp('shr', 1, -1).error, 'shift');
 assert.equal(baseTools.bitwiseOp('shl', 1, 1.5).error, 'shift');
 assert.equal(baseTools.bitwiseOp('and', -1, 0).error, 'invalid');
 assert.equal(baseTools.bitwiseOp('and', 4294967296, 0).error, 'invalid');
+// 第 79 轮：补上两处**此前确实没有断言**的能力（其余部分已被上面的 BigInt 参照矩阵、移位量守卫、
+// 内部分隔符容忍、溢出与前缀不匹配等覆盖；本轮核对确认了这一点，故只补缺口，不重复造断言）。
+// ① `radixText` 的有效进制是 **2–36**（登记表只暴露 4 个选项，但函数本身是通用的）——
+//    `radix` 不合法（1/37）才返回空串。用 `Number#toString(radix)` 当参照逐值比。
+for (const radix of [3, 5, 7, 17, 36]) {
+  for (const value of [0, 1, 255, 1234567, 4294967295]) {
+    assert.equal(baseTools.radixText(value, radix), value.toString(radix).toUpperCase(),
+      `radixText(${value}, ${radix}) 应与 toString(radix) 一致`);
+  }
+}
+assert.equal(baseTools.radixText(255, 1), '', 'radix 1 非法');
+assert.equal(baseTools.radixText(255, 37), '', 'radix 37 非法');
+assert.equal(baseTools.radixText(255, 36), '73', 'radix 36 合法（255 = 7×36 + 3）');
+// 任意合法进制下「输出 → 解析」都要能回到原值（现有往返断言只覆盖 4 个登记进制）
+for (let radix = 2; radix <= 36; radix++) {
+  for (const value of [0, 1, 255, 1234567]) {
+    assert.equal(baseTools.parseRadix(baseTools.radixText(value, radix), radix).value, value,
+      `进制 ${radix} 下 ${value} 的往返`);
+  }
+}
+// ② 进制前缀**大小写都要容忍**（现有断言只用了小写 `0x`/`0b`/`0o`）
+assert.equal(baseTools.parseRadix('0XFF', 16).value, 255, '大写 0X 前缀应被接受');
+assert.equal(baseTools.parseRadix('0B1010', 2).value, 10, '大写 0B 前缀应被接受');
+assert.equal(baseTools.parseRadix('0O17', 8).value, 15, '大写 0O 前缀应被接受');
+// 前缀只在**与该进制匹配**时才算前缀（`0b10` 在十六进制里是普通数字 → 2832；`0o10` 含 `o` 非法）
+assert.equal(baseTools.parseRadix('0b10', 16).value, 2832);
+assert.equal(baseTools.parseRadix('0o10', 16).error, 'invalid');
 assert.equal(baseTools.bitwiseOp('nope', 1, 1).error, 'invalid');
 assert.equal(baseTools.baseErrorText('', false), '');
 assert.ok(baseTools.baseErrorText('empty', false).length > 0);
@@ -3251,6 +5779,10 @@ assert.equal(networkTools.networkModeById('dns').zh, '域名解析');
 assert.equal(networkTools.networkModeById('nope'), undefined);
 assert.equal(networkTools.DEFAULT_TIMEOUT_MS, 5000);
 assert.equal(networkTools.MAX_BODY_BYTES, 262144);
+// 第 88 轮：页面那行说明把响应体上限写成「N KiB」，数字**由 `MAX_BODY_BYTES / 1024` 算出**
+// （此前页面硬写着 `256 KiB`，改常量就会与文案脱节）。因此这里钉住「是整 KiB」，否则文案会写成分数。
+assert.equal(networkTools.MAX_BODY_BYTES % 1024, 0, 'MAX_BODY_BYTES 应是整 KiB，否则界面文案会写成分数');
+assert.equal(networkTools.MAX_BODY_BYTES / 1024, 256);
 assert.equal(networkTools.HEADER_MAX, 50);
 assert.equal(networkTools.DEFAULT_HTTPS_PORT, 443);
 assert.equal(networkTools.normalizeHost('  Example.COM.  ').ok, true);
@@ -3296,6 +5828,77 @@ assert.equal(networkTools.parseUrlParts('ftp://a.com'), undefined);
 assert.equal(networkTools.parseUrlParts('https://a.com:'), undefined);
 assert.equal(networkTools.parseUrlParts('https://a b.com'), undefined);
 assert.equal(networkTools.parseUrlParts(''), undefined);
+// 第 76 轮：与 **Node 的 `URLSearchParams`**（独立参照）对照查询串解码——9 组全部一致。
+// 覆盖既有断言没碰的边：`?=v`（空 key）、`noequals`（没有 `=` 时 value 为空串，注释里写明的口径）、
+// `?`（无参数）、`%E4%B8%AD`（CJK 解码）、重复 key（**保留两条**，不合并）。
+{
+  const queryCases = [
+    ['https://a.com/?x=1&y=2', [['x', '1'], ['y', '2']]],
+    ['https://a.com/?x=1&x=2', [['x', '1'], ['x', '2']]],
+    ['https://a.com/?a=', [['a', '']]],
+    ['https://a.com/?', []],
+    ['https://a.com/?q=a%20b', [['q', 'a b']]],
+    ['https://a.com/?r=a+b', [['r', 'a b']]],
+    ['https://a.com/?noequals', [['noequals', '']]],
+    ['https://a.com/?=v', [['', 'v']]],
+    ['https://a.com/?k=%E4%B8%AD', [['k', '中']]]
+  ];
+  for (const [raw, expected] of queryCases) {
+    const params = networkTools.parseUrlParts(raw).params;
+    assert.equal(params.length, expected.length, `${raw} 的参数条数`);
+    params.forEach((param, index) => {
+      assert.equal(param.key, expected[index][0], `${raw} 第 ${index + 1} 个 key`);
+      assert.equal(param.value, expected[index][1], `${raw} 第 ${index + 1} 个 value`);
+    });
+    // 同一条输入交给 Node 的 URLSearchParams 作为参照，条数必须一致
+    assert.equal(expected.length, [...new URL(raw).searchParams.entries()].length, `${raw} 与参照条数`);
+  }
+}
+// 第 76 轮：本工具的**有意口径**（与 Node 的归一化不同，但都是「展示各部分」的合理选择），
+// 用断言把它们钉住，免得后来者按 Node 语义「修正」而改变用户看到的内容。
+{
+  // ① 显式默认端口**原样保留**（Node 会把 `:80`/`:443` 归一化掉，本工具保留用户输入）
+  assert.equal(networkTools.parseUrlParts('http://a.com:80/x').port, '80');
+  assert.equal(networkTools.parseUrlParts('https://a.com:443/x').port, '443');
+  // ② 路径原样保留（不百分号编码、不合并重复 `/`）
+  assert.equal(networkTools.parseUrlParts('https://a.com/a%20b').path, '/a%20b');
+  assert.equal(networkTools.parseUrlParts('https://a.com/路径').path, '/路径');
+  assert.equal(networkTools.parseUrlParts('https://a.com//a//b').path, '//a//b');
+  // ③ 主机去尾点（`normalizeHost` 的口径），大小写归一
+  assert.equal(networkTools.parseUrlParts('https://Example.com./x').host, 'example.com');
+  // ④ **文档写明的范围**：scheme 只允许 http/https；主机走 `normalizeHost`（因此用户名密码与 IPv6 字面量
+  //    都被拒——这两条已在 `normalizeHost` 的用例里覆盖 `user@host`），返回 undefined 而不是猜一个
+  assert.equal(networkTools.parseUrlParts('ftp://a.com'), undefined);
+  assert.equal(networkTools.parseUrlParts('file:///tmp/x'), undefined);
+  assert.equal(networkTools.parseUrlParts('https://user:pw@a.com/x'), undefined);
+  assert.equal(networkTools.parseUrlParts('https://[::1]:8080/x'), undefined);
+  // ⑤ 裸主机名（无 scheme）仍然解析，`scheme` 为空串
+  const bare = networkTools.parseUrlParts('example.com/x');
+  assert.equal(bare.scheme, '');
+  assert.equal(bare.host, 'example.com');
+}
+// 第 76 轮：端口边界表（补上「上界可用」与「前导零」两组既有断言没覆盖的）
+assert.equal(networkTools.parsePort('1').port, 1);
+assert.equal(networkTools.parsePort('65535').port, 65535);
+assert.equal(networkTools.parsePort('08080').port, 8080, '前导零按十进制解释');
+assert.equal(networkTools.parsePort('-1').error, 'invalid');
+assert.equal(networkTools.parsePort('8.5').error, 'invalid');
+assert.equal(networkTools.parsePort('1e3').error, 'invalid');
+assert.equal(networkTools.parsePort('99999999').error, 'invalid');
+// 第 76 轮：网络方式登记表（此前测试里 0 引用）——4 项、id 唯一、文案齐全，且「URL 分解」**离线可做**
+{
+  assert.equal(networkTools.NETWORK_MODES.length, 4);
+  assert.equal(new Set(networkTools.NETWORK_MODES.map((mode) => mode.id)).size, 4);
+  assert.ok(networkTools.NETWORK_MODES.every((mode) => mode.zh.length > 0 && mode.en.length > 0));
+  assert.deepEqual(networkTools.NETWORK_MODES.map((mode) => mode.id), ['dns', 'port', 'http', 'url']);
+  const urlMode = networkTools.NETWORK_MODES.find((mode) => mode.id === 'url');
+  assert.equal(urlMode.online, false, 'URL 分解不需要联网，应标注为离线能力');
+  assert.ok(networkTools.NETWORK_MODES.filter((mode) => mode.id !== 'url')
+    .every((mode) => mode.online === true), '其余三种是联网能力');
+  for (let index = 0; index < networkTools.NETWORK_MODES.length; index++) {
+    assert.equal(networkTools.networkModeIndex(networkTools.NETWORK_MODES[index].id), index);
+  }
+}
 const urlLines = networkTools.urlPartLines(urlParts, false);
 assert.equal(urlLines[0], '协议: https');
 assert.equal(urlLines[1], '主机: example.com');
@@ -3308,11 +5911,57 @@ assert.deepEqual(networkTools.sortHeaderLines(['server: nginx', 'Content-Type: t
   ['Content-Type: text/html', 'server: nginx']);
 // 同键保持原有相对顺序（稳定排序）
 assert.deepEqual(networkTools.sortHeaderLines(['a: 1', 'A: 2']), ['a: 1', 'A: 2']);
-assert.deepEqual(networkTools.truncateLines(['1', '2', '3', '4', '5'], 3), ['1', '2', '3', '… (+2 more)']);
+// §3.22 截断提示要跟随语言（此前写死英文 `… (+N more)`，中文界面会冒英文）
+assert.deepEqual(networkTools.truncateLines(['1', '2', '3', '4', '5'], 3, false), ['1', '2', '3', '… （另有 2 行）']);
+assert.deepEqual(networkTools.truncateLines(['1', '2', '3', '4', '5'], 3, true), ['1', '2', '3', '… (+2 more)']);
+assert.deepEqual(networkTools.truncateLines(['1', '2', '3', '4', '5'], 3), ['1', '2', '3', '… （另有 2 行）']);
 assert.deepEqual(networkTools.truncateLines(['1', '2'], 3), ['1', '2']);
 assert.deepEqual(networkTools.truncateLines(['1'], 0), []);
 assert.deepEqual(networkTools.addressLines(['1.2.3.4', '1.2.3.4', '', '::1', ' ']),
   ['IPv4  1.2.3.4', 'IPv6  ::1']);
+// 第 104 轮：上面几处都是点值，补三类**结构性/边界**断言（都是既有断言没覆盖到的）。
+// ① `normalizeHost` 的 DNS 长度规则：**单个标签 ≤63**、**整名 ≤253**——注意样本要**真的落在被检验的分支**上：
+//    我第一版用 `'a'.repeat(253)` 去测「253 应被接受」，结果被 63 规则正确拒绝，误报成缺陷。
+{
+  const label = 'a'.repeat(63);
+  const at253 = [label, label, label, 'a'.repeat(61)].join('.');      // 63×3 + 61 + 3 点 = 253，**合法**
+  assert.equal(at253.length, 253);
+  assert.equal(networkTools.normalizeHost(at253).ok, true, '整名恰好 253 应接受（每标签 ≤63）');
+  assert.equal(networkTools.normalizeHost([label, label, label, 'a'.repeat(62)].join('.').padEnd(254, 'a')).ok, false,
+    '整名 254 应拒绝');
+  assert.equal(networkTools.normalizeHost('a'.repeat(63)).ok, true, '单标签 63 合法');
+  assert.equal(networkTools.normalizeHost('a'.repeat(64)).ok, false, '单标签 64 非法（与整名上限是两条规则）');
+  assert.equal(networkTools.normalizeHost(at253).host, at253, '合法主机名原样返回（已小写）');
+  // IPv6 字面量不在范围内：`normalizeHost` 明确把 `:` 列为非法字符（URL 里的 `[::1]` 也解析不了）
+  assert.equal(networkTools.normalizeHost('[::1]').error, 'invalid');
+  assert.equal(networkTools.normalizeHost('::1').error, 'invalid');
+}
+// ② `urlPartLines` 的**查询参数行**与整体顺序（path → 每个查询参数 → fragment）：
+//    实现发 6 类标签（`Scheme/Host/Port/Path/Query/Fragment`），而注释原先只写了 5 项、漏掉查询行——
+//    第 104 轮已更正注释，这里把顺序钉住防止再漂移。
+{
+  const many = networkTools.parseUrlParts('https://example.com:8443/a/b?x=1&y=2#f');
+  const rendered = networkTools.urlPartLines(many, false);
+  assert.deepEqual(rendered, ['协议: https', '主机: example.com', '端口: 8443', '路径: /a/b',
+    '查询 1: x = 1', '查询 2: y = 2', '片段: f']);
+  // 每个查询参数各占一行、带序号；空键空值也要占位（`?a=1&&b=2` 的空对是**有意保留**的）
+  const emptyPair = networkTools.parseUrlParts('https://example.com/p?a=1&&b=2');
+  const emptyRendered = networkTools.urlPartLines(emptyPair, true);
+  assert.equal(emptyRendered.filter((line) => line.startsWith('Query ')).length, 3, '空对也要占一行（有意保留）');
+  assert.ok(emptyRendered.some((line) => line === 'Query 2:  = '), '空键空值渲染成 ` = `');
+}
+// ③ `sortHeaderLines` 不改入参；没有冒号的行不能被吞掉（`headerKey` 把整行当键）
+{
+  const source = ['b: 2', 'no-colon', 'A: 1'];
+  const snapshot = source.slice();
+  const sorted = networkTools.sortHeaderLines(source);
+  assert.deepEqual(source, snapshot, '排序不得改动入参');
+  assert.equal(sorted.length, 3, '没有冒号的行也要保留');
+  assert.deepEqual(sorted, ['A: 1', 'b: 2', 'no-colon'], '无冒号行按整行参与大小写不敏感的键比较');
+}
+// ④ `addressLines` 的行格式是「版本前缀 + **两个空格** + 地址」（我曾按单个冒号/空格去剥前缀而误判）
+assert.deepEqual(networkTools.addressLines(['2001:db8::1']), ['IPv6  2001:db8::1']);
+assert.deepEqual(networkTools.addressLines([]), []);
 assert.equal(networkTools.netErrorText('offline', false), '当前网络不可用');
 assert.equal(networkTools.netErrorText('refused', true), 'Connection refused');
 assert.equal(networkTools.netErrorText('unreachable', false), '连接被拒绝');
@@ -3368,6 +6017,18 @@ assert.ok(Math.abs(fxTools.convertFx(100, 'USD', 'CNY', fxTable) - 710) < 1e-9);
 assert.ok(Math.abs(fxTools.convertFx(100, 'CNY', 'USD', fxTable) - 100 / 7.1) < 1e-9);
 // from === to 严格还原原值
 assert.equal(fxTools.convertFx(100, 'USD', 'USD', fxTable), 100);
+// 第 34 轮探针补充：同币种换算在**任意**金额上都不该要求逐位精确——公式是
+// `amount / rates[from] * rates[to]`，`from == to` 时会引入 1e-14 量级的浮点噪声
+// （实测 123.456 CNY→CNY = 123.45599999999999，经 formatFxAmount 显示为 123.46）。
+// 因此断言用容差而不是 `===`，并把「展示结果不受噪声影响」也钉住，避免以后有人误当成缺陷去改公式。
+assert.ok(Math.abs(fxTools.convertFx(123.456, 'CNY', 'CNY', fxTable) - 123.456) < 1e-9);
+assert.equal(fxTools.formatFxAmount(fxTools.convertFx(123.456, 'CNY', 'CNY', fxTable), 'CNY'), '123.46');
+// 任意一对币种 A→B→A 都应回到原值（容差内）
+for (const pair of [['CNY', 'JPY'], ['USD', 'CNY'], ['JPY', 'USD']]) {
+  const there = fxTools.convertFx(250, pair[0], pair[1], fxTable);
+  const back = fxTools.convertFx(there, pair[1], pair[0], fxTable);
+  assert.ok(Math.abs(back - 250) < 1e-9, `${pair[0]}→${pair[1]}→${pair[0]} 往返不一致`);
+}
 assert.equal(fxTools.convertFx(10, 'USD', 'EUR', fxTable), undefined);
 assert.equal(fxTools.convertFx(10, 'USD', 'XXX', fxTable), undefined);
 assert.equal(fxTools.convertFx(-1, 'USD', 'CNY', fxTable), undefined);
@@ -3381,6 +6042,31 @@ assert.equal(fxRestored.rates.get('CNY'), 7.1);
 assert.equal(fxRestored.rates.get('JPY'), 150);
 assert.equal(fxTools.parseFxCache('nope'), undefined);
 assert.equal(fxTools.parseFxCache('{"rates":{}}'), undefined);
+// 第 65 轮补：**缓存与接口的容错口径是刻意不对称的**（`collectRates(raw, strictInvalid)`）——
+// 读接口时任一非法汇率都整体失败（上面 4719/4720 已钉），读缓存时**只丢弃那一条**、其余照常可用。
+// 这条不对称是「远端数据可疑就整体不要，本机缓存里个别脏值不该毁掉整张表」的实现，之前没有断言。
+const fxMixedCache = fxTools.parseFxCache('{"base":"CNY","rates":{' +
+  '"CNY":1,"USD":"0.14","JPY":-3,"EUR":0,"KRW":null,"GBP":1e400,"HKD":0.92},"fetchedAt":5}');
+assert.ok(fxMixedCache !== undefined, '缓存里有个别脏值时应仍可用');
+assert.equal(fxMixedCache.rates.get('CNY'), 1);
+assert.equal(fxMixedCache.rates.get('HKD'), 0.92, '好值必须保留');
+assert.equal(fxMixedCache.rates.has('USD'), false, '字符串汇率应丢弃');
+assert.equal(fxMixedCache.rates.has('JPY'), false, '负数汇率应丢弃');
+assert.equal(fxMixedCache.rates.has('EUR'), false, '零汇率应丢弃');
+assert.equal(fxMixedCache.rates.has('KRW'), false, 'null 应丢弃');
+assert.equal(fxMixedCache.rates.has('GBP'), false, '超上界（1e400→Infinity）应丢弃');
+// 缓存同样保证「表里含 base 自身」（与接口解析同一口径）
+assert.equal(fxTools.parseFxCache('{"base":"CNY","rates":{"USD":0.14},"fetchedAt":1}').rates.get('CNY'), 1);
+// 大小写不同的重复键统一成登记表写法，且以**最后一次**为准
+assert.equal(fxTools.parseFxCache('{"base":"CNY","rates":{"usd":0.1,"USD":0.2,"CNY":1},"fetchedAt":1}')
+  .rates.get('USD'), 0.2);
+// 往返要**逐值精确**：序列化不能引入任何取整/截断（用 1/3 这种无法有限表示的值兜住）
+const fxPreciseTable = new fxTools.FxTable();
+fxPreciseTable.base = 'CNY';
+fxPreciseTable.rates = new Map([['CNY', 1], ['USD', 1 / 3]]);
+fxPreciseTable.fetchedAt = 7;
+assert.equal(fxTools.parseFxCache(fxTools.serializeFxTable(fxPreciseTable)).rates.get('USD'), 1 / 3,
+  '高精度汇率必须原样往返（不能被 toFixed 之类截断）');
 assert.equal(fxTools.fxDataAgeText(0, 1000, false), '尚未获取汇率');
 assert.equal(fxTools.fxDataAgeText(0, 1000, true), 'Rates not fetched yet');
 assert.equal(fxTools.fxDataAgeText(1000, 1000 + 30000, false), '刚刚更新');
@@ -3393,6 +6079,130 @@ assert.equal(fxTools.fxDataAgeText(1000, 1000 + 50 * 3600000, false), '2 天前�
 assert.equal(fxTools.fxDataAgeText(1000, 1000 + 2 * 3600000, true), 'Updated 2 hours ago');
 assert.ok(fxTools.fxErrorText('nocache', true).includes('No cached rates'));
 assert.equal(fxTools.fxErrorText('', false), '');
+// 汇率量级守卫（2026-10-20 审计 P1）：被污染的极端值不能入缓存
+assert.equal(fxTools.FX_RATE_MIN, 1e-9);
+assert.equal(fxTools.FX_RATE_MAX, 1e9);
+assert.equal(fxTools.parseFxPayload('{"base_code":"USD","rates":{"CNY":1e300}}', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('{"base_code":"USD","rates":{"CNY":1e-300}}', 1).error, 'parse');
+assert.equal(fxTools.parseFxPayload('{"base_code":"USD","rates":{"CNY":7.1}}', 1).ok, true);
+// 货币金额固定两位小数；极小金额回退有效数字，避免显示成 0.00
+assert.equal(fxTools.formatFxAmount(0.1493960012), '0.15');
+assert.equal(fxTools.formatFxAmount(710), '710.00');
+assert.equal(fxTools.formatFxAmount(0), '0.00');
+assert.equal(fxTools.formatFxAmount(-12.345), '-12.35');
+// §3.10① 无「分」的币种（日元/韩元等）不显示两位小数
+assert.equal(fxTools.fxDecimals('JPY'), 0);
+assert.equal(fxTools.fxDecimals('KRW'), 0);
+assert.equal(fxTools.fxDecimals('jpy'), 0);
+assert.equal(fxTools.fxDecimals('CNY'), 2);
+assert.equal(fxTools.fxDecimals('USD'), 2);
+assert.equal(fxTools.fxDecimals('nope'), 2);
+assert.equal(fxTools.formatFxAmount(710, 'JPY'), '710');
+assert.equal(fxTools.formatFxAmount(710.4, 'JPY'), '710');
+assert.equal(fxTools.formatFxAmount(710.6, 'KRW'), '711');
+assert.equal(fxTools.formatFxAmount(0, 'JPY'), '0');
+assert.equal(fxTools.formatFxAmount(710, 'CNY'), '710.00');
+// 省略 code 时保持旧的「两位小数」口径（既有调用点与断言不受影响）
+assert.equal(fxTools.formatFxAmount(710), fxTools.formatFxAmount(710, 'CNY'));
+// 换成日元后极小的非零金额仍不用「0」糊弄，而是用有效数字
+assert.equal(fxTools.formatFxAmount(0.4, 'JPY'), '0.4');
+assert.equal(fxTools.formatFxAmount(-0.4, 'JPY'), '-0.4');
+assert.equal(fxTools.formatFxAmount(0.0001), '0.0001');
+assert.equal(fxTools.formatFxAmount(Number.NaN), '');
+assert.equal(fxTools.formatFxAmount(Number.POSITIVE_INFINITY), '');
+// 第 34 轮探针补充：**逐个币种**核对「展示格式」与「该币种的小数位」一致——
+// 将来往 FX_CURRENCIES 里加币种却忘了同步 FX_ZERO_DECIMAL（或反之）时，这条会立刻失败。
+for (const currency of fxTools.FX_CURRENCIES) {
+  const zeroDecimal = fxTools.FX_ZERO_DECIMAL.indexOf(currency.code) >= 0;
+  const text = fxTools.formatFxAmount(1234.56, currency.code);
+  assert.equal(fxTools.fxDecimals(currency.code), zeroDecimal ? 0 : 2, `${currency.code} decimals`);
+  assert.equal(fxTools.fxDecimals(currency.code.toLowerCase()), zeroDecimal ? 0 : 2, `${currency.code} lowercase`);
+  if (zeroDecimal) {
+    assert.equal(text.indexOf('.'), -1, `${currency.code} 不该出现小数点：${text}`);
+  } else {
+    const parts = text.split('.');
+    assert.equal(parts.length, 2, `${currency.code} 应恰好两位小数：${text}`);
+    assert.equal(parts[1].length, 2, `${currency.code} 小数位应为 2：${text}`);
+  }
+}
+// 无分币种名单可以比可选币种表更宽（CLP/ISK 目前未登记，但若上游返回它们也不能写小数）
+assert.ok(fxTools.FX_ZERO_DECIMAL.every((code) => fxTools.fxDecimals(code) === 0));
+assert.equal(fxTools.fxDecimals('CLP'), 0);
+assert.equal(fxTools.fxDecimals('clp'), 0);
+assert.equal(fxTools.fxDecimals('HUF'), 2);          // 两份名单都没提到 → 回退 2 位
+assert.ok(fxTools.FX_ZERO_DECIMAL.length >= 4);      // JPY/KRW/VND/IDR 至少这几个常用无分币种
+// 第 90 轮：**与 ISO 4217 的 minor unit 逐币种对照**。上面那条 loop 只做「两份**仓库内**名单互相一致」
+// ——两份名单一起写错时它照样通过（例如把 JPY 也加进 `FX_CURRENCIES` 的非零组、或把 THB 误列进
+// `FX_ZERO_DECIMAL`）。这里用**外部标准**钉住每个币种应有几位小数。
+{
+  const isoMinorUnits = {
+    CNY: 2, USD: 2, EUR: 2, JPY: 0, HKD: 2, GBP: 2, KRW: 0, SGD: 2, AUD: 2, CAD: 2, CHF: 2,
+    TWD: 2, THB: 2, MYR: 2, RUB: 2, INR: 2, NZD: 2, SEK: 2, NOK: 2, DKK: 2, PHP: 2,
+    // IDR 的 ISO minor unit 是 2，但 1/100 盾（仙）早已退出流通、实际报价都是整盾；
+    // 本表的口径是**展示习惯**（与本模块注释「最小单位就是 1」一致），故取 0。
+    IDR: 0, VND: 0, MOP: 2
+  };
+  for (const currency of fxTools.FX_CURRENCIES) {
+    assert.ok(isoMinorUnits[currency.code] !== undefined, `${currency.code} 未在 ISO 参照表里登记`);
+    assert.equal(fxTools.fxDecimals(currency.code), isoMinorUnits[currency.code],
+      `${currency.code} 的小数位应与 ISO 4217 minor unit 一致`);
+  }
+  // `fxDecimals()` 只返回 0 或 2：一旦登记了 3 位小数的币种（KWD/BHD/OMR/JOD/TND/LYD），
+  // 金额就会被截成两位。这里做成**绊线**——加这类币种时必须同时扩展 `fxDecimals()`。
+  assert.ok(['KWD', 'BHD', 'OMR', 'JOD', 'TND', 'LYD'].every((code) => fxTools.fxIndex(code) === -1),
+    '登记表里不应出现 3 位小数币种（否则 fxDecimals 的「只有 0 或 2 位」会算错）');
+}
+// 第 90 轮：**换算法则的性质**（此前只有若干点值）——恒等、可逆、线性、经基准一致。
+{
+  const fxTable = fxTools.parseFxPayload(
+    '{"base_code":"CNY","rates":{"CNY":1,"USD":0.14,"JPY":20.5,"EUR":0.13}}', 1).table;
+  assert.equal(fxTools.convertFx(7, 'USD', 'USD', fxTable), 7);
+  const there = fxTools.convertFx(100, 'USD', 'JPY', fxTable);
+  assert.ok(Math.abs(fxTools.convertFx(there, 'JPY', 'USD', fxTable) - 100) < 1e-9, 'A→B→A 应回到原值');
+  assert.ok(Math.abs(fxTools.convertFx(3, 'USD', 'EUR', fxTable) - 3 * fxTools.convertFx(1, 'USD', 'EUR', fxTable)) < 1e-12,
+    '换算应与金额成线性');
+  assert.ok(Math.abs(fxTools.convertFx(1, 'USD', 'EUR', fxTable) -
+    fxTools.convertFx(fxTools.convertFx(1, 'USD', 'CNY', fxTable), 'CNY', 'EUR', fxTable)) < 1e-12,
+    '交叉汇率应与「经由基准币种」一致');
+  // 汇率非正数/非有限 → 不猜、返回 undefined（不能让 NaN 流到界面）
+  const brokenTable = fxTools.parseFxPayload('{"base_code":"CNY","rates":{"CNY":1,"USD":0}}', 1).table;
+  assert.equal(fxTools.convertFx(1, 'USD', 'CNY', brokenTable), undefined);
+}
+// 第 90 轮：**序列化 → 解析要按「逐个登记币种」往返**（此前只验了一个币种的值与一个精度用例；
+// 币种码大小写、JSON 键拼接之类的问题只会在个别币种上出现）。
+{
+  const rates = {};
+  fxTools.FX_CURRENCIES.forEach((currency, index) => { rates[currency.code] = 1 + index * 0.37; });
+  rates['CNY'] = 1;
+  const original = new fxTools.FxTable();
+  original.base = 'CNY';
+  original.rates = new Map(Object.entries(rates));
+  original.fetchedAt = 1760000000000;
+  const restored = fxTools.parseFxCache(fxTools.serializeFxTable(original));
+  assert.ok(restored !== undefined);
+  assert.equal(restored.base, 'CNY');
+  assert.equal(restored.fetchedAt, 1760000000000);
+  for (const currency of fxTools.FX_CURRENCIES) {
+    assert.equal(restored.rates.get(currency.code), original.rates.get(currency.code),
+      `${currency.code} 的汇率应逐位往返一致`);
+  }
+  // 合并后原本可用的币对仍可换算（P1 的修复目标）
+  const merged = fxTools.mergeFxTable(original, fxTools.parseFxPayload(
+    '{"base_code":"CNY","rates":{"CNY":1,"USD":0.15}}', 2).table);
+  assert.ok(fxTools.convertFx(1, 'USD', 'JPY', merged) !== undefined, '合并后不应出现「没有缓存」');
+}
+// 合并：base 相同则保留新表没返回的旧币种；base 不同则只用新表
+const fxOld = fxTools.parseFxPayload('{"base_code":"USD","rates":{"USD":1,"CNY":7.1,"JPY":150}}', 10).table;
+const fxNew = fxTools.parseFxPayload('{"base_code":"USD","rates":{"USD":1,"CNY":7.2}}', 20).table;
+const fxMerged = fxTools.mergeFxTable(fxOld, fxNew);
+assert.equal(fxMerged.rates.get('CNY'), 7.2);
+assert.equal(fxMerged.rates.get('JPY'), 150);      // 新表没返回，保留旧值而不是让币对消失
+assert.equal(fxMerged.fetchedAt, 20);
+const fxOtherBase = fxTools.parseFxPayload('{"base_code":"CNY","rates":{"CNY":1,"USD":0.14}}', 30).table;
+const fxReplaced = fxTools.mergeFxTable(fxOld, fxOtherBase);
+assert.equal(fxReplaced.base, 'CNY');
+assert.equal(fxReplaced.rates.has('JPY'), false);  // 基准不同不混入旧绝对值
+assert.equal(fxTools.mergeFxTable(undefined, fxNew).rates.get('CNY'), 7.2);
 
 // --- 纪念日清单（纯逻辑：today 一律作为参数传入）---
 assert.equal(anniversaryTools.ANNIVERSARY_MAX, 20);
@@ -3406,6 +6216,76 @@ assert.deepEqual(anniversaryTools.parseAnniversaries('nope'), []);
 assert.deepEqual(anniversaryTools.parseAnniversaries('{}'), []);
 assert.deepEqual(anniversaryTools.parseAnniversaries(''), []);
 assert.deepEqual(anniversaryTools.parseAnniversaries('[]'), []);
+// §3.16③ 超上限的条目进 `overflow` 而不是被静默丢掉（调用方要能提示、且保存时写回去）
+const annMax = anniversaryTools.ANNIVERSARY_MAX;
+const overflowEntries = [];
+for (let index = 0; index < annMax + 3; index++) {
+  const entry = new anniversaryTools.Anniversary();
+  entry.id = 'id' + index;
+  entry.title = 'T' + index;
+  entry.date = '2026-01-01';
+  entry.createdAt = 1000 + index;
+  entry.yearly = true;
+  overflowEntries.push(entry);
+}
+const detailed = anniversaryTools.parseAnniversariesDetailed(JSON.stringify(overflowEntries));
+assert.equal(detailed.items.length, annMax);
+assert.equal(detailed.overflow.length, 3);
+assert.equal(detailed.droppedInvalid, 0);
+// 兼容入口仍然只返回上限内的条目
+assert.equal(anniversaryTools.parseAnniversaries(JSON.stringify(overflowEntries)).length, annMax);
+// 第 33 轮探针补充：溢出计数的**边界两侧**（恰好 annMax 条不该出现「有 N 条未显示」的提示）
+const exactlyMaxEntries = overflowEntries.slice(0, annMax);
+const exactlyMax = anniversaryTools.parseAnniversariesDetailed(JSON.stringify(exactlyMaxEntries));
+assert.equal(exactlyMax.items.length, annMax);
+assert.equal(exactlyMax.overflow.length, 0);
+assert.equal(anniversaryTools.anniversaryOverflowNoteText(exactlyMax.overflow.length, false), '');
+const oneOverEntries = overflowEntries.slice(0, annMax + 1);
+const oneOver = anniversaryTools.parseAnniversariesDetailed(JSON.stringify(oneOverEntries));
+assert.equal(oneOver.items.length, annMax);
+assert.equal(oneOver.overflow.length, 1);
+assert.ok(anniversaryTools.anniversaryOverflowNoteText(oneOver.overflow.length, false).includes('1 条'));
+assert.equal(anniversaryTools.anniversaryOverflowNoteText(0, false), '');
+assert.equal(anniversaryTools.anniversaryOverflowNoteText(-1, false), '');
+// 不合法条目单独计数（空标题 / 日期非法 / 重复 id）
+const mixedEntries = overflowEntries.slice(0, 2);
+const brokenEntry = new anniversaryTools.Anniversary();
+brokenEntry.id = 'bad';
+brokenEntry.title = '';
+brokenEntry.date = '2026-01-01';
+brokenEntry.createdAt = 1;
+mixedEntries.push(brokenEntry);
+const duplicate = new anniversaryTools.Anniversary();
+duplicate.id = 'id0';
+duplicate.title = 'dup';
+duplicate.date = '2026-01-01';
+duplicate.createdAt = 2;
+mixedEntries.push(duplicate);
+const mixed = anniversaryTools.parseAnniversariesDetailed(JSON.stringify(mixedEntries));
+assert.equal(mixed.items.length, 2);
+assert.equal(mixed.droppedInvalid, 2);
+assert.equal(mixed.overflow.length, 0);
+// 超限提示只在真的超限时给，且两个语言都带上数量
+assert.equal(anniversaryTools.anniversaryOverflowNoteText(0, false), '');
+assert.ok(anniversaryTools.anniversaryOverflowNoteText(3, false).includes('3'));
+assert.ok(anniversaryTools.anniversaryOverflowNoteText(3, true).includes('3'));
+assert.ok(anniversaryTools.anniversaryOverflowNoteText(3, true).includes(String(annMax)));
+// 第 25 轮自查：超容量判定与提示必须共用同一个谓词（此前 `qrCapacityExceeded` 是没人调用的死导出，
+// `qrCapacityErrorText` 自己又写了一份比较）——用边界值把两者的结论钉成一致。
+assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(1273), 'H'), false);
+assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(1274), 'H'), true);
+assert.equal(qrStyle.qrCapacityErrorText('a'.repeat(1273), 'H', false), '');
+assert.notEqual(qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false), '');
+assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(2953), 'L'), false);
+assert.equal(qrStyle.qrCapacityExceeded('a'.repeat(2954), 'L'), true);
+assert.equal(qrStyle.qrCapacityErrorText('a'.repeat(2953), 'L', true), '');
+assert.notEqual(qrStyle.qrCapacityErrorText('a'.repeat(2954), 'L', true), '');
+// §3.22 只支持 HTTPS 要有专门的文案，不能与「输入无效」混为一谈
+assert.ok(networkTools.netErrorText('https', false).includes('HTTPS'));
+assert.ok(networkTools.netErrorText('https', true).includes('HTTPS'));
+assert.notEqual(networkTools.netErrorText('https', false), networkTools.netErrorText('invalid', false));
+// 网址分解仍然接受 http:// （只解析不连接是它的正当用途）
+assert.equal(networkTools.parseUrlParts('http://example.com/a') !== undefined, true);
 // 单条不合法只丢那一条：空标题 / 坏日期 / 非有限 createdAt / 重复 id
 const anniversaryRaw = JSON.stringify([
   { id: 'a1', title: '生日', date: '2026-05-01', yearly: true, createdAt: 10 },
@@ -3430,6 +6310,21 @@ for (let index = 0; index < 25; index++) {
 }
 assert.equal(anniversaryTools.parseAnniversaries(JSON.stringify(anniversaryMany)).length, 20);
 assert.equal(anniversaryTools.parseAnniversaries(anniversaryTools.serializeAnniversaries(anniversaryMany)).length, 20);
+// 第 24 轮自查：落盘用的是**存储上限**，因此「界面上限内的条目 + 未显示的溢出条目」整体能存下。
+// 第一版把落盘也按 ANNIVERSARY_MAX 截断，溢出条目实际还是被丢掉了（探针实测 20+3 → 读回 20）。
+assert.equal(anniversaryTools.ANNIVERSARY_STORE_MAX > anniversaryTools.ANNIVERSARY_MAX, true);
+const twentyPlusThree = anniversaryMany.slice(0, 23);
+const annivRoundTrip = anniversaryTools.parseAnniversariesDetailed(
+  anniversaryTools.serializeAnniversaries(twentyPlusThree));
+assert.equal(annivRoundTrip.items.length, 20);
+assert.equal(annivRoundTrip.overflow.length, 3);
+// 存储上限本身仍然生效（防止文件无限增长）：构造 STORE_MAX + 5 条，落盘后应只剩 STORE_MAX 条
+const overStore = [];
+for (let index = 0; index < anniversaryTools.ANNIVERSARY_STORE_MAX + 5; index++) {
+  overStore.push(anniversaryTools.newAnniversary('多' + index, '2026-05-01', true, 500 + index, index));
+}
+assert.equal(JSON.parse(anniversaryTools.serializeAnniversaries(overStore)).length,
+  anniversaryTools.ANNIVERSARY_STORE_MAX);
 // 每年重复：今年未到取今年，已过顺延到明年；平年 2/29 按 2/28
 assert.equal(anniversaryTools.nextOccurrence('2026-05-01', '2026-01-01', true), '2026-05-01');
 assert.equal(anniversaryTools.nextOccurrence('2026-05-01', '2026-05-01', true), '2026-05-01');
@@ -3445,6 +6340,50 @@ assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-05-01', true), 0);
 assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-05-02', true), 364);
 assert.equal(anniversaryTools.daysUntil('2026-05-01', '2026-06-01', false), -31);
 assert.equal(anniversaryTools.daysUntil('bad', '2026-05-01', false), undefined);
+// 第 64 轮：上面都是**手挑的点**；这里补两条系统性判据（都不依赖被测实现）。
+// ① `nextOccurrence(yearly)` 的不变量：结果必须在今天或未来、相隔不超过 366 天、且保持原月日
+//    （闰日 02-29 按文档的政策落 02-28 或 02-29）。
+// ② `daysUntil` 与**独立 UTC 日差**（自己用 Date.UTC 算）逐项对照——手挑样本只能证明「那几个数对」。
+{
+  const utcDayDiff = (from, to) => {
+    const parts = (value) => Date.UTC(Number(value.substring(0, 4)), Number(value.substring(5, 7)) - 1,
+      Number(value.substring(8, 10)));
+    return Math.round((parts(to) - parts(from)) / 86400000);
+  };
+  const todayMatrix = ['2026-01-01', '2026-06-15', '2026-12-31', '2027-02-27', '2027-02-28', '2027-03-01',
+    '2028-02-28', '2028-02-29', '2028-03-01', '2033-01-31'];
+  const dateMatrix = ['2020-06-15', '2024-02-29', '2026-12-31', '2026-01-01', '1990-03-08'];
+  let checkedOccurrences = 0;
+  for (const today of todayMatrix) {
+    for (const date of dateMatrix) {
+      const next = anniversaryTools.nextOccurrence(date, today, true);
+      assert.ok(next.length > 0, `${date} @ ${today} 应能算出下一次`);
+      const delta = utcDayDiff(today, next);
+      assert.ok(delta >= 0 && delta <= 366, `${date} @ ${today} → ${next} 应落在 0–366 天内（实际 ${delta}）`);
+      const sourceMonthDay = date.substring(5);
+      const gotMonthDay = next.substring(5);
+      if (sourceMonthDay === '02-29') {
+        assert.ok(gotMonthDay === '02-29' || gotMonthDay === '02-28',
+          `闰日 ${date} @ ${today} → ${next} 应落 02-29 或 02-28`);
+      } else {
+        assert.equal(gotMonthDay, sourceMonthDay, `${date} @ ${today} → ${next} 应保持月日`);
+      }
+      // daysUntil 必须等于独立算出的日差
+      assert.equal(anniversaryTools.daysUntil(date, today, true), delta, `${date} @ ${today} 的天数`);
+      checkedOccurrences += 1;
+    }
+  }
+  assert.ok(checkedOccurrences >= 50, `组合数应足够多：${checkedOccurrences}`);
+  // 闰日的跨闰年边界（文档政策：平年按 02-28）
+  assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2027-01-01', true), '2027-02-28');
+  assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2027-02-27', true), '2027-02-28');
+  assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2027-02-28', true), '2027-02-28');
+  assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2027-03-01', true), '2028-02-29');
+  assert.equal(anniversaryTools.daysUntil('2024-02-29', '2027-03-01', true), 365);
+  assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2028-01-01', true), '2028-02-29');
+  assert.equal(anniversaryTools.nextOccurrence('2024-02-29', '2028-03-01', true), '2029-02-28');
+  assert.equal(anniversaryTools.daysUntil('2024-02-29', '2026-03-01', true), 364);
+}
 // 展示文案
 assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-05-01', false), '就是今天');
 assert.equal(anniversaryTools.anniversaryText(anniversaryNew, '2026-05-01', true), 'Today');
@@ -3456,6 +6395,18 @@ assert.equal(anniversaryTools.anniversaryText(anniversaryPast, '2026-06-01', fal
 assert.equal(anniversaryTools.anniversaryText(anniversaryPast, '2026-06-01', true), '31 days ago');
 const anniversaryBad = anniversaryTools.newAnniversary('坏的', '2025-02-30', false, 200, 0);
 assert.equal(anniversaryTools.anniversaryText(anniversaryBad, '2026-06-01', false), '日期无效');
+// 「第 N 周年」（2026-10-20 审计 P1）：按**下一次发生的那一年**与起始年的差算；一次性条目不给该文案
+const anniversaryYears = anniversaryTools.newAnniversary('结婚', '2020-05-01', true, 300, 0);
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryYears, '2026-05-01', false), '第 6 周年');
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryYears, '2026-05-01', true), 'Anniversary #6');
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryYears, '2026-10-20', false), '第 7 周年'); // 下一次是 2027-05-01
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryYears, '2020-05-01', false), '');          // 起始当天不显示「第 0 周年」
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryYears, '2019-01-01', false), '');          // 起始年之前
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryPast, '2026-06-01', false), '');           // 一次性
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryBad, '2026-06-01', false), '');
+// 2 月 29 日生日在平年按 2 月 28 日，周年数仍按年份差算
+const anniversaryLeap = anniversaryTools.newAnniversary('生日', '2000-02-29', true, 400, 0);
+assert.equal(anniversaryTools.anniversaryCountText(anniversaryLeap, '2026-03-01', false), '第 27 周年');
 // 排序：今天最先 → 未来近的在前 → 已过的一次性/非法日期排最后（最后组内按 createdAt）
 const anniversaryUnsorted = [
   anniversaryTools.newAnniversary('未来 5 天', '2026-05-15', true, 50, 0),
@@ -3587,10 +6538,76 @@ assert.ok(torchSignal.torchModeLabel('nope', true).length > 0);
 assert.deepEqual(torchSignal.SCREEN_TONES.map((entry) => entry.id), ['cool', 'warm']);
 assert.ok(torchSignal.screenToneLabel('nope', true).length > 0);
 assert.equal(torchSignal.screenToneIndex('nope'), 0);
+// 屏幕补光亮度档（2026-10-20 第 5 轮）：与硬件手电筒档位分开，未知 id 回退默认且绝不为 0
+assert.deepEqual(torchSignal.SCREEN_LIGHT_LEVELS.map((entry) => entry.id), ['low', 'medium', 'high']);
+assert.equal(torchSignal.DEFAULT_SCREEN_LIGHT_LEVEL, 'high');
+assert.equal(torchSignal.screenLightRatio('low'), 0.35);
+assert.equal(torchSignal.screenLightRatio('medium'), 0.65);
+assert.equal(torchSignal.screenLightRatio('high'), 1);
+assert.equal(torchSignal.screenLightRatio('nope'), 1);            // 回退默认档
+assert.equal(torchSignal.screenLightRatio('') > 0, true);         // 绝不返回 0（0 是黑屏）
+assert.equal(torchSignal.screenLightLevelIndex('nope'), 2);
+assert.equal(torchSignal.screenLightLevelLabel('low', false), '弱');
+assert.equal(torchSignal.screenLightLevelLabel('low', true), 'Dim');
+assert.equal(torchSignal.screenLightLevelLabel('nope', false), '强');
+// 与硬件手电筒档位互不干扰（两套常量各自独立）
+assert.deepEqual(torchSignal.BRIGHTNESS_OPTIONS, [25, 50, 75, 100]);
+assert.equal(torchSignal.SCREEN_LIGHT_LEVELS.length, 3);
+// 第 99 轮：**登记表就是文案的单一数据源**——上面这些断言都是「把值再抄一遍」，
+// 于是登记表改了文案、标签函数没改（或反之）时**两边各说各话却都能过**。这里改成**由登记表派生**：
+// 遍历登记项，断言标签函数返回的就是该项自带的 `titleZh`/`titleEn`（改一处就失败）。
+{
+  const derivedPairs = [
+    ['TORCH_MODES', 'torchModeLabel'],
+    ['TORCH_SIGNALS', 'torchSignalLabel'],
+    ['SCREEN_LIGHT_LEVELS', 'screenLightLevelLabel'],
+    ['SCREEN_TONES', 'screenToneLabel']
+  ];
+  let derivedChecked = 0;
+  for (const [tableName, mapperName] of derivedPairs) {
+    const table = torchSignal[tableName];
+    const mapper = torchSignal[mapperName];
+    const seenZh = new Set();
+    const seenEn = new Set();
+    for (const entry of table) {
+      assert.equal(mapper(entry.id, false), entry.titleZh, `${tableName}.${entry.id} 的中文文案应与登记表一致`);
+      assert.equal(mapper(entry.id, true), entry.titleEn, `${tableName}.${entry.id} 的英文文案应与登记表一致`);
+      // 单射：两个不同登记项不得显示成同一句话（否则下拉里分不清选的是哪个）
+      assert.ok(!seenZh.has(entry.titleZh), `${tableName} 的中文文案重复：${entry.titleZh}`);
+      assert.ok(!seenEn.has(entry.titleEn), `${tableName} 的英文文案重复：${entry.titleEn}`);
+      seenZh.add(entry.titleZh);
+      seenEn.add(entry.titleEn);
+      derivedChecked += 1;
+    }
+  }
+  assert.equal(derivedChecked, 12, '四张登记表共 12 项（TORCH_MODES 5 + TORCH_SIGNALS 2 + SCREEN_LIGHT_LEVELS 3 + SCREEN_TONES 2）');
+  // `torchSignalNote` 同理（SOS/引导定位的说明句来自登记表的 noteZh/noteEn）
+  for (const entry of torchSignal.TORCH_SIGNALS) {
+    assert.equal(torchSignal.torchSignalNote(entry.id, false), entry.noteZh);
+    assert.equal(torchSignal.torchSignalNote(entry.id, true), entry.noteEn);
+  }
+  // 历史类别：**条目文案**同样由登记表派生——但 `all` 是**筛选专用**值、不是条目类别，
+  // `historyKindLabel('all')` 有意给通用词「记录」（源码注释写明「不把内部 id 暴露给用户」），
+  // 它由 `historyFilters()` 走登记表文案「全部」——**两种角色不要混成一处**（第 99 轮核对确认这是设计）。
+  for (const entry of historyKinds.HISTORY_KINDS) {
+    if (entry.id === 'all') { continue; }
+    assert.equal(historyKinds.historyKindLabel(entry.id, false), entry.zh, `${entry.id} 的中文类别文案`);
+    assert.equal(historyKinds.historyKindLabel(entry.id, true), entry.en, `${entry.id} 的英文类别文案`);
+  }
+  assert.equal(historyKinds.historyKindLabel('all', false), '记录', 'all 不是条目类别，给通用词');
+  assert.equal(historyKinds.historyKindLabel('all', true), 'Record');
+  assert.equal(historyKinds.historyFilters()[0].zh, '全部', '筛选下拉里的 all 走登记表文案');
+  assert.ok(!historyKinds.historyFilters()[0].zh.includes('记录'), '筛选项不该显示成「记录」');
+}
 
 // 错误码文案：不可用与不支持必须区分
 assert.notEqual(torchSignal.torchErrorText('busy', false), torchSignal.torchErrorText('other', false));
 assert.ok(torchSignal.torchErrorText('busy', true).length > 0);
+// §3.20③ 「占用」不只指相机（系统限流/其它应用持有），文案要中性并要求重试
+assert.ok(torchSignal.torchErrorText('busy', false).indexOf('占用') >= 0);
+assert.ok(torchSignal.torchErrorText('busy', true).indexOf('busy') >= 0);
+assert.ok(torchSignal.torchErrorText('busy', false).indexOf('相机') < 0);
+assert.ok(torchSignal.torchErrorText('busy', true).indexOf('camera') < 0);
 
 // 沉浸式系统栏配色登记表（全局沉浸）
 // 两个系统栏的底色都必须透明：沉浸式布局下页面背景自己铺到系统栏之下，系统栏再上色就会盖出色带。
@@ -3613,5 +6630,1544 @@ assert.equal(immersiveBars.immersiveBarStyle(true).id, 'dark');
 // 取色不会返回 undefined，未知入参也落在登记表内
 assert.equal(immersiveBars.IMMERSIVE_BAR_STYLES.indexOf(immersiveBars.immersiveBarStyle(false)), 0);
 assert.equal(immersiveBars.IMMERSIVE_BAR_STYLES.indexOf(immersiveBars.immersiveBarStyle(true)), 1);
+
+// ---------------------------------------------------------------------------
+// 第 39 轮：按「逐函数覆盖审计」补上 13 个在单测里**从未出现**的导出函数。
+// 审计口径：模块里 `export function X` 的名字若在测试文件里一次都没出现，就说明这块没测
+// （444 个导出函数里有 13 个零引用）。其中唯一**用户可见**的缺口是 `seededDraws`/`seedFromText`——
+// 文档承诺「同一个种子重复点同一动作得到同一结果」，此前没有任何断言验证过。
+// ---------------------------------------------------------------------------
+// ① 可复现随机：同种子同结果、不同种子不同、且必须经 indexFromDraw 组合
+const seededSequence = (seed, count) => {
+  const draw = randomTools.seededDraws(seed);
+  const out = [];
+  for (let index = 0; index < count; index++) { out.push(draw()); }
+  return out;
+};
+const seedA = seededSequence(42, 8);
+assert.deepEqual(seedA, seededSequence(42, 8));               // 同种子完全一致
+assert.notDeepEqual(seedA, seededSequence(43, 8));            // 不同种子不同
+assert.ok(seedA.every((v) => v >= 0 && v < 1));               // 落在 [0,1)
+assert.equal(new Set(seedA.map(String)).size, seedA.length);  // 不是常量序列
+// 文本 → 种子 → 随机源：端到端可复现（页面真正依赖的链路）
+const seededShuffle = (text) => {
+  const draw = randomTools.seededDraws(randomTools.seedFromText(text));
+  return randomTools.shuffleCandidates('甲\n乙\n丙\n丁\n戊',
+    (bound) => randomTools.indexFromDraw(draw(), bound));
+};
+assert.deepEqual(seededShuffle('名单A'), seededShuffle('名单A'));
+assert.notDeepEqual(seededShuffle('名单A'), seededShuffle('名单B'));
+assert.deepEqual([...seededShuffle('名单A')].sort(), ['丁', '丙', '乙', '戊', '甲'].sort());
+// seedFromText 的性质：稳定、区分大小写、**不静默 trim**、恒为 32 位无符号整数
+assert.equal(randomTools.seedFromText('抽签'), randomTools.seedFromText('抽签'));
+assert.notEqual(randomTools.seedFromText('a'), randomTools.seedFromText('A'));
+assert.notEqual(randomTools.seedFromText('abc'), randomTools.seedFromText('abc '));
+for (const text of ['', 'a', '中文', '😀']) {
+  const seed = randomTools.seedFromText(text);
+  assert.ok(Number.isInteger(seed) && seed >= 0 && seed <= 0xFFFFFFFF, `种子越界: ${text}`);
+}
+// indexFromDraw：把 [0,1) 映射成 [0,bound) 的下标，边界不能越界
+for (const bound of [1, 2, 6, 100]) {
+  for (const draw of [0, 0.25, 0.5, 0.999999, 1]) {
+    const index = randomTools.indexFromDraw(draw, bound);
+    assert.ok(index >= 0 && index < bound, `indexFromDraw(${draw}, ${bound}) = ${index}`);
+  }
+}
+assert.equal(randomTools.indexFromDraw(0, 6), 0);
+assert.equal(randomTools.indexFromDraw(0.999999, 6), 5);
+// 第 81 轮：**查出的真缺陷**——`seedFromText` 原来用 `charCodeAt & 0xff` 且用普通 `*` 做 FNV 乘法，
+// 于是（a）只在高字节上不同的文本恒得同一种子、（b）乘积约 2^56 超过 2^53 丢低位、种子按 `% 16`
+// 分桶严重不均（实测 χ² ≈ 23199）。现已改为**标准 FNV-1a**（UTF-8 字节 + `Math.imul`）。下面四条
+// 断言正好是当时**缺失的那几条**：与标准实现逐值对照、低字节碰撞、分布均匀性、无碰撞。
+{
+  // ① 与标准 FNV-1a（UTF-8 字节 + 精确 32 位乘法）逐值对照——用普通 `*` 会在多数输入上偏离
+  const canonicalSeed = (text) => {
+    let hash = 0x811c9dc5;
+    for (const byte of [...Buffer.from(text, 'utf8')]) {
+      hash ^= byte;
+      hash = Math.imul(hash, 0x01000193);
+    }
+    const unsigned = hash >>> 0;
+    return unsigned === 0 ? 1 : unsigned;
+  };
+  for (const text of ['', 'a', 'abc', 'hello world', '中', '中文', '😀', 'seed', 'Seed', 'a1b2c3',
+    '抽签', '掷骰子', 'x'.repeat(50), 'the quick brown fox', '-', 'A', 'Ł', 'š']) {
+    assert.equal(randomTools.seedFromText(text), canonicalSeed(text),
+      `seedFromText(${JSON.stringify(text)}) 应符合标准 FNV-1a`);
+  }
+  // ② 只在高字节上不同的字符必须有**不同**的种子（旧实现恒相同：'中' 与 '-' 都拿到 671913016）
+  assert.notEqual(randomTools.seedFromText('中'), randomTools.seedFromText('-'), '低字节截断造成的碰撞必须已消除');
+  assert.notEqual(randomTools.seedFromText('A'), randomTools.seedFromText('Ł'));
+  assert.notEqual(randomTools.seedFromText('a'), randomTools.seedFromText('š'));
+  // ③ 空串是**确定的**：得到 FNV 偏移基数 `0x811c9dc5`（不是 1；`=== 0 → 1` 是防 0 的兜底）
+  assert.equal(randomTools.seedFromText(''), 0x811c9dc5);
+  // ④ 分布均匀性：16000 个关键词按 `% 16` 分桶，χ² 必须远低于临界值 37.7（df=15, p=0.001）。
+  //    旧实现这里是 23199——**这条断言就是那个缺陷的探针**。
+  {
+    const buckets = new Array(16).fill(0);
+    for (let index = 0; index < 16000; index++) { buckets[randomTools.seedFromText('key' + index) % 16] += 1; }
+    const expected = 16000 / 16;
+    const chiSquare = buckets.reduce((sum, count) => sum + Math.pow(count - expected, 2) / expected, 0);
+    assert.ok(chiSquare < 37.7, `种子分桶应均匀，实测 χ² = ${chiSquare.toFixed(2)}`);
+  }
+  // ⑤ 大量关键词不应出现种子碰撞
+  {
+    const seen = new Set();
+    let collisions = 0;
+    for (let index = 0; index < 20000; index++) {
+      const seed = randomTools.seedFromText('kw' + index);
+      if (seen.has(seed)) { collisions += 1; } else { seen.add(seed); }
+    }
+    assert.equal(collisions, 0, '2 万个不同关键词不应有种子碰撞');
+  }
+}
+// 第 81 轮：`seededDraws` 与 **xorshift32(13,17,5)** 参考实现逐值一致（此前只测过「同种子同结果」，
+// 没验过序列本身；序列被改坏时「可复现」依然成立，所以必须与参考实现比对）。
+{
+  const referenceDraws = (seed) => {
+    let state = (Math.floor(Math.abs(seed)) >>> 0) || 0x9e3779b9;
+    return () => {
+      state ^= state << 13; state >>>= 0;
+      state ^= state >>> 17;
+      state ^= state << 5; state >>>= 0;
+      return state / 4294967296;
+    };
+  };
+  for (const seed of [1, 42, 12345, 20261020, 0, -7]) {
+    const got = randomTools.seededDraws(seed);
+    const want = referenceDraws(seed);
+    for (let step = 0; step < 50; step++) {
+      assert.equal(got(), want(), `seededDraws(${seed}) 第 ${step + 1} 个取值`);
+    }
+  }
+  // 分布均匀性（用**固定种子**驱动 → 可复现，不会 flaky）：16 桶 χ² < 45
+  {
+    const draws = randomTools.seededDraws(20261020);
+    const buckets = new Array(16).fill(0);
+    for (let index = 0; index < 10000; index++) { buckets[randomTools.indexFromDraw(draws(), 16)] += 1; }
+    const expected = 10000 / 16;
+    const chiSquare = buckets.reduce((sum, count) => sum + Math.pow(count - expected, 2) / expected, 0);
+    assert.ok(chiSquare < 45, `seededDraws 16 桶应均匀，实测 χ² = ${chiSquare.toFixed(2)}`);
+    assert.ok(Math.min(...buckets) > 0, '16 桶不应有空桶');
+  }
+}
+// 第 81 轮：抽取类函数按**真实签名**调用（`randomInteger` 第三参是**数值**取值、
+// `randomIntegers`/`drawCandidates`/`shuffleCandidates` 收 `nextIndex` 函数、加权抽取收 `draw()` 函数）。
+{
+  // randomInteger：一次抽一个（第三参是 [0,1) 的取值）
+  for (const draw of [0, 0.5, 0.999999]) {
+    const value = randomTools.randomInteger(1, 10, draw);
+    assert.ok(Number.isInteger(value) && value >= 1 && value <= 10, `randomInteger(1,10,${draw}) = ${value}`);
+  }
+  // randomIntegers：**同一个**随机源要复用（每次新建会退化成常量序列）
+  const makeNext = (seed) => {
+    const draws = randomTools.seededDraws(seed);
+    return (bound) => randomTools.indexFromDraw(draws(), bound);
+  };
+  const picked = randomTools.randomIntegers(1, 20, 5, makeNext(99));
+  assert.ok(picked !== undefined && picked.length === 5 && new Set(picked).size === 5, '应取到 5 个互不重复的数');
+  assert.ok(picked.every((value) => value >= 1 && value <= 20));
+  assert.equal(randomTools.randomIntegers(1, 3, 5, (bound) => randomTools.indexFromDraw(0.5, bound)), undefined,
+    '区间不够抽时返回 undefined（不死循环）');
+  // 洗牌是排列，且恒等随机源保持原顺序
+  const listText = 'a,b,c,d,e,f';
+  const original = randomTools.candidates(listText);
+  for (let seed = 1; seed <= 30; seed++) {
+    const shuffled = randomTools.shuffleCandidates(listText, makeNext(seed));
+    assert.equal(shuffled.length, original.length);
+    assert.deepEqual([...shuffled].sort(), [...original].sort(), '洗牌必须保持元素集合不变');
+  }
+  assert.deepEqual(randomTools.shuffleCandidates(listText, (bound) => bound - 1), original,
+    '恒等随机源应保持原顺序');
+  // 加权抽取：频次应与权重成比例（用**同一个随机源连续取数**，固定种子 → 可复现）。
+  // 注意**不要**「每轮新建一个随机源、只取第一个输出」：xorshift32 的第一步混合很弱，
+  // 小种子的首个输出与种子近似成正比（实测 seed=1 → 0.00006295、seed=20 → 0.00125901），
+  // 那样取出来的样本会全部落进第一个权重档（我第一版就是这么写错的，实测 2000 轮里 1637 次落在甲）。
+  {
+    const weightedText = '甲*1\n乙*2\n丙*3\n丁*4';
+    const draws = randomTools.seededDraws(20261020);
+    const counts = { 甲: 0, 乙: 0, 丙: 0, 丁: 0 };
+    const trials = 3000;
+    for (let index = 0; index < trials; index++) {
+      const items = randomTools.drawWeightedCandidates(weightedText, 1, draws);
+      if (items !== undefined && items.length === 1) { counts[items[0]] += 1; }
+    }
+    const weights = { 甲: 1, 乙: 2, 丙: 3, 丁: 4 };
+    for (const name of Object.keys(weights)) {
+      const expected = trials * weights[name] / 10;
+      assert.ok(Math.abs(counts[name] - expected) / expected < 0.05,
+        `${name} 的频次应与权重成比例：实测 ${counts[name]}，期望 ${expected}`);
+    }
+    assert.equal(counts.甲 + counts.乙 + counts.丙 + counts.丁, trials, '每轮都应抽到恰好一名');
+  }
+  // 抽不重复名单
+  const few = randomTools.drawCandidates('a,b,c,d,e', 3, makeNext(31));
+  assert.ok(few !== undefined && few.length === 3 && new Set(few).size === 3);
+}
+// ② 亲属称呼的查表/文案（页面直接使用，此前零断言）
+for (const entry of kinship.KIN_STEPS) {
+  assert.equal(kinship.kinStepById(entry.id).id, entry.id);
+  assert.ok(kinship.kinStepLabel(entry.id, false).length > 0);
+  assert.ok(kinship.kinStepLabel(entry.id, true).length > 0);
+}
+assert.equal(kinship.kinStepById('nope'), undefined);
+for (let index = 0; index < kinship.KIN_DIRECTIONS.length; index++) {
+  const id = kinship.KIN_DIRECTIONS[index].id;
+  assert.equal(kinship.kinDirectionIndex(id), index);
+  assert.ok(kinship.kinDirectionLabel(id, false).length > 0);
+  assert.ok(kinship.kinDirectionLabel(id, true).length > 0);
+}
+assert.equal(kinship.kinDirectionIndex('nope'), -1);
+// ③ 二维码容错级别 / 颜色登记项的查表
+for (const level of qrStyle.QR_LEVELS) { assert.equal(qrStyle.qrLevelEntry(level.id).id, level.id); }
+for (const color of qrStyle.QR_COLORS) { assert.equal(qrStyle.qrColorEntry(color.id).id, color.id); }
+assert.equal(qrStyle.qrLevelEntry('nope'), undefined);
+assert.equal(qrStyle.qrColorEntry('nope'), undefined);
+// ④ 活动系数下标、日期格式化、等额本息月供、摩尔斯灯光段、小组件标题
+for (let index = 0; index < health.ACTIVITY_LEVELS.length; index++) {
+  assert.equal(health.activityIndex(health.ACTIVITY_LEVELS[index].id), index);
+}
+assert.equal(health.activityIndex('nope'), -1);
+assert.equal(dates.formatDate(new Date(Date.UTC(2026, 9, 21))), '2026-10-21');
+assert.equal(dates.formatDate(new Date(Date.UTC(2026, 0, 1))), '2026-01-01');   // 月日补零
+// 等额本息月供公式：与 calculateLoan 的月供互证（同一概念两处实现）。
+// 注意两者**入参口径不同**：`calculateLoan(本金分, 年利率百分数, 月数, 方式id)`，
+// 而 `equalInstallmentPayment(本金分, 月利率小数, 月数)`——月利率要自己除 12、除 100。
+{
+  const plan = loans.calculateLoan(100000000, 4.9, 360, 'equalInstallment');
+  const closedForm = loans.equalInstallmentPayment(100000000, 0.049 / 12, 360);
+  assert.ok(Math.abs(closedForm - plan.monthlyPaymentCents) <= 1,
+    `等额本息月供与还款计划不一致：闭式 ${closedForm} vs 计划 ${plan.monthlyPaymentCents}`);
+  assert.equal(plan.months, 360);
+  // 利率为 0 时闭式退化为等额本金（本金 ÷ 期数）
+  assert.equal(loans.equalInstallmentPayment(120000, 0, 12), 10000);
+}
+// 摩尔斯灯语段：入参是**字母文本**（`SOS`），不是点划串（`... --- ...` 会得到空数组）；
+// 末尾必须补一个「循环间隔」（默认 7 个单位，可传覆盖），整段以「灭」收尾。
+{
+  const sos = torchSignal.morseSignalSegments(torchSignal.SOS_MORSE_TEXT, 3);
+  assert.ok(sos.length > 0);
+  assert.equal(torchSignal.morseSignalSegments('', 3).length, 0);
+  assert.equal(torchSignal.morseSignalSegments('... --- ...', 3).length, 0);   // 点划串不是字母，不猜
+  assert.equal(sos[sos.length - 1].on, false);                                  // 以灭收尾
+  assert.equal(sos[sos.length - 1].ms, 3 * torchSignal.MORSE_UNIT_MS);          // 循环间隔 = 传入单位数
+  assert.ok(sos.every((segment) => segment.ms > 0));
+  // 同文本 + 同间隔必须完全一致（灯语可复现）
+  assert.deepEqual(torchSignal.morseSignalSegments('SOS', 3), torchSignal.morseSignalSegments('SOS', 3));
+  // 间隔参数非法时回退默认 7 个单位
+  assert.equal(torchSignal.morseSignalSegments('SOS', 0).at(-1).ms, 7 * torchSignal.MORSE_UNIT_MS);
+}
+assert.ok(widgetCards.quickToolTitle(false).length > 0);
+assert.ok(widgetCards.quickToolTitle(true).length > 0);
+assert.notEqual(widgetCards.quickToolTitle(false), widgetCards.quickToolTitle(true));
+
+// ---------------------------------------------------------------------------
+// 第 40 轮：个税年度税率表对**外部已知值** + 档界连续性 + 「0 应税额不显示 3% 税率」。
+// 外部已知（中国综合所得年度税率表）：级距 36000/144000/300000/420000/660000/960000，
+// 税率 3/10/20/25/30/35/45%，速算扣除数 0/2520/16920/31920/52920/85920/181920。
+// 口径：`WageInput.period` 是**月数（1–12）**，法定减除费用 = 5000 元/月 × period；
+// 故要让「年度累计应税额」= X：period=12、grossCents = (X + 60000) × 100。
+// ---------------------------------------------------------------------------
+const wageTaxAtTaxable = (taxableYuan) => {
+  const input = new tax.WageInput();
+  input.period = 12;
+  input.grossCents = Math.round((taxableYuan + 60000) * 100);
+  return tax.wageTax(input);
+};
+// ① 档界税额与最高档（外部已知值）
+for (const [taxable, expectedTaxYuan] of [[36000, 1080], [144000, 11880], [300000, 43080],
+  [420000, 73080], [660000, 145080], [960000, 250080], [1000000, 268080]]) {
+  const result = wageTaxAtTaxable(taxable);
+  assert.equal(result.taxableCents, taxable * 100, `应税额应为 ${taxable}`);
+  assert.ok(Math.abs(result.taxCents - expectedTaxYuan * 100) <= 1,
+    `应税 ${taxable} 的税额 ${result.taxCents / 100} 应为 ${expectedTaxYuan}`);
+}
+// ② 档界连续性：跨过档界不出现台阶（多发 1 分，税额增量必须极小）
+for (const boundary of [36000, 144000, 300000, 420000, 660000, 960000]) {
+  const before = wageTaxAtTaxable(boundary - 0.01).taxCents;
+  const after = wageTaxAtTaxable(boundary + 0.01).taxCents;
+  assert.ok(Math.abs(after - before) <= 5, `档界 ${boundary} 出现跳变：${before} → ${after}（分）`);
+}
+// ③ 档位税率（每档两侧）
+for (const [taxable, expectedRate] of [[36000, 3], [36001, 10], [144000, 10], [144001, 20],
+  [300000, 20], [300001, 25], [420000, 25], [420001, 30], [660000, 30], [660001, 35],
+  [960000, 35], [960001, 45]]) {
+  assert.equal(wageTaxAtTaxable(taxable).ratePercent, expectedRate, `应税 ${taxable} 的档位税率`);
+}
+// ④ 「0 应税额」不适用任何税率——第 40 轮修复：此前会显示最低档的 3%，
+//    与同屏的「个税 0.00」矛盾（税率行在页面上是**无条件渲染**的）。
+assert.equal(wageTaxAtTaxable(0).ratePercent, 0);
+assert.equal(wageTaxAtTaxable(0).taxCents, 0);
+assert.equal(wageTaxAtTaxable(0.01).ratePercent, 3);                 // 一旦有应税额就回到 3%
+assert.equal(tax.severanceTax(500000, 1000000).ratePercent, 0);      // 全额免税补偿：应税额 0 → 0%
+assert.equal(tax.severanceTax(500000, 1000000).taxCents, 0);
+assert.equal(tax.oneOffTax('manuscript', 80000).ratePercent, 0);     // 稿酬 800 元：减 800 后应税额 0 → 0%
+assert.equal(tax.oneOffTax('manuscript', 80000).taxCents, 0);
+assert.equal(tax.oneOffTax('manuscript', 80001).ratePercent, 20);    // 一旦有应税额就回到 20%
+// ⑤ 年终奖：按「奖金 ÷ 12」定档，临界点两侧的税率与速算扣除数（外部已知 0/210/1410/2660/4410/7160/15160）
+for (const [bonusYuan, expectedRate, expectedQuickYuan] of [[36000, 3, 0], [36001, 10, 210],
+  [144000, 10, 210], [144001, 20, 1410], [300000, 20, 1410], [300001, 25, 2660],
+  [420001, 30, 4410], [660001, 35, 7160], [960001, 45, 15160]]) {
+  const gross = bonusYuan * 100;
+  assert.equal(tax.bonusTax(gross).ratePercent, expectedRate, `奖金 ${bonusYuan} 的税率`);
+  assert.ok(Math.abs(tax.bonusQuickDeductionCents(gross) - expectedQuickYuan * 100) <= 1,
+    `奖金 ${bonusYuan} 的速算扣除数应为 ${expectedQuickYuan} 元`);
+}
+// ⑥ 临界点：多发 1 元税后反而变少；提示只在**临界点前方**给出
+for (const trap of tax.BONUS_TRAPS) {
+  assert.ok(tax.bonusTax(trap + 100).netCents < tax.bonusTax(trap).netCents,
+    `临界点 ${trap / 100} 元未体现「多发一元反而少拿」`);
+  assert.ok(tax.bonusTrapHint(trap - 50, false).length > 0, `临界点前方的提示缺失`);
+  assert.ok(tax.bonusTrapHint(trap - 50, true).length > 0);
+  assert.equal(tax.bonusTrapHint(trap + 50, false), '', '已越过临界点不应再提示');
+}
+// 第 72 轮：把**官方税率表**本身钉住（上面验的是实现自身的一致性——连续性 + 档位税率 + 少量代表值，
+// 这些在「税率与速算扣除数被一起改错」时仍可能全绿）。这里用**反推**核实每一档的速算扣除数：
+// 由 `tax = 应税 × 档位税率 − 速算扣除数` 反解出速算扣除数，必须等于官方值（元 → 分）。
+{
+  const officialLimitsYuan = [36000, 144000, 300000, 420000, 660000, 960000];
+  const officialRates = [3, 10, 20, 25, 30, 35, 45];
+  const officialQuickYuan = [0, 2520, 16920, 31920, 52920, 85920, 181920];
+  const taxAtTaxableYuan = (taxableYuan) => {
+    const input = new tax.WageInput();
+    input.grossCents = Math.round(taxableYuan * 100) + 500000;   // 加回 5000 元起征点
+    input.period = 1;
+    return tax.wageTax(input);
+  };
+  for (let bracket = 0; bracket < officialRates.length; bracket++) {
+    const lower = bracket === 0 ? 0 : officialLimitsYuan[bracket - 1];
+    const upper = officialLimitsYuan[bracket] ?? lower + 100000;
+    const probeYuan = Math.round((lower + upper) / 2);
+    const result = taxAtTaxableYuan(probeYuan);
+    const taxableCents = probeYuan * 100;
+    const impliedQuickCents = taxableCents * officialRates[bracket] / 100 - result.taxCents;
+    assert.equal(result.ratePercent, officialRates[bracket], `第 ${bracket + 1} 档税率`);
+    assert.ok(Math.abs(impliedQuickCents - officialQuickYuan[bracket] * 100) <= 1,
+      `第 ${bracket + 1} 档速算扣除数应为官方 ${officialQuickYuan[bracket]} 元，反推得 ${impliedQuickCents / 100} 元`);
+  }
+  // 档内边际税率：多赚 1 万元应多缴「1 万 × 档位税率」（±2 分）
+  for (let bracket = 0; bracket < officialRates.length; bracket++) {
+    const lower = bracket === 0 ? 5000 : officialLimitsYuan[bracket - 1] + 5000;
+    const upper = (officialLimitsYuan[bracket] ?? lower + 50000) - 10000;
+    if (upper <= lower) { continue; }
+    const from = lower + 1000;
+    const delta = taxAtTaxableYuan(from + 10000).taxCents - taxAtTaxableYuan(from).taxCents;
+    assert.ok(Math.abs(delta - 10000 * 100 * officialRates[bracket] / 100) <= 2,
+      `第 ${bracket + 1} 档边际税率（多赚 1 万应多缴 ${officialRates[bracket]}%）`);
+  }
+  // 单调不减（扫描覆盖全部 7 档，步长 1371.37 元）
+  let previousWageTax = -1;
+  for (let taxableYuan = 0; taxableYuan <= 1200000; taxableYuan += 1371.37) {
+    const current = taxAtTaxableYuan(taxableYuan).taxCents;
+    assert.ok(current >= previousWageTax, `税额在应税 ${taxableYuan} 元处下降`);
+    previousWageTax = current;
+  }
+  // 第 94 轮：「实得金额」的口径恒等式——**专项附加扣除、个人养老金、其他依法扣除只进税基，
+  // 不从工资里扣现金**；只有个人社保/公积金与本期个税会减少实得。这条口径页面已写在屏幕上
+  // （「实得金额只扣本期个人社保、公积金与个税；…请另核对工资单实发额」），但此前没有断言钉住它，
+  // 而我第一次自查时正因为把它当成「全部扣除都减现金」而算错（少算了 3000 元）。
+  {
+    const input = new tax.WageInput();
+    input.grossCents = 2000000;        // 2 万元
+    input.period = 1;
+    input.socialCents = 200000;        // 社保 2000 元
+    input.housingCents = 100000;       // 公积金 1000 元
+    input.childcareCents = 100000;     // 子女教育 1000 元（税基减免）
+    input.rentCents = 150000;          // 住房租金 1500 元（税基减免）
+    input.otherCents = 50000;          // 其他依法扣除 500 元（税基减免）
+    const result = tax.wageTax(input);
+    assert.equal(result.contributionCents, 300000, '社保公积金合计');
+    assert.equal(result.specialCents, 250000, '专项附加扣除合计只用于税基');
+    assert.equal(result.otherCents, 50000);
+    // 应纳税所得额 = 20000 − 5000 − 3000 − 2500 − 500 = 9000 元
+    assert.equal(result.taxableCents, 900000, '税基要减掉全部扣除项');
+    assert.equal(result.taxCents, 27000);   // 9000 × 3%
+    // 实得 = 20000 − 3000（社保公积金）− 270（个税）= 16730 元；专项附加/其他**不减现金**
+    assert.equal(result.netCents, 1673000, '实得只扣社保公积金与个税');
+    assert.equal(result.netCents, result.grossCents - result.contributionCents - result.taxCents,
+      '实得恒等式：收入 − 社保公积金 − 本期个税');
+    // 单独加一笔「纯税基减免」不应改变实得（它只让税变少，从而让实得变多）
+    const withoutSpecial = new tax.WageInput();
+    withoutSpecial.grossCents = 2000000; withoutSpecial.period = 1;
+    withoutSpecial.socialCents = 200000; withoutSpecial.housingCents = 100000;
+    const baseline = tax.wageTax(withoutSpecial);
+    assert.ok(result.taxCents < baseline.taxCents, '专项附加扣除应减少税额');
+    assert.ok(result.netCents > baseline.netCents, '税额变少后实得应变多');
+    assert.equal(baseline.netCents, baseline.grossCents - baseline.contributionCents - baseline.taxCents);
+  }
+  // 年终奖的三张表与官方月度表逐项相等
+  assert.deepEqual(tax.BONUS_LIMITS, [300000, 1200000, 2500000, 3500000, 5500000, 8000000],
+    '年终奖月度档位上限应为官方值（分）');
+  assert.deepEqual(tax.BONUS_RATES, officialRates, '年终奖档位税率应为官方值');
+  assert.deepEqual(tax.BONUS_QUICK, [0, 21000, 141000, 266000, 441000, 716000, 1516000],
+    '年终奖速算扣除数应为官方值（分）');
+  // `reverseOneOff` **有意只支持 labor/royalty**（稿酬不在反推范围内）——把这个接口范围钉住
+  assert.equal(tax.reverseOneOff('manuscript', 100000), undefined, '稿酬不在反推范围内');
+  assert.ok(tax.reverseOneOff('labor', 100000) !== undefined);
+  assert.ok(tax.reverseOneOff('royalty', 100000) !== undefined);
+  // 第 94 轮缺陷：接口不支持稿酬反推，但页面上的「计算方向」是按类型**无条件**渲染的，用户选
+  // 「稿酬 + 税后反推」后 `reverseOneOff` 返回 undefined，界面于是回退到那句**面向工资薪金**的提示
+  // （「请检查期数、各项金额和比例；房贷与租金不可同时扣除，养老金全年不超过 12000 元」）——
+  // **指向了根本不存在的原因**。现在这类组合有专属说明，且它是可测的纯逻辑。
+  assert.ok(tax.reverseUnsupportedNoteText('manuscript', false).length > 0, '稿酬反推应有专属说明');
+  assert.ok(tax.reverseUnsupportedNoteText('manuscript', true).length > 0);
+  assert.notEqual(tax.reverseUnsupportedNoteText('manuscript', false), tax.reverseUnsupportedNoteText('manuscript', true));
+  assert.ok(tax.reverseUnsupportedNoteText('manuscript', false).includes('税前算税后'),
+    '说明里要给出可执行的下一步（改用「税前算税后」）');
+  // 支持反推的类型返回空串，调用方据此回退到通用提示（不要把两类原因混成一句）
+  for (const kind of ['labor', 'royalty', 'wage', 'severance', 'bonus', 'nope']) {
+    assert.equal(tax.reverseUnsupportedNoteText(kind, false), '', `${kind} 不应有「不支持反推」的说明`);
+  }
+  // 两类原因确实不同：这个组合既不是「期数/房贷租金/养老金」问题，也不是「年终奖要大于 0」问题
+  assert.ok(!tax.reverseUnsupportedNoteText('manuscript', false).includes('房贷'));
+  assert.ok(!tax.reverseUnsupportedNoteText('manuscript', false).includes('养老金'));
+}
+
+// ---------------------------------------------------------------------------
+// 第 41 轮：二维码容量预判的**字节口径**（这是「预判通过但生成失败」的唯一防线）。
+// 关键：容量按 **UTF-8 字节**算，CJK 3 字节、emoji（BMP 外，UTF-16 是代理对）4 字节。
+// 若用 JS 的 `.length`（UTF-16 码元）计数，emoji 会被少算一半，预判就会放行超长内容。
+// 交叉参考：Node 的 Buffer.byteLength(s,'utf8') 与项目自己的 EncodingTools.utf8Bytes()。
+// ---------------------------------------------------------------------------
+for (const [text, expected] of [['hello', 5], ['你好世界', 12], ['😀', 4], ['🎉🎉🎉', 12],
+  ['a你b好c', 9], ['e\u0301', 3], ['', 0]]) {
+  assert.equal(qrStyle.qrByteLength(text), expected, `qrByteLength(${JSON.stringify(text)})`);
+  assert.equal(qrStyle.qrByteLength(text), Buffer.byteLength(text, 'utf8'), '应与 Node UTF-8 字节数一致');
+  assert.equal(qrStyle.qrByteLength(text), encodingTools.utf8Bytes(text).length, '应与项目 UTF-8 编码器一致');
+}
+assert.equal(qrStyle.qrByteLength('😀'), 4);               // 不是 2（UTF-16 长度）
+assert.equal(qrStyle.qrByteLength('中'), 3);               // 不是 1
+// 容量按**字节**而非字符数判定：H 档 1273 字节
+const cjkAtH = '中'.repeat(424);                           // 1272 字节
+assert.equal(qrStyle.qrByteLength(cjkAtH), 1272);
+assert.equal(qrStyle.qrCapacityExceeded(cjkAtH, 'H'), false);
+assert.equal(qrStyle.qrCapacityExceeded(cjkAtH + '中', 'H'), true);    // 1275 字节
+const emojiAtH = '😀'.repeat(318);                          // 1272 字节（UTF-16 长度 636）
+assert.equal(qrStyle.qrByteLength(emojiAtH), 1272);
+assert.equal(qrStyle.qrCapacityExceeded(emojiAtH, 'H'), false);
+assert.equal(qrStyle.qrCapacityExceeded(emojiAtH + '😀', 'H'), true);
+// 四档边界都恰好：等于上限放行、多 1 字节拒绝
+for (const [level, limit] of [['L', 2953], ['M', 2331], ['Q', 1663], ['H', 1273]]) {
+  assert.equal(qrStyle.qrCapacityBytes(level), limit);
+  assert.equal(qrStyle.qrCapacityExceeded('x'.repeat(limit), level), false);
+  assert.equal(qrStyle.qrCapacityExceeded('x'.repeat(limit + 1), level), true);
+}
+// 未知容错等级回退到**默认档 M**（与 DEFAULT_QR_LEVEL 一致，不是「最保守档」也不是 0）
+assert.equal(qrStyle.qrCapacityBytes('NOPE'), qrStyle.qrCapacityBytes(qrStyle.DEFAULT_QR_LEVEL));
+assert.equal(qrStyle.qrCapacityBytes('NOPE'), 2331);
+assert.equal(qrStyle.qrCapacityExceeded('abc', 'NOPE'), false);
+assert.equal(qrStyle.qrCapacityExceeded('x'.repeat(2400), 'NOPE'), true);
+// 提示与谓词结论必须一致（同一判据只留一处）
+for (const level of ['L', 'M', 'Q', 'H', 'NOPE']) {
+  for (const text of ['abc', 'x'.repeat(2400)]) {
+    assert.equal(qrStyle.qrCapacityErrorText(text, level, false).length > 0,
+      qrStyle.qrCapacityExceeded(text, level), `提示与谓词在 ${level} 上不一致`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 第 43 轮：整数输入解析只收**十进制整数**（`parseIntegerInput`，全项目唯一口径）。
+// `Number('0x10')` = 16、`Number('1e3')` = 1000、`Number('1.5')` = 1.5——而界面文案承诺的是「整数」，
+// 于是用户输入 0x10 却被当成 16，且**完全没有任何提示**（审计 §3.10④ 同一类，曾散落在随机区间、
+// 日期推算数量、密码长度三个输入框）。这里把「收什么」与「拒什么」两侧都钉住。
+// ---------------------------------------------------------------------------
+for (const [text, expected] of [['42', 42], ['-7', -7], ['+7', 7], ['0', 0], [' 42 ', 42], ['0007', 7],
+  ['1000000', 1000000], ['-1000000', -1000000]]) {
+  assert.equal(units.parseIntegerInput(text), expected, `parseIntegerInput(${JSON.stringify(text)})`);
+}
+for (const text of ['0x10', '0b11', '0o17', '1e3', '1E3', '1.5', '1.0', '', '   ', 'abc', 'Infinity',
+  '-Infinity', 'NaN', '--5', '1 2', '１２', '"42"', '1,000', '4 2']) {
+  assert.equal(units.parseIntegerInput(text), undefined, `parseIntegerInput(${JSON.stringify(text)}) 应被拒绝`);
+}
+// 「0x10」曾经被静默当成 16——这条断言就是防止它回来
+assert.notEqual(units.parseIntegerInput('0x10'), 16);
+assert.equal(units.parseIntegerInput('0x10'), undefined);
+// 与 parseUnitInput 的分工：整数解析拒绝小数，换算解析接受小数
+assert.equal(units.parseIntegerInput('1.5'), undefined);
+assert.equal(units.parseUnitInput('1.5'), 1.5);
+// 解析出来的值必须能直接喂给既有判据（随机区间 / 日期推算 / 密码长度）
+assert.equal(randomTools.rangeSize(units.parseIntegerInput('-5'), units.parseIntegerInput('10')), 16);
+assert.equal(passwords.passwordLengthErrorText(units.parseIntegerInput('0x10'), false).length > 0, true);
+assert.equal(passwords.passwordLengthErrorText(units.parseIntegerInput('16'), false), '');
+assert.equal(dates.shiftDate('2026-10-21', units.parseIntegerInput('5'), 'day'), '2026-10-26');
+assert.equal(units.parseIntegerInput('5') !== undefined &&
+  dates.shiftDate('2026-10-21', units.parseIntegerInput('0x5'), 'day') === undefined, true);
+
+// ---------------------------------------------------------------------------
+// 第 44 轮：model 层「字符串 → 数字」的解析入口**不得静默接受** 0x10 / 0b11 / 1e3。
+// 为什么单独成块：第 43 轮在**页面层**抓到 3 处裸 `Number()` 的洞（`0x10` 被当成 16），
+// 于是本轮回头审计 model 层（解析的权威口径）——结论是 model 层**一直都安全**（每个解析函数
+// 都先过严格正则、再 `Number()`）。这一节把「安全」这件事本身钉住，防止后来者把正则去掉。
+// 对照：`ScientificCalc` 的**表达式计算器**里 `1e3` 是合法的科学计数法（见下方单独一条），
+// 不要因为本节而把它「修」掉——输入解析与表达式求值是两回事。
+// ---------------------------------------------------------------------------
+const suspiciousNumbers = ['0x10', '0b11', '0o17', '1e3', '1E3', 'Infinity', 'NaN'];
+for (const text of suspiciousNumbers) {
+  // 金额（元 → 分）：折扣页与贷款页各有一套，都不得静默接受
+  assert.equal(calculators.moneyCents(text), undefined, `moneyCents(${text})`);
+  assert.equal(loans.loanCents(text), undefined, `loanCents(${text})`);
+  assert.equal(tax.parseMoney(text), undefined, `parseMoney(${text})`);
+  // 其它数值输入
+  assert.equal(loans.loanRatePercent(text), undefined, `loanRatePercent(${text})`);
+  assert.equal(health.healthNumber(text), undefined, `healthNumber(${text})`);
+  assert.equal(units.parseUnitInput(text), undefined, `parseUnitInput(${text})`);
+  assert.equal(units.parseIntegerInput(text), undefined, `parseIntegerInput(${text})`);
+  assert.equal(dates.parseDate(text), undefined, `parseDate(${text})`);
+}
+// 对照：表达式计算器**应当**接受科学计数法（那是数学记法，不是「输入被静默改数」）
+assert.equal(science.evaluate('1e3', 'deg').value, 1000);
+// 合法输入不能被这轮改动误伤
+assert.equal(calculators.moneyCents('12.34'), 1234);
+assert.equal(loans.loanCents('1000.50'), 100050);
+assert.equal(tax.parseMoney('12.34'), 1234);
+assert.equal(health.healthNumber('70.5'), 70.5);
+assert.equal(units.parseUnitInput('1.5'), 1.5);
+assert.equal(units.parseIntegerInput('42'), 42);
+assert.equal(dates.formatDate(dates.parseDate('2026-10-21')), '2026-10-21');
+
+// ---------------------------------------------------------------------------
+// 第 46 轮：时区登记表的「id 真实性」与「哨兵口径」。
+// ① 城市 id 拼错 / 写了个不存在的时区 → 系统取偏移返回 NaN → 该行**永远**显示「当前设备不支持该时区」
+//    （属于「拼错不报错、只是静默不可用」的一类），所以用 Node 的时区库逐个核对**可解析性**。
+// ② 哨兵口径：城市条目的 `fixedOffsetMinutes` 必须是 **NaN**、固定偏移条目必须是有限数——
+//    页面用 `Number.isFinite(...)` 区分（`TimestampPage` 第 258 行），写成 `undefined` 判断就全错。
+// 注意：判据是「能不能解析」，**不是**「在 `Intl.supportedValuesOf` 列表里」——`Asia/Kolkata`
+// 就不在该列表（本机 ICU 规范化成 `Asia/Calcutta`），但它是合法 IANA id 且可解析（实测 +05:30）。
+// ---------------------------------------------------------------------------
+{
+  const zones = timeZones.TIME_ZONES;
+  // 「非固定偏移」桶里既有 `local` 哨兵也有真正的城市条目——页面判断顺序是「固定偏移 → 本机 → i18n」，
+  // 因此核对 IANA 可解析性时必须把 `local` 单独排除，不能把它当城市。
+  const nonFixedZones = zones.filter((z) => !Number.isFinite(z.fixedOffsetMinutes));
+  const cityZones = nonFixedZones.filter((z) => z.id !== timeZones.LOCAL_ZONE_ID);
+  const fixedZones = zones.filter((z) => Number.isFinite(z.fixedOffsetMinutes));
+  // 哨兵口径
+  assert.ok(cityZones.length > 10, '城市条目应有若干条');
+  assert.ok(nonFixedZones.every((z) => Number.isNaN(z.fixedOffsetMinutes)), '非固定条目必须是 NaN 哨兵');
+  assert.ok(fixedZones.every((z) => Number.isFinite(z.fixedOffsetMinutes)), '固定偏移条目必须是有限数');
+  assert.ok(new Set(zones.map((z) => z.id)).size === zones.length, '时区 id 不得重复');
+  assert.ok(nonFixedZones.some((z) => z.id === timeZones.LOCAL_ZONE_ID), '必须含「本机」哨兵条目');
+  // 「本机」是哨兵、不是 IANA id：它自己解析不了（页面另有分支处理）
+  let localResolved = true;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: timeZones.LOCAL_ZONE_ID }).resolvedOptions(); }
+  catch (error) { localResolved = false; }
+  assert.equal(localResolved, false, '「本机」哨兵不应是可解析的 IANA id');
+  // 固定偏移清单（改这里要同步改 `TimeZoneTools` 的注释）：10 条、互不重复、覆盖 ±12 小时内的整点
+  assert.deepEqual(fixedZones.map((z) => z.fixedOffsetMinutes).sort((a, b) => a - b),
+    [-720, -660, -600, -540, 0, 300, 360, 600, 660, 840]);
+  assert.ok(fixedZones.some((z) => z.fixedOffsetMinutes === -720), '应含 UTC-12:00');
+  assert.ok(fixedZones.some((z) => z.fixedOffsetMinutes === 840), '应含 UTC+14:00');
+  assert.ok(fixedZones.some((z) => z.fixedOffsetMinutes === 0), '应含 UTC');
+  // 城市 id 逐个核对可解析性
+  for (const zone of cityZones) {
+    let resolved = undefined;
+    try { resolved = new Intl.DateTimeFormat('en-US', { timeZone: zone.id }).resolvedOptions().timeZone; }
+    catch (error) { resolved = undefined; }
+    assert.ok(typeof resolved === 'string' && resolved.length > 0,
+      `时区 id 无法解析（该行会永远显示「不支持」）：${zone.id}`);
+  }
+  // 检查本身要有判别力：假 id 必须解析失败
+  let fakeResolved = true;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Fake_City' }).resolvedOptions(); }
+  catch (error) { fakeResolved = false; }
+  assert.equal(fakeResolved, false, '假时区 id 必须解析失败（否则这条检查没有判别力）');
+}
+
+// ---------------------------------------------------------------------------
+// 第 47 轮：罗盘/航向的**外部约定**核对（这些约定有权威定义，写反了方向就全错）。
+// ① 磁偏角符号：真方位 = 磁方位 + **东偏**（「East is least, West is best」的等价式）。写反会让
+//    真北偏 2×磁偏角（中国东部约 7°W → 错 14°），而用户只会觉得「罗盘不准」。
+// ② 航向归一化：结果恒在 [0,360)。③ 方位词：16 向表（0=N、4=E、8=S、12=W，偶数下标）。
+// ④ 锁定目标：`BearingDeviation.delta` 是**无符号幅度**，方向由 `side`（left/right/aligned）承载；
+//    跨 0/360 必须取**最短转向**（350→10 是右转 20°，不是左转 340°）。
+// ---------------------------------------------------------------------------
+{
+  // ① 磁偏角符号（E 正 / W 负），并验证真方位加的是东偏
+  assert.equal(compass.parseDeclination('7.5E'), 7.5);
+  assert.equal(compass.parseDeclination('7.5W'), -7.5);
+  assert.equal(compass.parseDeclination('东偏 7.5'), 7.5);
+  assert.equal(compass.parseDeclination('西偏 7.5'), -7.5);
+  assert.equal(compass.trueHeading(100, compass.parseDeclination('7.5E')), 107.5);
+  assert.equal(compass.trueHeading(100, compass.parseDeclination('7.5W')), 92.5);
+  // 未校正（解析失败）时**原样返回磁北**，绝不用 0 顶替
+  for (const text of ['', '   ', 'abc', '7.5 7.5']) {
+    assert.equal(compass.parseDeclination(text), undefined);
+    assert.equal(compass.trueHeading(100, compass.parseDeclination(text)), 100);
+  }
+  // 越界以文档常量为准（±180），越界返回 undefined 而不是夹取到边界
+  assert.equal(compass.DECLINATION_LIMIT_DEGREES, 180);
+  assert.equal(compass.parseDeclination('181'), undefined);
+  assert.equal(compass.parseDeclination('-181'), undefined);
+  assert.equal(compass.parseDeclination('91'), 91);
+  // ② 归一化跨 0/360
+  assert.equal(compass.trueHeading(350, 20), 10);
+  assert.equal(compass.trueHeading(0, -10), 350);
+  assert.equal(compass.trueHeading(359, 5), 4);
+  assert.equal(compass.normalizeHeading(-10), 350);
+  assert.equal(compass.normalizeHeading(360), 0);
+  assert.equal(compass.normalizeHeading(370), 10);
+  for (const degrees of [0, 359.9, -1, 720, 45.5]) {
+    const normalized = compass.normalizeHeading(degrees);
+    assert.ok(normalized >= 0 && normalized < 360, `normalizeHeading(${degrees}) = ${normalized}`);
+  }
+  // ③ 方位词：0 北 / 90 东 / 180 南 / 270 西；16 向表用偶数下标
+  assert.ok(/北/.test(compass.directionLabel(0, false)) && /N/.test(compass.directionLabel(0, true)));
+  assert.ok(/东/.test(compass.directionLabel(90, false)) && /E/.test(compass.directionLabel(90, true)));
+  assert.ok(/南/.test(compass.directionLabel(180, false)) && /S/.test(compass.directionLabel(180, true)));
+  assert.ok(/西/.test(compass.directionLabel(270, false)) && /W/.test(compass.directionLabel(270, true)));
+  assert.equal(compass.directionIndex(0), 0);
+  assert.equal(compass.directionIndex(90), 4);
+  assert.equal(compass.directionIndex(180), 8);
+  assert.equal(compass.directionIndex(270), 12);
+  for (const degrees of [0, 45, 90, 135, 180, 225, 270, 315, 359, 720, -1]) {
+    const index = compass.directionIndex(degrees);
+    assert.ok(Number.isInteger(index) && index >= 0 && index <= 14 && index % 2 === 0,
+      `directionIndex(${degrees}) = ${index}`);
+  }
+  // ④ 锁定目标：正/负方向由 side 承载，幅度非负；跨 0/360 取最短
+  const rightTurn = compass.bearingDeviation(10, 0);
+  assert.equal(rightTurn.side, 'right');
+  assert.equal(rightTurn.delta, 10);
+  const leftTurn = compass.bearingDeviation(0, 10);
+  assert.equal(leftTurn.side, 'left');
+  assert.equal(leftTurn.delta, 10);
+  assert.equal(compass.bearingDeviation(10, 350).side, 'right');
+  assert.equal(compass.bearingDeviation(10, 350).delta, 20);
+  assert.equal(compass.bearingDeviation(350, 10).side, 'left');
+  assert.equal(compass.bearingDeviation(350, 10).delta, 20);
+  assert.equal(compass.bearingDeviation(0, 180).delta, 180);
+  const aligned = compass.bearingDeviation(0, 0);
+  assert.equal(aligned.side, 'aligned');
+  assert.equal(aligned.delta, 0);
+  assert.equal(aligned.aligned, true);
+  for (const [target, current] of [[0, 10], [10, 0], [90, 180], [180, 90], [270, 45]]) {
+    const deviation = compass.bearingDeviation(target, current);
+    assert.ok(deviation.delta >= 0 && deviation.delta <= 180, `delta 越界：${target}/${current}`);
+  }
+  // aligned 的措辞由 bearingStatusText 负责，bearingSideText 故意返回空串
+  assert.equal(compass.bearingSideText('aligned', false), '');
+  assert.ok(compass.bearingStatusText(aligned, false).length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// 第 48 轮：还款计划表的**内部恒等式** + 未知还款方式必须被拒绝。
+// ① 计划表是唯一实现（`calculateLoan` 的汇总全部来自它），所以它的恒等式必须逐条成立：
+//    每期「月供 = 利息 + 本金」、剩余本金只减不增、末期结清、**本金合计严格等于贷款本金**、
+//    利息/还款合计等于结果卡的汇总值、总还款 = 总本金 + 总利息。
+// ② **查出一处静默兜底并修复**：`loanSchedule()`/`calculateLoan()` 此前不校验 `method`，
+//    未知 id 会走到末尾的等额本息分支——**静默按等额本息算出一份看起来正常的结果**
+//    （与「条码未知码制不得兜底」同一类）。现在未知方式返回 error `'method'`、计划表为空，
+//    且 `loanErrorText('method')` 有独立文案（此前会**误报成期限错误**）。
+// ---------------------------------------------------------------------------
+for (const [principal, rate, months, method] of [
+  [100000000, 4.9, 360, 'equalInstallment'], [100000000, 4.9, 360, 'equalPrincipal'],
+  [50000000, 3.1, 240, 'equalInstallment'], [123456789, 5.55, 13, 'equalInstallment'],
+  [10000000, 0, 12, 'equalInstallment'], [10000000, 0, 12, 'equalPrincipal'],
+  [99999999, 7.77, 7, 'equalPrincipal'], [1, 4.9, 360, 'equalInstallment'],
+]) {
+  const rows = loans.loanSchedule(principal, rate, months, method);
+  const result = loans.calculateLoan(principal, rate, months, method);
+  const tag = `${principal}/${rate}/${months}/${method}`;
+  assert.equal(rows.length, months, `期数不符：${tag}`);
+  let principalSum = 0;
+  let interestSum = 0;
+  let paymentSum = 0;
+  rows.forEach((row, index) => {
+    assert.equal(row.paymentCents, row.interestCents + row.principalCents, `第 ${index + 1} 期月供 ≠ 利息+本金：${tag}`);
+    if (index > 0) {
+      assert.ok(row.remainingCents <= rows[index - 1].remainingCents, `第 ${index + 1} 期剩余本金变大：${tag}`);
+    }
+    // 第 71 轮补：**行内口径**（此前只验了「月供 = 利息 + 本金」与单调性，没验利息怎么算出来的、余额怎么递推）
+    // ① 每期利息 = 上期剩余本金 × 月利率，四舍五入到分（利率 0 时必然为 0）；
+    // ② 每期剩余 = 上期剩余 − 本期本金（**精确相等**，不是「不增大」）。
+    const previousRemaining = index === 0 ? principal : rows[index - 1].remainingCents;
+    const monthlyRate = rate / 100 / 12;
+    assert.equal(row.interestCents, Math.round(previousRemaining * monthlyRate),
+      `第 ${index + 1} 期利息口径不符：${tag}`);
+    assert.equal(row.remainingCents, previousRemaining - row.principalCents,
+      `第 ${index + 1} 期余额递推不符：${tag}`);
+    principalSum += row.principalCents;
+    interestSum += row.interestCents;
+    paymentSum += row.paymentCents;
+  });
+  assert.equal(rows[rows.length - 1].remainingCents, 0, `末期未结清：${tag}`);
+  assert.equal(principalSum, principal, `本金合计 ≠ 贷款本金：${tag}`);
+  assert.equal(interestSum, result.totalInterestCents, `利息合计 ≠ 汇总：${tag}`);
+  assert.equal(paymentSum, result.totalPaymentCents, `还款合计 ≠ 汇总：${tag}`);
+  assert.equal(result.totalPaymentCents, result.totalPrincipalCents + result.totalInterestCents,
+    `总还款 ≠ 本金 + 利息：${tag}`);
+  // 首末期：汇总里的「月供」「末期」必须直接取自计划表（单一数据源，别在汇总里另算一遍）
+  assert.equal(result.monthlyPaymentCents, rows[0].paymentCents, `首期月供 ≠ 汇总：${tag}`);
+  assert.equal(result.lastPaymentCents, rows[rows.length - 1].paymentCents, `末期月供 ≠ 汇总：${tag}`);
+  assert.equal(result.totalPrincipalCents, principalSum, `本金合计 ≠ 汇总本金：${tag}`);
+}
+// 第 71 轮：等额本金的**结构性质**（不依赖具体数值）——本金部分逐期恒定、月供单调不增、
+// 相邻两期的差值就是 `monthlyDecreaseCents`（等于「每期本金 × 月利率」，故恒定为常数）。
+{
+  const eiRows = loans.loanSchedule(120000000, 4.9, 240, 'equalPrincipal');
+  const eiResult = loans.calculateLoan(120000000, 4.9, 240, 'equalPrincipal');
+  for (let index = 0; index < eiRows.length; index++) {
+    assert.ok(Math.abs(eiRows[index].principalCents - eiResult.principalPartCents) <= 1,
+      `等额本金第 ${index + 1} 期本金部分应恒定（±1 分）`);
+    if (index > 0) {
+      const decrease = eiRows[index - 1].paymentCents - eiRows[index].paymentCents;
+      assert.ok(decrease >= 0, `等额本金月供不应上升（第 ${index + 1} 期）`);
+      assert.ok(Math.abs(decrease - eiResult.monthlyDecreaseCents) <= 1,
+        `等额本金相邻期差值应约等于 monthlyDecreaseCents（第 ${index + 1} 期）`);
+    }
+  }
+  // 等额本金的月供差额 = 每期本金 × 月利率（四舍五入）；这里用分做一次独立换算
+  const expectedDecrease = Math.round(eiResult.principalPartCents * 4.9 / 100 / 12);
+  assert.ok(Math.abs(eiResult.monthlyDecreaseCents - expectedDecrease) <= 1,
+    `等额本金递减额应为「每期本金 × 月利率」（得 ${eiResult.monthlyDecreaseCents}，应为 ${expectedDecrease}）`);
+}
+// 第 71 轮：外部可核对的锚点——100 万元 / 4.9% / 30 年（360 期）等额本息，业界通用值约 **5307.27 元**，
+// 总利息约 91.06 万元。利率与期限改成别的值时这一条不会跟着漂，能挡住「公式被改坏但自洽」的情况。
+{
+  const anchor = loans.calculateLoan(100000000, 4.9, 360, 'equalInstallment');
+  assert.equal(anchor.monthlyPaymentCents, 530727, '100 万 / 4.9% / 360 期月供应为 5307.27 元');
+  assert.ok(Math.abs(anchor.totalInterestCents - 91061512) <= 5, '总利息应约为 910615.12 元');
+}
+// 汇总字段与明细首末期一致
+{
+  const rows = loans.loanSchedule(200000000, 3.85, 240, 'equalInstallment');
+  const result = loans.calculateLoan(200000000, 3.85, 240, 'equalInstallment');
+  assert.equal(rows[0].paymentCents, result.monthlyPaymentCents);
+  assert.equal(rows[rows.length - 1].paymentCents, result.lastPaymentCents);
+  assert.equal(rows[0].interestCents, result.firstInterestCents);
+  assert.equal(result.totalPrincipalCents, 200000000);
+}
+// 两种方式的形状（等额本金的「月供降幅」是**理论值**，注释已说明首末之差的取整误差，不要按精确等值断言）
+{
+  const even = loans.loanSchedule(100000000, 4.9, 6, 'equalInstallment');
+  assert.ok(even.slice(0, -1).every((row) => row.paymentCents === even[0].paymentCents), '等额本息月供应相同');
+  assert.ok(even.every((row, i) => i === 0 || row.interestCents <= even[i - 1].interestCents), '等额本息利息应递减');
+  const equal = loans.loanSchedule(100000000, 4.9, 6, 'equalPrincipal');
+  assert.ok(equal.slice(0, -1).every((row) => row.principalCents === equal[0].principalCents), '等额本金应每期等额');
+  assert.ok(equal.every((row, i) => i === 0 || row.paymentCents <= equal[i - 1].paymentCents), '等额本金月供应递减');
+  const result = loans.calculateLoan(100000000, 4.9, 6, 'equalPrincipal');
+  assert.equal(result.principalPartCents, Math.floor(100000000 / 6));
+  assert.equal(result.monthlyDecreaseCents, Math.round(result.principalPartCents * (4.9 / 100 / 12)));
+}
+// 0 利率退化
+{
+  const rows = loans.loanSchedule(120000, 0, 12, 'equalInstallment');
+  assert.ok(rows.every((row) => row.interestCents === 0), '0 利率利息应为 0');
+  assert.ok(rows.slice(0, -1).every((row) => row.principalCents === 10000), '0 利率每月本金应为本金/期数');
+  assert.equal(loans.calculateLoan(120000, 0, 12, 'equalInstallment').totalInterestCents, 0);
+}
+// ② 未知还款方式必须被拒绝（本轮修复）：不静默兜底成等额本息
+for (const bogus of ['nope', '', 'EQUALINSTALLMENT', 'equal_installment']) {
+  const result = loans.calculateLoan(100000000, 4.9, 6, bogus);
+  assert.equal(result.ok, false, `未知方式应被拒绝：${JSON.stringify(bogus)}`);
+  assert.equal(result.error, 'method');
+  assert.equal(result.monthlyPaymentCents, 0, '未知方式不应给出月供');
+  assert.equal(loans.loanSchedule(100000000, 4.9, 6, bogus).length, 0, '未知方式计划表应为空');
+  assert.equal(loans.loanMethodIndex(bogus), -1);
+  // 且错误文案是「还款方式」而不是期限（此前会误报成 months）
+  assert.notEqual(loans.loanErrorText('method', false), loans.loanErrorText('months', false));
+  assert.ok(loans.loanErrorText('method', false).includes('还款方式'));
+  assert.ok(/repayment method/i.test(loans.loanErrorText('method', true)));
+}
+// 登记表里的每个 id 都要能算出完整计划表（拒绝的只是「表外 id」）
+for (const entry of loans.LOAN_METHODS) {
+  const result = loans.calculateLoan(100000000, 4.9, 12, entry.id);
+  assert.equal(result.ok, true, `登记项 ${entry.id} 应可用`);
+  assert.equal(loans.loanSchedule(100000000, 4.9, 12, entry.id).length, 12);
+}
+
+// ---------------------------------------------------------------------------
+// 第 49 轮：**算结果的函数不得为未知 id 编一个值**（第 48 轮贷款还款方式是同一类）。
+// 查出：`bmr(gender, …)` 写成 `gender === 'female' ? … : …`，任何不认识的性别都会**静默按男性算**
+// （与女性差 166 kcal）；`tdee(bmr, activityId)` 同理会静默套用默认系数 1.375。
+// 口径区分：**算结果的函数拒绝未知 id**；**查表/出文案的函数保留默认回退**（界面必须能渲染标签）。
+// ---------------------------------------------------------------------------
+{
+  // 算结果：拒绝未知 id
+  assert.equal(health.bmr('male', 70, 175, 30), 1649);
+  assert.equal(health.bmr('female', 70, 175, 30), 1483);
+  assert.equal(health.bmr('male', 70, 175, 30) - health.bmr('female', 70, 175, 30), 166);
+  for (const bogus of ['nope', 'Male', 'FEMALE', '', '男']) {
+    assert.equal(health.bmr(bogus, 70, 175, 30), undefined, `未知性别应被拒绝：${JSON.stringify(bogus)}`);
+  }
+  for (const bogus of ['nope', 'Sedentary', '', '轻度']) {
+    assert.equal(health.tdee(1649, bogus), undefined, `未知活动 id 应被拒绝：${JSON.stringify(bogus)}`);
+  }
+  assert.equal(health.tdee(1649, 'sedentary'), Math.round(1649 * 1.2));
+  assert.equal(health.tdee(0, 'light'), undefined);
+  // 登记表里的每个 id 都要能算出结果（拒绝的只是「表外 id」）
+  for (const entry of health.ACTIVITY_LEVELS) {
+    assert.equal(health.tdee(1649, entry.id), Math.round(1649 * entry.factor));
+  }
+  assert.equal(health.bmr(health.DEFAULT_GENDER, 70, 175, 30), 1649);
+  // 查表/出文案：保留默认回退（不要跟着改成 undefined，否则界面会出现空标签）
+  assert.equal(health.activityFactor('nope'), 1.375);
+  assert.ok(health.genderLabel('nope', false).length > 0);
+  assert.ok(health.activityLabel('nope', false).length > 0 && health.activityLabel('nope', true).length > 0);
+  assert.equal(health.genderIndex('nope'), -1);
+  assert.equal(health.activityIndex('nope'), -1);
+}
+
+// ---------------------------------------------------------------------------
+// 第 50 轮：时间戳的「解释方式」（mode）也必须是登记表 id（第 48/49 轮同类扫尾）。
+// 查出：`parseStampInput` 把未知 mode **落到 auto 的按位数猜测分支**——mode 写错时 11 位输入会被
+// 静默当成毫秒，实测「按秒」= 2508-09-16 而「自动=毫秒」= 1970-07-17，**差约 538 年且毫无提示**。
+// 口径：`STAMP_MODES` 的真实 id 是 `auto`/`s`/`ms`（**没有** `second`/`millisecond` 这种写法）。
+// ---------------------------------------------------------------------------
+{
+  assert.deepEqual(timeTools.STAMP_MODES.map((m) => m.id), ['auto', 's', 'ms']);
+  const tenDigits = '1700000000';
+  const elevenDigits = '17000000000';
+  // 未知 mode 一律拒绝，且带专门错误码（不是静默按 auto 猜）
+  for (const bogus of ['nope', '', 'SECOND', 'sec', 'second', 'millisecond', '自动']) {
+    const bad = timeTools.parseStampInput(tenDigits, bogus);
+    assert.equal(bad.error, 'mode', `未知 mode 应报 mode：${JSON.stringify(bogus)}`);
+    assert.equal(bad.ok, false);
+    assert.equal(bad.millis, 0);
+    assert.equal(bad.seconds, 0);
+    assert.equal(bad.unit, '', '未知 mode 不得给出解释单位');
+    assert.equal(timeTools.stampModeIndex(bogus), -1);
+  }
+  // 日期文本输入同样按统一口径拒绝未知 mode（虽然 mode 对它无影响）
+  assert.equal(timeTools.parseStampInput('2026-10-21 10:00:00', 'nope').error, 'mode');
+  // 三个真实 mode 各自的口径
+  assert.equal(timeTools.parseStampInput(tenDigits, 'auto').unit, 'seconds');
+  assert.equal(timeTools.parseStampInput(elevenDigits, 'auto').unit, 'milliseconds');
+  assert.equal(timeTools.parseStampInput(elevenDigits, 's').unit, 'seconds');
+  assert.equal(timeTools.parseStampInput(elevenDigits, 'ms').unit, 'milliseconds');
+  // 写错 mode 的代价：按秒与自动（毫秒）差 1000 倍
+  assert.equal(timeTools.parseStampInput(elevenDigits, 's').millis,
+    timeTools.parseStampInput(elevenDigits, 'auto').millis * 1000);
+  for (const entry of timeTools.STAMP_MODES) {
+    assert.equal(timeTools.parseStampInput(tenDigits, entry.id).ok, true, `登记项 ${entry.id} 应可用`);
+  }
+  // 批量解析继承同一校验（逐行都报 mode，而不是静默按 auto 解析）
+  const badLines = timeTools.parseStampLines('1700000000\n17000000000', 'nope');
+  assert.equal(badLines.length, 2);
+  assert.ok(badLines.every((line) => line.result.error === 'mode'));
+  const goodLines = timeTools.parseStampLines('1700000000\n17000000000', 's');
+  assert.ok(goodLines.every((line) => line.result.unit === 'seconds'));
+}
+
+// ---------------------------------------------------------------------------
+// 第 51 轮：**每个错误码都要有自己的文案分支，兜底不得冒充某个具体原因**（第 48/50 轮同类扫尾）。
+// 静态审计整个 model 的「错误码 vs 文案分支」后发现两处 ⚠，逐一核实：
+// ① `ScientificCalc` 的 `'syntax'` 靠**最后的兜底 return** 出文案——虽然兜底文案当时正好就是语法提示，
+//    但一旦将来加了新错误码却忘补分支，用户会看到「表达式无法解析」而被引向错误的排查方向
+//    （正是第 48 轮 `loanErrorText('method')` 落到「期限」那一支的形状）。本轮改为 `'syntax'` 显式分支
+//    + 中性兜底「计算失败」。
+// ② `NetworkTools` 的 `'empty'` 没有分支是**文档写明的设计**（`netErrorText` 未知 code 返回空串，
+//    界面跳过该提示而不是显示占位符），**不是缺陷**——这里用断言把这个契约钉住，避免下次被误改。
+// ---------------------------------------------------------------------------
+{
+  const codes = ['empty', 'unknown', 'domain', 'divzero', 'overflow', 'toolarge', 'syntax'];
+  const messages = codes.map((code) => science.calcErrorText(code, false));
+  assert.ok(messages.every((text) => text.length > 0), '每个错误码都要有非空文案');
+  assert.equal(new Set(messages).size, codes.length, '错误码文案不得两个码共用一句');
+  assert.ok(/括号|运算符/.test(science.calcErrorText('syntax', false)));
+  assert.ok(/parse/i.test(science.calcErrorText('syntax', true)));
+  // 兜底必须是中性的，不能与任何一个具体错误码的文案相同
+  const fallback = science.calcErrorText('nope', false);
+  assert.ok(messages.indexOf(fallback) < 0, '兜底文案不得与具体错误码的文案相同');
+  assert.notEqual(fallback, science.calcErrorText('syntax', false));
+  // 端到端：每个码都要能被真实输入触发（不只是文案函数存在）
+  assert.equal(science.evaluate('').error, 'empty');
+  assert.equal(science.evaluate('1+').error, 'syntax');
+  assert.equal(science.evaluate('(1+2').error, 'syntax');
+  assert.equal(science.evaluate('1/0').error, 'divzero');
+  assert.equal(science.evaluate('sqrt(-1)').error, 'domain');
+  assert.equal(science.evaluate('(-1)!').error, 'domain');
+  assert.equal(science.evaluate('nosuchfn(1)').error, 'unknown');
+  assert.equal(science.evaluate('x'.repeat(science.MAX_EXPRESSION_LENGTH + 1)).error, 'toolarge');
+  // 第 73 轮：**与独立参照求值器**随机对照（手写递归下降最容易在优先级/结合性/函数语义上出错；
+  // 下面这些手写用例只能覆盖「想到了的点」）。做法：固定种子生成表达式树，同时渲染成
+  // 本应用写法与 JS 参照写法（`^`→`**`、deg 模式三角先转弧度），逐条比数值。
+  {
+    const scienceD2R = Math.PI / 180;
+    const refFactorial = (n) => { let acc = 1; for (let i = 2; i <= n; i++) { acc *= i; } return acc; };
+    const refGcd = (a, b) => { let x = Math.abs(a); let y = Math.abs(b); while (y !== 0) { const t = x % y; x = y; y = t; } return x; };
+    const refNcr = (n, r) => { let acc = 1; for (let i = 0; i < r; i++) { acc = acc * (n - i) / (i + 1); } return Math.round(acc); };
+    const refNpr = (n, r) => { let acc = 1; for (let i = 0; i < r; i++) { acc *= (n - i); } return acc; };
+    const sciRef = {
+      sin: (x) => Math.sin(x * scienceD2R), cos: (x) => Math.cos(x * scienceD2R), tan: (x) => Math.tan(x * scienceD2R),
+      asin: (x) => Math.asin(x) / scienceD2R, acos: (x) => Math.acos(x) / scienceD2R, atan: (x) => Math.atan(x) / scienceD2R,
+      ln: Math.log, log2: Math.log2, exp: Math.exp, sqrt: Math.sqrt, cbrt: Math.cbrt, abs: Math.abs,
+      floor: Math.floor, ceil: Math.ceil, round: Math.round, sign: Math.sign, hypot: Math.hypot,
+      gcd: refGcd, lcm: (a, b) => Math.abs(a * b) / refGcd(a, b), ncr: refNcr, npr: refNpr,
+      min: Math.min, max: Math.max
+    };
+    let sciSeed = 20261020;
+    const sciRnd = (bound) => { sciSeed = (sciSeed * 1103515245 + 12345) % 2147483648; return sciSeed % bound; };
+    // 只生成**避开定义域错误**的表达式，便于逐条比数值：
+    // 除法的分母用 `abs(x)+1`；`sqrt/ln` 只作用在 `abs(x)(+1)` 上；`^` 的指数写成 1–4 的字面量。
+    const sciLeaf = () => {
+      const roll = sciRnd(10);
+      if (roll === 0) { return { text: 'pi', value: Math.PI }; }
+      if (roll === 1) { return { text: 'e', value: Math.E }; }
+      const n = 1 + sciRnd(9);
+      return { text: String(n), value: n };
+    };
+    const sciNode = (depth) => {
+      if (depth <= 0) { return sciLeaf(); }
+      const kind = sciRnd(10);
+      const a = sciNode(depth - 1);
+      if (kind <= 3) {
+        const b = sciNode(depth - 1);
+        if (kind === 0) { return { text: '(' + a.text + '+' + b.text + ')', value: a.value + b.value }; }
+        if (kind === 1) { return { text: '(' + a.text + '-' + b.text + ')', value: a.value - b.value }; }
+        if (kind === 2) { return { text: '(' + a.text + '*' + b.text + ')', value: a.value * b.value }; }
+        return { text: '(' + a.text + ')/(abs(' + b.text + ')+1)', value: a.value / (Math.abs(b.value) + 1) };
+      }
+      if (kind === 4) { return { text: '(-' + a.text + ')', value: -a.value }; }
+      if (kind === 5) { return { text: 'sqrt(abs(' + a.text + '))', value: sciRef.sqrt(Math.abs(a.value)) }; }
+      if (kind === 6) { return { text: 'ln(abs(' + a.text + ')+1)', value: sciRef.ln(Math.abs(a.value) + 1) }; }
+      if (kind === 7) { return { text: 'exp((' + a.text + ')/6)', value: sciRef.exp(a.value / 6) }; }
+      if (kind === 8) { return { text: 'atan(' + a.text + ')', value: sciRef.atan(a.value) }; }
+      const exponent = 1 + sciRnd(4);
+      return { text: '(' + a.text + ')^' + exponent, value: Math.pow(a.value, exponent) };
+    };
+    let sciCompared = 0;
+    for (let index = 0; index < 200; index++) {
+      const tree = sciNode(1 + sciRnd(4));
+      const result = science.evaluate(tree.text, 'deg');
+      assert.equal(result.error, '', `参照对照不应报错：${tree.text} → ${result.error}`);
+      const scale = Math.max(1, Math.abs(tree.value));
+      assert.ok(Number.isFinite(tree.value) && Math.abs(result.value - tree.value) <= 1e-9 * scale,
+        `${tree.text} 得 ${result.value}，参照 ${tree.value}`);
+      sciCompared += 1;
+    }
+    assert.ok(sciCompared >= 200, `参照对照条数应足够：${sciCompared}`);
+  }
+  // 优先级/结合性用**外部常识值**钉住（尤其 `-2^2 = -4` 与 `2^3^2` 右结合）
+  for (const [expression, expected] of [['2+3*4', 14], ['(2+3)*4', 20], ['2^3^2', 512], ['-2^2', -4],
+    ['(-2)^2', 4], ['1-2-3', -4], ['100/10/2', 5], ['5!/(2!*3!)', 10], ['2!^3', 8], ['2*(3+4)*5', 70]]) {
+    assert.ok(Math.abs(science.evaluate(expression, 'deg').value - expected) <= 1e-9 * Math.max(1, Math.abs(expected)),
+      `${expression} 应为 ${expected}`);
+  }
+  // 一元正号是**支持的**（`+2 = 2`、`1++2 = 3`）——别把它当成语法错误
+  assert.equal(science.evaluate('+2', 'deg').value, 2);
+  assert.equal(science.evaluate('1++2', 'deg').value, 3);
+  // `mod` 才是取模运算符（`%` 不是）；除零走 divzero
+  assert.equal(science.evaluate('10 mod 3', 'deg').value, 1);
+  assert.equal(science.evaluate('10 % 3', 'deg').error, 'syntax');
+  // `0^-1` 归类为 **overflow**（`Math.pow(0,-1) = Infinity`），不是 divzero；`1/0` 才是 divzero
+  assert.equal(science.evaluate('0^-1', 'deg').error, 'overflow');
+  assert.equal(science.evaluate('1/0', 'deg').error, 'divzero');
+  // 参数个数不对报 **syntax**——这是**有意设计**（`calcErrorText('syntax')` 的注释写明它涵盖
+  // 「括号不配对、运算符缺操作数、函数参数个数不对」），别为它新增一个错误码而漏改文案。
+  assert.equal(science.evaluate('sin(1,2)', 'deg').error, 'syntax');
+  assert.equal(science.evaluate('hypot(3)', 'deg').error, 'syntax');
+  assert.equal(science.evaluate('log(1,2,3)', 'deg').error, 'syntax');
+  // NetworkTools 的契约：可提示的码都有非空文案；empty 与未知码返回空串（界面跳过）
+  const networkCodes = ['offline', 'timeout', 'refused', 'unreachable', 'dns', 'http', 'invalid', 'https', 'permission', 'toolarge'];
+  assert.ok(networkCodes.every((code) => networkTools.netErrorText(code, false).length > 0), '可提示的码都要有文案');
+  assert.equal(new Set(networkCodes.map((code) => networkTools.netErrorText(code, false))).size,
+    networkCodes.length - 1, 'refused 与 unreachable 共用一句，其余各不相同');
+  assert.equal(networkTools.netErrorText('refused', false), networkTools.netErrorText('unreachable', false));
+  assert.equal(networkTools.netErrorText('empty', false), '', 'empty 按文档返回空串');
+  assert.equal(networkTools.netErrorText('nope', false), '', '未知码返回空串，不显示占位符');
+}
+
+// ---------------------------------------------------------------------------
+// 第 54 轮：把 `LayoutAdaptive` 文档注释里那张**实测设备表**变成断言。
+// 那张表（`LayoutAdaptive.ets` 第 18–23 行）是模拟器逐台量出来的「逻辑尺寸 → 断点/列数/紧凑」规格，
+// 却是**只写在注释里、没有任何断言**的——一旦有人改了列数公式、padding 或断点阈值，注释会静默过期。
+// 口径提示（第 54 轮实测）：文档里的「内容列」是**有效宽度** = min(窗口 − 2×horizontalPadding, contentMaxWidth)，
+// 而 `contentMaxWidth` 是上限本身（SM 920 / LG 1080 / XL 1200）；`NARROW_SINGLE_COLUMN_MAX_VP = 360`
+// 是**严格小于**才单列（恰好 360 vp 已放 2 列，与文档「< 360 vp」一致）。
+// ---------------------------------------------------------------------------
+{
+  const widthBandName = ['XS', 'SM', 'MD', 'LG', 'XL'];
+  const rows = [
+    ['阔直板 Pura X View', 440, 744, 'SM', 2, 400, false],
+    ['阔折叠 Pura X 展开', 440, 707, 'SM', 2, 400, false],
+    ['阔折叠 Pura X 外屏', 327, 327, 'SM', 1, 287, false],
+    ['阔折叠 Pura X Max 展开', 940, 665, 'LG', 4, 892, true],
+    ['三折叠 Mate XT 全展开', 1107, 776, 'LG', 4, 1059, true],
+    ['三折叠 Mate XT 双屏', 712, 776, 'MD', 3, 664, false],
+    ['三折叠 Mate XT 折叠', 351, 776, 'SM', 1, 311, false],
+    ['手机 366', 366, 744, 'SM', 2, 326, false],
+    ['手机 376', 376, 810, 'SM', 2, 336, false],
+    ['折叠屏 Mate X7 展开', 707, 773, 'MD', 3, 659, false],
+    ['平板 1440', 1440, 960, 'XL', 5, 1200, true],
+  ];
+  for (const [name, width, height, band, columns, effective, compact] of rows) {
+    const metrics = layout.layoutMetrics(width, height);
+    const tag = `${name} ${width}×${height}`;
+    assert.equal(widthBandName[metrics.widthBand], band, `宽度档不符：${tag}`);
+    assert.equal(metrics.columns, columns, `列数不符：${tag}`);
+    assert.equal(Math.min(width - 2 * metrics.horizontalPadding, metrics.contentMaxWidth), effective,
+      `有效内容列宽不符：${tag}`);
+    assert.equal(metrics.compact, compact, `compact 不符：${tag}`);
+  }
+  // 高度档是「高 / 宽」（写反会把竖向手机当成矮屏）
+  assert.equal(layout.heightBandOf(440, 744), layout.HEIGHT_LG);
+  assert.equal(layout.heightBandOf(940, 665), layout.HEIGHT_SM);
+  assert.equal(layout.heightBandOf(327, 327), layout.HEIGHT_MD);
+  // 宽度断点边界（官方默认阈值）
+  assert.deepEqual([319, 320, 599, 600, 839, 840, 1439, 1440].map((w) => layout.widthBandOf(w)),
+    [0, 1, 1, 2, 2, 3, 3, 4]);
+  // 窄幅单列是严格小于 360（恰好 360 已放 2 列）
+  assert.equal(layout.layoutMetrics(359, 744).columns, 1);
+  assert.equal(layout.layoutMetrics(360, 744).columns, 2);
+  assert.equal(layout.NARROW_SINGLE_COLUMN_MAX_VP, 360);
+  // 有效宽度永不超过上限，列数随宽度单调不减
+  let previousColumns = 0;
+  for (let width = 200; width <= 2000; width += 10) {
+    const metrics = layout.layoutMetrics(width, 744);
+    assert.ok(metrics.columns >= previousColumns, `列数应随宽度单调不减：${width}`);
+    previousColumns = metrics.columns;
+    assert.ok(width - 2 * metrics.horizontalPadding <= metrics.contentMaxWidth ||
+      metrics.contentMaxWidth <= width, `内容上限不应小于窗口：${width}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 第 55 轮：**随包的 `holidays.ics` 数据本身**也要断言（第 54 轮同类：把「只写在文档里的规格」变成断言）。
+// AGENTS 与 `HolidayIcs` 注释都把覆盖范围写成「2022–2026」，而界面文案是**算出来的**
+// （`holidayCoverageText()` 走 `holidayCoverageYears(table)`）——数据少一年界面会如实变窄、不会撒谎，
+// 但**文档与真机清单里的「2022–2026」就过期了**，而且「查范围外只排除周末」这条提示也会跟着变。
+// 这条断言的作用：换 `holidays.ics` 时**必须**同步文档/清单，且换坏了（截断、缺年、解析失败）立刻报错。
+// ---------------------------------------------------------------------------
+{
+  const icsText = await readFile(join(ROOT, 'entry/src/main/resources/rawfile/holidays.ics'), 'utf8');
+  const table = holidayIcs.parseHolidayIcs(icsText);
+  assert.equal(table.loaded, true, '随包节假日数据应能解析成功');
+  assert.equal(table.truncated, 0, '随包数据不应被截断');
+  // 覆盖范围与文档一致
+  assert.deepEqual(holidayIcs.holidayCoverageYears(table), [2022, 2023, 2024, 2025, 2026]);
+  assert.equal(holidayIcs.holidayCoverageText(table, false), '覆盖年份：2022–2026');
+  assert.equal(holidayIcs.holidayCoverageText(table, true), 'Years covered: 2022–2026');
+  assert.equal(holidayIcs.holidayCoversYear(table, 2026), true);
+  assert.equal(holidayIcs.holidayCoversYear(table, 2027), false, '2027 不在覆盖内（界面据此提示只排除周末）');
+  // 数据日期属性（驱动「随包内置 / 已在线更新」的标注）必须是 ISO 且存在
+  assert.ok(icsText.indexOf(holidayIcs.HOLIDAY_DATA_DATE_PROPERTY) >= 0,
+    `数据文件应带 ${holidayIcs.HOLIDAY_DATA_DATE_PROPERTY} 属性`);
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(table.dataDate), `dataDate 应是 ISO 日期：${table.dataDate}`);
+  // 每年都要有真正的假日与调休上班日（两类分支都被数据覆盖到）
+  for (const year of holidayIcs.holidayCoverageYears(table)) {
+    const prefix = String(year) + '-';
+    const holidaysInYear = table.holidays.filter((date) => date.startsWith(prefix));
+    const workdaysInYear = table.workdays.filter((date) => date.startsWith(prefix));
+    assert.ok(holidaysInYear.length >= 20, `${year} 年假日条目过少：${holidaysInYear.length}`);
+    assert.ok(workdaysInYear.length >= 1, `${year} 年缺少调休上班日（该分支未被数据覆盖）`);
+  }
+  // 两类日期不得重叠，格式必须是 ISO 且去重
+  assert.ok(table.holidays.every((date) => table.workdays.indexOf(date) < 0), '休假日与调休上班日不得重叠');
+  assert.ok(table.holidays.every((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)), '假日日期应是 ISO');
+  assert.equal(new Set(table.holidays).size, table.holidays.length, '假日日期不应重复');
+  assert.equal(new Set(table.workdays).size, table.workdays.length, '调休上班日不应重复');
+  // 已知锚点（2026 安排已于 2025 年 11 月公布）：国庆当天是假日、10 月 10 日是调休上班日
+  assert.equal(holidayIcs.isHolidayDate(table, '2026-10-01'), true);
+  assert.equal(holidayIcs.isMakeUpWorkday(table, '2026-10-10'), true);
+  // 第 86 轮：**与「独立解析同一份文件」对照**（本轮用另写的 RFC 5545 解析器逐日比对，结果完全一致）。
+  // 上面这些断言都没碰 `names`——把 SUMMARY 贴错日期（例如区间展开时首尾偏移一位）可以全绿通过。
+  // 这里钉住「名称与类别必须自洽」：调休上班日的名称必须含关键词、休假日的名称必须不含。
+  {
+    const keywords = holidayIcs.HOLIDAY_WORKDAY_KEYWORDS;
+    const hasKeyword = (name) => keywords.some((keyword) => String(name).indexOf(keyword) >= 0);
+    let named = 0;
+    for (const date of table.workdays) {
+      const name = table.names[date];
+      assert.ok(name !== undefined && hasKeyword(name), `调休上班日 ${date} 的名称应含关键词，实际「${name}」`);
+      named += 1;
+    }
+    for (const date of table.holidays) {
+      const name = table.names[date];
+      assert.ok(name !== undefined && !hasKeyword(name), `休假日 ${date} 的名称不应含关键词，实际「${name}」`);
+      named += 1;
+    }
+    assert.equal(named, table.holidays.length + table.workdays.length, '每一天都应有名称');
+    // 名称按「假期段」复用（同一次放假的多天共用同一个 SUMMARY）
+    assert.equal(table.names['2026-01-01'], table.names['2026-01-02'], '同一次放假的连续日期应共用名称');
+    // `dataDate` 必须**等于文件里那一行的值**（上面只验了 ISO 格式，格式对但值错（比如写成别的日期）看不出来）
+    const fetchedLine = icsText.split(/\r?\n/).find((line) => line.startsWith(holidayIcs.HOLIDAY_DATA_DATE_PROPERTY));
+    assert.ok(fetchedLine !== undefined, '数据文件应带抓取日期属性');
+    assert.equal(table.dataDate, fetchedLine.substring(fetchedLine.indexOf(':') + 1).trim(),
+      'dataDate 应等于文件里记录的抓取日期');
+    // 总量：随包数据的规模（换数据时要同步这条与文档/清单）
+    assert.equal(table.holidays.length, 147, `随包休假日总数应为 147，实际 ${table.holidays.length}`);
+    assert.equal(table.workdays.length, 33, `随包调休上班日总数应为 33，实际 ${table.workdays.length}`);
+    const perYear = table.holidays.map((date) => date.substring(0, 4));
+    const workPerYear = table.workdays.map((date) => date.substring(0, 4));
+    assert.deepEqual([2022, 2023, 2024, 2025, 2026].map((year) => perYear.filter((item) => item === String(year)).length),
+      [32, 26, 28, 28, 33], '各年休假日天数应与数据一致');
+    assert.deepEqual([2022, 2023, 2024, 2025, 2026].map((year) => workPerYear.filter((item) => item === String(year)).length),
+      [7, 7, 8, 5, 6], '各年调休上班日天数应与数据一致');
+    // 覆盖范围的**两侧**边界都要否掉（上方只否了 2027）
+    assert.equal(holidayIcs.holidayCoversYear(table, 2021), false, '2021 不在覆盖内');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 第 56 轮：`ColorTools` 的**往返一致性**与颜色空间不变量。
+// 审计 §3.11 已钉住「能解析什么」，但**没钉住往返**：颜色工具最怕的不是公式写错，而是取整导致
+// 「选了这个色、复制出来却是另一个色」。本轮用**大批采样**把闭合关系钉住：
+// ① hex ↔ rgb **精确**闭合（4096 个采样全对）；
+// ② rgb → hsl → rgb 有**量化损失**——`rgbToHsl` 的文档写明 h/s/l「四舍五入到整数便于展示」，
+//    因此整数百分比 HSL 表示不可能是无损的。实测 **140608** 个采样最大偏差 **3**、灰度最大偏差 **1**
+//    （最差样本 `(0,0,125) → hsl(240,100%,25%) → (0,0,128)`），故断言的界取 **≤4**：既能抓住公式级错误，
+//    又不会把「整数展示」这个设计误判成缺陷。**不要把这条改成「必须精确」**。
+// ③ 灰度色的 `s` 必须是 0（不能靠 h 编一个值）；h 任意角度先归一（-90 ≡ 270、450 ≡ 90）；越界 s/l 夹取。
+// ④ 对比度：同色 1、黑白 21（WCAG 上限）、与参数顺序无关、恒在 [1,21]；相对亮度黑 0 白 1。
+// ---------------------------------------------------------------------------
+{
+  const rgb = (r, g, b) => new colors.RgbColor(r, g, b);
+  const hsl = (h, s, l) => new colors.HslColor(h, s, l);
+  // ① hex ↔ rgb 精确闭合
+  let hexFailures = 0;
+  const samples = [];
+  for (let r = 0; r < 256; r += 17) {
+    for (let g = 0; g < 256; g += 17) {
+      for (let b = 0; b < 256; b += 17) { samples.push([r, g, b]); }
+    }
+  }
+  for (const [r, g, b] of samples) {
+    const back = colors.parseColor(colors.toHex(rgb(r, g, b)));
+    if (back === undefined || back.r !== r || back.g !== g || back.b !== b) { hexFailures++; }
+  }
+  assert.equal(hexFailures, 0, `hex ↔ rgb 应精确闭合（采样 ${samples.length}）`);
+  assert.equal(colors.toHex(rgb(13, 59, 102)), '#0D3B66');
+  assert.equal(colors.toRgbText(rgb(13, 59, 102)), 'rgb(13, 59, 102)');
+  assert.equal(colors.toHslText(colors.rgbToHsl(rgb(13, 59, 102))), 'hsl(209, 77%, 23%)');
+  // ② rgb → hsl → rgb 的量化上限是 4（实测最大 3）
+  let maxDelta = 0;
+  for (const [r, g, b] of samples) {
+    const back = colors.hslToRgb(colors.rgbToHsl(rgb(r, g, b)));
+    maxDelta = Math.max(maxDelta, Math.abs(back.r - r), Math.abs(back.g - g), Math.abs(back.b - b));
+  }
+  assert.ok(maxDelta <= 4, `rgb ↔ hsl 往返偏差应在量化上限内，实测 ${maxDelta}`);
+  // 灰度（0..255）偏差 ≤1 且三通道相等
+  for (let value = 0; value < 256; value++) {
+    const back = colors.hslToRgb(colors.rgbToHsl(rgb(value, value, value)));
+    assert.ok(Math.abs(back.r - value) <= 1 && back.r === back.g && back.g === back.b,
+      `灰度 ${value} 往返异常：${JSON.stringify(back)}`);
+  }
+  // ③ 灰度 s 为 0；h 归一与夹取
+  assert.ok([0, 1, 128, 254, 255].every((value) => colors.rgbToHsl(rgb(value, value, value)).s === 0),
+    '灰度色的饱和度应为 0');
+  assert.equal(colors.toHex(colors.hslToRgb(hsl(-90, 100, 50))), colors.toHex(colors.hslToRgb(hsl(270, 100, 50))));
+  assert.equal(colors.toHex(colors.hslToRgb(hsl(450, 100, 50))), colors.toHex(colors.hslToRgb(hsl(90, 100, 50))));
+  assert.ok(/^#[0-9A-F]{6}$/.test(colors.toHex(colors.hslToRgb(hsl(200, 500, 500)))), '越界 s/l 应被夹取');
+  assert.ok(samples.every(([r, g, b]) => {
+    const value = colors.rgbToHsl(rgb(r, g, b));
+    return value.h >= 0 && value.h < 360 && value.s >= 0 && value.s <= 100 && value.l >= 0 && value.l <= 100;
+  }), 'hsl 值域应为 h<360、s/l≤100');
+  // ④ 对比度与相对亮度
+  const white = rgb(255, 255, 255);
+  const black = rgb(0, 0, 0);
+  assert.equal(colors.contrastRatio(white, white), 1);
+  assert.equal(colors.contrastRatio(black, white), 21);
+  assert.equal(colors.contrastRatio(black, white), colors.contrastRatio(white, black));
+  assert.equal(colors.relativeLuminance(black), 0);
+  assert.equal(colors.relativeLuminance(white), 1);
+  assert.ok(samples.every(([r, g, b]) => {
+    const ratio = colors.contrastRatio(rgb(r, g, b), white);
+    const luminance = colors.relativeLuminance(rgb(r, g, b));
+    return ratio >= 1 && ratio <= 21 && luminance >= 0 && luminance <= 1;
+  }), '对比度应在 [1,21]、相对亮度应在 [0,1]');
+}
+// 第 77 轮：与**独立实现的 WCAG 公式**逐值对照（上面只验了「落在区间内」，那对公式写错是不敏感的）。
+// 参照：`lin(c) = c≤0.04045 ? c/12.92 : ((c+0.055)/1.055)^2.4`；`L = 0.2126R + 0.7152G + 0.0722B`；
+// `contrast = (Lmax + 0.05) / (Lmin + 0.05)`，实现按文档**四舍五入到两位小数**。
+{
+  const wcagLinear = (c8) => {
+    const c = c8 / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const wcagLuminance = (color) =>
+    0.2126 * wcagLinear(color.r) + 0.7152 * wcagLinear(color.g) + 0.0722 * wcagLinear(color.b);
+  const wcagContrast = (a, b) => {
+    const la = wcagLuminance(a);
+    const lb = wcagLuminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+  for (let index = 0; index < 150; index++) {
+    const first = new colors.RgbColor((index * 37) % 256, (index * 91) % 256, (index * 53) % 256);
+    const second = new colors.RgbColor((index * 173) % 256, (index * 97) % 256, (index * 41) % 256);
+    assert.ok(Math.abs(colors.relativeLuminance(first) - wcagLuminance(first)) < 1e-12,
+      '相对亮度应与 WCAG 线性化公式逐值一致');
+    assert.ok(Math.abs(colors.contrastRatio(first, second) -
+      Math.round(wcagContrast(first, second) * 100) / 100) < 0.005,
+      '对比度应为参照公式四舍五入到两位小数');
+  }
+  // 业界公认的 AA 边界色（外部事实，不是从实现推出来的）：
+  // `#767676` 对白底恰好 **4.54**（普通文字 AA 通过）、`#777777` 是 **4.48**（AA 不通过、只能算大号文字）
+  const grey118 = new colors.RgbColor(118, 118, 118);
+  const grey119 = new colors.RgbColor(119, 119, 119);
+  const whiteBackground = new colors.RgbColor(255, 255, 255);
+  assert.equal(colors.contrastRatio(grey118, whiteBackground), 4.54, '#767676 对白底应为 4.54');
+  assert.equal(colors.contrastRatio(grey119, whiteBackground), 4.48, '#777777 对白底应为 4.48');
+  assert.equal(colors.contrastVerdict(colors.contrastRatio(grey118, whiteBackground), false), 'AA');
+  assert.equal(colors.contrastVerdict(colors.contrastRatio(grey119, whiteBackground), false), 'AA-Large',
+    '4.48 达不到普通文字的 AA，只能算「仅适合大号文字」');
+  // rgbToHsl 也与独立参照对照（任意色相，而不只是几个代表色）
+  const wcagRgbToHsl = (color) => {
+    const r = color.r / 255; const g = color.g / 255; const b = color.b / 255;
+    const max = Math.max(r, g, b); const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const d = max - min;
+    if (d === 0) { return { h: 0, s: 0, l: l * 100 }; }
+    const s = d / (1 - Math.abs(2 * l - 1));
+    let h = max === r ? 60 * (((g - b) / d) % 6) : max === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4);
+    if (h < 0) { h += 360; }
+    return { h, s: s * 100, l: l * 100 };
+  };
+  for (let index = 0; index < 150; index++) {
+    const color = new colors.RgbColor((index * 37) % 256, (index * 91) % 256, (index * 53) % 256);
+    const got = colors.rgbToHsl(color);
+    const want = wcagRgbToHsl(color);
+    assert.equal(got.h, Math.round(want.h), 'rgbToHsl 的 h 应与参照一致');
+    assert.equal(got.s, Math.round(want.s), 'rgbToHsl 的 s 应与参照一致');
+    assert.equal(got.l, Math.round(want.l), 'rgbToHsl 的 l 应与参照一致');
+  }
+}
+// 第 77 轮（记录，不改代码）：`parseColor(undefined)` 会抛 `TypeError`（实现直接 `raw.trim()`）。
+// **可达性核查**：`parseColor` 的唯一调用点是模型内部的 `parseColorInput`（传的是已有字符串），
+// 页面侧 `parseColorInput(this.colorInput)` 与 `applyPicked(id, raw: string)` 都是**静态类型为 string**、
+// 且 `applyPicked` 还对返回值做了 `undefined` 判空——因此生产路径传不进 `undefined`，属**类型约定内**，
+// 不是用户可见缺陷（本轮探针传 undefined 是探针自己越界）。这里只用「合法字符串」断言其健壮性。
+assert.equal(colors.parseColor('   #FF0000  ').r, 255, '前后空白应被容忍');
+assert.equal(colors.parseColor('not-a-color'), undefined);
+
+// ---------------------------------------------------------------------------
+// 第 57 轮：汇率快照的**时效文案**（AGENTS「有生效区间」的数据要把适用范围露出来）+ 英文单复数。
+// **查出的真缺陷**：`fxDataAgeText` 的英文一律拼 `' minutes'`/`' hours'`/`' days'`，于是 `1` 会显示成
+// “Updated 1 minutes ago”，而分钟落在 60–119 时**整段一小时都会显示 “Updated 1 hours ago”**
+// ——双语应用的英文语法错误（中文不受影响）。已按单复数生成。
+// 其余边界（本轮实测）：未获取 → 「尚未获取汇率」；**时钟回拨**（`now < fetchedAt`）→ 「刚刚更新」
+// 且不出现负号；门槛是 1 分钟 / 48 小时 / 2 天（`1 天` 会显示 `24 小时前`，`48 小时` 起显示 `2 天前`）。
+// ---------------------------------------------------------------------------
+{
+  const MINUTE = 60000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  const NOW = 1800000000000;
+  const age = (offset, english) => fxTools.fxDataAgeText(NOW - offset, NOW, english);
+  // 单复数（本轮修复点）
+  assert.equal(age(MINUTE, true), 'Updated 1 minute ago');
+  assert.equal(age(2 * MINUTE, true), 'Updated 2 minutes ago');
+  assert.equal(age(59 * MINUTE, true), 'Updated 59 minutes ago');
+  assert.equal(age(HOUR, true), 'Updated 1 hour ago');
+  assert.equal(age(HOUR + 59 * MINUTE, true), 'Updated 1 hour ago');
+  assert.equal(age(2 * HOUR, true), 'Updated 2 hours ago');
+  assert.equal(age(6 * DAY, true), 'Updated 6 days ago');
+  // 注意：正则必须带边界，否则「11 hours」里的 "1 hours" 会误报（第 57 轮先踩了一次自己的坑）
+  assert.ok(!/(?:^|[^0-9])1 (minutes|hours|days)\b/.test([...Array(120).keys()]
+    .map((m) => age((m + 1) * MINUTE, true)).join(' | ')), '英文不得出现 “1 minutes/hours/days”');
+  // 中文不涉及单复数
+  assert.equal(age(MINUTE, false), '1 分钟前更新');
+  assert.equal(age(HOUR, false), '1 小时前更新');
+  assert.equal(age(6 * DAY, false), '6 天前更新');
+  // 未获取 / 刚取 / 时钟回拨
+  assert.equal(fxTools.fxDataAgeText(0, NOW, false), '尚未获取汇率');
+  assert.equal(fxTools.fxDataAgeText(0, NOW, true), 'Rates not fetched yet');
+  assert.equal(age(500, false), '刚刚更新');
+  assert.equal(age(500, true), 'Updated just now');
+  assert.equal(age(-DAY, true), 'Updated just now', '时钟回拨按刚更新处理');
+  assert.ok(!/-\d/.test(age(-400 * DAY, true) + age(-DAY, false)), '未来时间戳不得出现负号');
+  // 门槛：1 天仍按小时、48 小时起按天
+  assert.equal(age(DAY, false), '24 小时前更新');
+  assert.equal(age(48 * HOUR, false), '2 天前更新');
+  // 换算与币种小数位（顺带核对）
+  const parsed = fxTools.parseFxPayload('{"base":"CNY","rates":{"CNY":1,"USD":0.14,"JPY":20}}', NOW - DAY);
+  assert.equal(parsed.error, '');
+  const table = parsed.table;
+  assert.equal(fxTools.convertFx(100, 'CNY', 'CNY', table), 100);
+  assert.equal(fxTools.convertFx(100, 'CNY', 'XXX', table), undefined, '未知币种不得静默按 1 算');
+  assert.equal(fxTools.convertFx(100, 'XXX', 'CNY', table), undefined);
+  const usd = fxTools.convertFx(100, 'CNY', 'USD', table);
+  assert.ok(Math.abs(fxTools.convertFx(usd, 'USD', 'CNY', table) - 100) < 1e-9, '换算应往返闭合');
+  assert.ok(fxTools.FX_ZERO_DECIMAL.every((code) => fxTools.fxDecimals(code) === 0));
+  assert.ok(['CNY', 'USD', 'EUR'].every((code) => fxTools.fxDecimals(code) === 2));
+}
+
+// ---------------------------------------------------------------------------
+// 第 58 轮：英文单复数（续第 57 轮）——把确认框文案抽成纯逻辑后就可以断言了。
+// 第 58 轮顺着第 57 轮那条线又查出 5 处 `1 items/hours/days/records/entries`（导出条数、导入结果、
+// 设置页清空历史、历史页两个删除确认），其中「设置页清空历史」是我第 52 轮新加时带进来的。
+// 现在历史页与设置页**共用** `historyClearConfirmText()`；`englishCountText()` 是共用的单复数助手。
+// ---------------------------------------------------------------------------
+{
+  assert.equal(historyKinds.englishCountText(1, 'item', 'items'), '1 item');
+  assert.equal(historyKinds.englishCountText(2, 'item', 'items'), '2 items');
+  assert.equal(historyKinds.englishCountText(0, 'item', 'items'), '0 items');
+  assert.equal(historyKinds.englishCountText(1, 'record', 'records'), '1 record');
+  // 清空历史确认框（历史页与设置页共用）
+  const clearOne = historyKinds.historyClearConfirmText(1, true);
+  const clearMany = historyKinds.historyClearConfirmText(5, true);
+  assert.equal(clearOne, 'This deletes all 1 history record. It cannot be undone.');
+  assert.ok(clearMany.indexOf('5 history records') >= 0);
+  assert.ok(clearOne.indexOf('records') < 0, 'count=1 时英文不得用复数 records');
+  assert.equal(historyKinds.historyClearConfirmText(1, false), '将删除全部 1 条历史记录，此操作不可撤销。');
+  assert.equal(historyKinds.historyClearConfirmText(5, false), '将删除全部 5 条历史记录，此操作不可撤销。');
+  // 删除筛选结果确认框
+  const filteredOne = historyKinds.historyDeleteFilteredConfirmText(1, true);
+  assert.ok(filteredOne.indexOf('1 record ') >= 0 && filteredOne.indexOf('records') < 0);
+  assert.ok(historyKinds.historyDeleteFilteredConfirmText(3, true).indexOf('3 records') >= 0);
+  assert.ok(historyKinds.historyDeleteFilteredConfirmText(1, false).indexOf('1 条记录') >= 0);
+  // 双语都要非空、都要提到「不可撤销」
+  for (const count of [1, 2, 50]) {
+    for (const english of [true, false]) {
+      const clear = historyKinds.historyClearConfirmText(count, english);
+      const filtered = historyKinds.historyDeleteFilteredConfirmText(count, english);
+      assert.ok(clear.length > 0 && filtered.length > 0);
+      assert.ok(clear.indexOf(count.toString()) >= 0, '确认文案要如实写出条数');
+      assert.ok(filtered.indexOf(count.toString()) >= 0);
+      assert.ok(/undone|撤销/.test(clear) && /undone|撤销/.test(filtered), '必须写明不可撤销');
+    }
+  }
+  // 英文不得出现 “1 items/records/entries/hours/days” 这类（带词边界，别被 11/21 误伤）
+  const bogus = /(?:^|[^0-9])1 (items|records|entries|hours|days|minutes)\b/;
+  for (const count of [1, 2, 11, 21]) {
+    assert.ok(!bogus.test(historyKinds.historyClearConfirmText(count, true)), `清空文案单复数异常：${count}`);
+    assert.ok(!bogus.test(historyKinds.historyDeleteFilteredConfirmText(count, true)), `删除文案单复数异常：${count}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 第 59 轮：节假日**两条编码路径必须给出同一结果**（交叉互证，第 30 轮那条经验）。
+// 背景：`HolidayIcs.isHolidayDate()`/`isMakeUpWorkday()` 在生产代码里**零调用**——
+// 界面走的是 `DateTools.workingDaysBetweenWithHolidays(first, second, includeFirst, holidays, workdays)`
+// 这条**数组**路径，而谓词那组 API 只有单测在用。两者是「同一个判断的两套问法」，最容易在改动后漂移
+// （例如哪天给谓词加上「连续假期」语义、却忘了改数组路径）。这里用真实随包数据把两套口径**对起来**。
+// ---------------------------------------------------------------------------
+{
+  const icsText = await readFile(join(ROOT, 'entry/src/main/resources/rawfile/holidays.ics'), 'utf8');
+  const table = holidayIcs.parseHolidayIcs(icsText);
+  const weekdayOf = (iso) => new Date(iso + 'T00:00:00Z').getUTCDay();   // 0=周日
+  // 参考实现：用**谓词**逐日判定（调休上班算工作日；否则非周末且非法定假日才算）
+  const referenceCount = (first, second, includeFirst) => {
+    const start = first <= second ? first : second;
+    const end = first <= second ? second : first;
+    let count = 0;
+    const cursor = new Date(start + 'T00:00:00Z');
+    if (!includeFirst) { cursor.setUTCDate(cursor.getUTCDate() + 1); }
+    while (cursor.getTime() <= new Date(end + 'T00:00:00Z').getTime()) {
+      const iso = cursor.toISOString().substring(0, 10);
+      const weekend = weekdayOf(iso) === 0 || weekdayOf(iso) === 6;
+      if (holidayIcs.isMakeUpWorkday(table, iso) || (!weekend && !holidayIcs.isHolidayDate(table, iso))) {
+        count += 1;
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return count;
+  };
+  const ranges = [
+    ['2026-01-01', '2026-12-31'],   // 整年（覆盖春节、国庆、调休）
+    ['2026-09-28', '2026-10-12'],   // 跨国庆假期与调休
+    ['2025-12-20', '2026-01-10'],   // 跨年
+    ['2026-02-10', '2026-02-25'],   // 春节前后
+    ['2026-10-01', '2026-10-01'],   // 单日（假期当天）
+  ];
+  for (const [first, second] of ranges) {
+    const arrayPath = dates.workingDaysBetweenWithHolidays(first, second, true, table.holidays, table.workdays);
+    assert.equal(arrayPath, referenceCount(first, second, true),
+      `数组路径与谓词路径应一致：${first} → ${second}`);
+    const skipFirst = dates.workingDaysBetweenWithHolidays(first, second, false, table.holidays, table.workdays);
+    assert.equal(skipFirst, referenceCount(first, second, false), `includeFirst=false 也应一致：${first} → ${second}`);
+  }
+  // 传空数组时应退化成「只排除周末」（两条路径的契约）
+  assert.equal(
+    dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-31', true, [], []),
+    dates.workingDaysBetween('2026-10-01', '2026-10-31', true),
+    '空节假日数组时应与 workingDaysBetween 一致');
+  // 谓词与表内数组本身不得矛盾
+  assert.ok(table.holidays.every((iso) => holidayIcs.isHolidayDate(table, iso) === true));
+  assert.ok(table.holidays.every((iso) => holidayIcs.isMakeUpWorkday(table, iso) === false));
+  assert.ok(table.workdays.every((iso) => holidayIcs.isMakeUpWorkday(table, iso) === true));
+  // 「调休上班」的意义在于把周末补成工作日：至少要有一天落在周末，否则这条分支没被真实数据覆盖
+  assert.ok(table.workdays.some((iso) => {
+    const day = weekdayOf(iso);
+    return day === 0 || day === 6;
+  }), '调休上班日应至少有一天落在周末（否则该分支未被覆盖）');
+  // holidayCoversYear 与覆盖年份列表一致
+  assert.ok([2022, 2023, 2024, 2025, 2026].every((year) => holidayIcs.holidayCoversYear(table, year)));
+  assert.equal(holidayIcs.holidayCoversYear(table, 2021), false);
+  assert.equal(holidayIcs.holidayCoversYear(table, 2027), false);
+}
+
+// ---------------------------------------------------------------------------
+// 第 60 轮：`TorchSignal` 的**时序表**与两个「亮度」标尺（核对 + 钉住，未发现产品缺陷）。
+// 文档口径（文件头）：点 = 1u、划 = 3u、字符内间隔 = 1u、字符间 = 3u、词间 = 7u，u = `MORSE_UNIT_MS` = 150ms。
+// 实测与之一致：`AB` → L1,D1,L3,**D3**,L3,D1,L1,D1,L1,D1,L1；`A B` → …,**D7**,L3…；
+// `segmentsForMorse('SOS')` 17 段、cycle **4050ms**；`morseSignalSegments('SOS', 7)` 再多一个 **7u** 收尾（4050→5100）。
+// 另两处**有意的防御**（不是缺陷，别改成抛错/返回 0）：
+//   · `strobePeriodMs`: `hz > 0 ? Math.round(1000/hz) : 1000`——非正数/NaN 回退 **1 Hz**；极大 hz 也不会返回 Infinity
+//     （`strobeSegments` 把两段各自夹到 ≥1ms，因此周期恒有限）；`Math.round` 意味着 3 Hz 是 **333ms**（不是 333.33）。
+//   · `torchLevel`: 百分数夹到 **[1,100]** 再除 100，所以 0/负数 → **0.01**，**绝不返回 0**（0 对系统等于「关」）。
+//     ⚠ 已知边界：`torchLevel(NaN)` 会得到 NaN，但 `brightnessPercent` 只由 `BRIGHTNESS_OPTIONS` 赋值、
+//     不落盘也不解析，**界面上不可达**，故按审计口径不算缺陷（不为此加分支）。
+// ---------------------------------------------------------------------------
+{
+  const unit = torchSignal.MORSE_UNIT_MS;
+  const unitsOf = (segments) => segments.map((segment) => segment.ms / unit);
+  // ① 时序表：点/划/字符内/字符间/词间
+  assert.equal(unit, 150);
+  const sosSegments = torchSignal.segmentsForMorse(torchSignal.morseChars('SOS', 20), unit);
+  assert.equal(sosSegments.length, 17);
+  assert.deepEqual(unitsOf(sosSegments), [1, 1, 1, 1, 1, 3, 3, 1, 3, 1, 3, 3, 1, 1, 1, 1, 1]);
+  assert.equal(torchSignal.cycleMs(sosSegments), 4050);
+  assert.ok(sosSegments.every((segment) => Number.isInteger(segment.ms / unit)), '每段时长应是 u 的整数倍');
+  // 字符间 3u、词间 7u
+  const abUnits = unitsOf(torchSignal.segmentsForMorse(torchSignal.morseChars('AB', 20), unit));
+  assert.deepEqual(abUnits, [1, 1, 3, 3, 3, 1, 1, 1, 1, 1, 1]);
+  const aSpaceBUnits = unitsOf(torchSignal.segmentsForMorse(torchSignal.morseChars('A B', 20), unit));
+  assert.deepEqual(aSpaceBUnits, [1, 1, 3, 7, 3, 1, 1, 1, 1, 1, 1]);
+  assert.equal(Math.max(...aSpaceBUnits), 7, '词间间隔应为 7u');
+  // 灯语的收尾循环间隔：`morseSignalSegments(text, loopGapUnits)`
+  const looped = torchSignal.morseSignalSegments('SOS', 7);
+  assert.equal(looped.length, sosSegments.length + 1);
+  assert.equal(looped[looped.length - 1].on, false);
+  assert.equal(torchSignal.cycleMs(looped), 4050 + 7 * unit);
+  // ② 文本 ⇄ 摩尔斯往返（含空格/词间/数字）
+  for (const text of ['SOS', 'HELLO WORLD', 'ABC 123', 'A B', 'SOS SOS']) {
+    const decoded = torchSignal.morseDecodeText(torchSignal.morseEncodeText(text));
+    assert.equal(decoded.text, text, `往返应一致：${text}`);
+    assert.equal(decoded.unknown, 0);
+  }
+  // ③ 不可映射字符如实报告（去重、保序），且编码时确实被丢弃
+  assert.equal(torchSignal.ignoredMorseChars('ABCDEF'), '');
+  assert.equal(torchSignal.ignoredMorseChars('A中B'), '中');
+  assert.equal(torchSignal.ignoredMorseChars('SOS中SOS'), '中');
+  assert.equal(torchSignal.ignoredMorseChars('A中B中'), '中', '重复字符只报一次');
+  assert.equal(torchSignal.ignoredMorseChars('A€B?'), '€ ?', '多个被忽略字符按顺序列出');
+  assert.equal(torchSignal.morseEncodeText('A中B'), '.- -...');
+  // ④ 过渡性上限：只取前 N 个字符
+  assert.deepEqual(torchSignal.morseChars('ABCDEF', 3).map((entry) => entry.char), ['A', 'B', 'C']);
+  assert.ok(torchSignal.MORSE_MAX_CHARS > 0 && torchSignal.MORSE_TEXT_MAX >= torchSignal.MORSE_MAX_CHARS);
+// 第 88 轮：手电筒页的「最多 N 个字符」文案现在由 `MORSE_MAX_CHARS` 插值（原先页面硬写 20），
+// 所以把它的**确切值**也钉住；编码侧用它截断，边界（正好 N 个字符全部保留）见上方 `morseChars` 断言。
+assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
+  // ⑤ 频闪：周期取整、非正数回退 1 Hz、两段都 ≥1ms、周期恒有限
+  for (const hz of [1, 2, 3, 5]) {
+    assert.equal(torchSignal.strobePeriodMs(hz), Math.round(1000 / hz));
+    const segments = torchSignal.strobeSegments(hz);
+    assert.equal(segments.length, 2);
+    assert.equal(segments[0].on, true);
+    assert.equal(segments[1].on, false);
+    assert.ok(segments[0].ms >= 1 && segments[1].ms >= 1);
+    assert.equal(torchSignal.cycleMs(segments), torchSignal.strobePeriodMs(hz));
+  }
+  assert.equal(torchSignal.strobePeriodMs(3), 333, '3 Hz 是 333ms（取整）');
+  assert.equal(torchSignal.strobePeriodMs(0), 1000, '非正数回退 1 Hz');
+  assert.equal(torchSignal.strobePeriodMs(-1), 1000);
+  assert.equal(torchSignal.strobePeriodMs(NaN), 1000);
+  for (const hz of [Infinity, 100000]) {
+    const segments = torchSignal.strobeSegments(hz);
+    assert.ok(Number.isFinite(torchSignal.cycleMs(segments)), `极大 hz(${hz}) 的周期也必须有限`);
+    assert.ok(segments.every((segment) => segment.ms >= 1));
+  }
+  assert.equal(torchSignal.strobeIndex(3), 2);
+  assert.equal(torchSignal.strobeIndex(4), torchSignal.STROBE_FREQUENCIES.indexOf(torchSignal.DEFAULT_STROBE_HZ), '未知频率回退默认档');
+  // ⑥ 两个亮度标尺
+  assert.deepEqual(torchSignal.BRIGHTNESS_OPTIONS, [25, 50, 75, 100]);
+  assert.equal(torchSignal.torchLevel(100), 1);
+  assert.equal(torchSignal.torchLevel(50), 0.5);
+  assert.equal(torchSignal.torchLevel(0), 0.01, '0% 不能映射成 0（0 对系统等于关灯）');
+  assert.equal(torchSignal.torchLevel(-5), 0.01);
+  assert.equal(torchSignal.torchLevel(500), 1, '上限夹到 100%');
+  assert.ok(torchSignal.BRIGHTNESS_OPTIONS.every((percent) => {
+    const level = torchSignal.torchLevel(percent);
+    return level >= 0.01 && level <= 1;
+  }));
+  assert.ok(torchSignal.SCREEN_LIGHT_LEVELS.every((level) => level.ratio > 0 && level.ratio <= 1));
+  assert.equal(torchSignal.screenLightRatio(torchSignal.DEFAULT_SCREEN_LIGHT_LEVEL), 1);
+  assert.ok(torchSignal.screenLightRatio('nope') > 0, '未知档位不得返回 0（0 = 黑屏）');
+  assert.equal(torchSignal.screenLightLevelIndex('nope'), torchSignal.screenLightLevelIndex(torchSignal.DEFAULT_SCREEN_LIGHT_LEVEL));
+  // ⑦ 段规范化
+  const merged = torchSignal.normalizeSegments([
+    new torchSignal.TorchSegment(true, 100),
+    new torchSignal.TorchSegment(true, 50),
+    new torchSignal.TorchSegment(false, 30)
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].ms, 150);
+  assert.equal(JSON.stringify(torchSignal.normalizeSegments(merged)), JSON.stringify(merged), '规范化应幂等');
+  assert.equal(torchSignal.cycleMs([]), 0);
+}
+
+// ---------------------------------------------------------------------------
+// 第 63 轮：`DiffTools.diffLines()` 的**重建不变量**与 **LCS 最优性**（两条独立判据）。
+// 为什么值得单独做：逐行差异的 LCS 回溯最容易出「丢行 / 串序 / 重复行」这种**结果看起来合理、
+// 但拼回去对不上**的错误——单看界面截图发现不了。两条判据都**不依赖被测实现**：
+//   ① 重建：kind ∈ {same, removed} 按序拼起来必须等于左文本；kind ∈ {same, added} 必须等于右文本。
+//   ② 最优性：`same` 行数必须等于**本文件里另写的一份朴素 DP** 算出的最长公共子序列长度
+//      （回溯写差会退化成次优，界面上表现为「多出一堆不该有的增删」）。
+// 样本包含重复行、乱序、CRLF/纯 CR、末尾换行、空行、中文、emoji、超长行，以及固定种子的伪随机组合。
+// 口径补充（本轮实测）：`DIFF_MAX_LINES = 600`，**600 行通过、601 行报 `toolarge`**（任一侧超限即报）；
+// 两侧都只含空白时报 `empty`；`kind` 的取值是 `same`/`added`/`removed`（计数另有 `unchanged` 字段）。
+// ---------------------------------------------------------------------------
+{
+  const splitDiffLines = (value) => {
+    const normalized = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const parts = normalized.split('\n');
+    if (normalized.endsWith('\n') && parts.length > 1) { parts.pop(); }
+    return parts;
+  };
+  // 独立 LCS 长度（朴素 DP，写法与被测实现不同）
+  const referenceLcs = (a, b) => {
+    const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+    for (let i = a.length - 1; i >= 0; i--) {
+      for (let j = b.length - 1; j >= 0; j--) {
+        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    return dp[0][0];
+  };
+  const diffPairs = [
+    ['a\nb\nc', 'a\nb\nc'], ['a\nb', 'x\ny'], ['a\nb', 'a\nb\nc'], ['a\nb\nc', 'a\nb'],
+    ['a\nb\nc', 'a\nB\nc'], ['x\nx\nx', 'x\nx'], ['a\nb\nc\nd', 'c\na\nd\nb'],
+    ['a\nb\n', 'a\nb'], ['a\r\nb', 'a\nb'], ['a\rb', 'a\nb'], ['', 'a'], ['x', 'x'],
+    ['a\n\nb', 'a\nb'], ['中\n文', '中\n文\n字'], ['😀\n🎉', '😀\nx\n🎉'],
+    ['x'.repeat(200) + '\ny', 'x'.repeat(200) + '\nz']
+  ];
+  // 固定种子的伪随机组合（确定性，保证测试可重复）
+  let diffSeed = 12345;
+  const nextDiffInt = (bound) => { diffSeed = (diffSeed * 1103515245 + 12345) % 2147483648; return diffSeed % bound; };
+  const diffPool = ['a', 'b', 'c', 'd', 'e', 'f', '', 'x y', '2026-10-21', '中'];
+  for (let n = 0; n < 40; n++) {
+    const leftLines = Array.from({ length: nextDiffInt(9) }, () => diffPool[nextDiffInt(diffPool.length)]).join('\n');
+    const rightLines = Array.from({ length: nextDiffInt(9) }, () => diffPool[nextDiffInt(diffPool.length)]).join('\n');
+    diffPairs.push([leftLines, rightLines]);
+  }
+  let diffChecked = 0;
+  for (const [left, right] of diffPairs) {
+    const result = diffTools.diffLines(left, right);
+    if (!result.ok) {
+      // 只允许「两侧都只含空白」这种按契约报 empty 的情况
+      assert.equal(result.error, 'empty', `未预期的失败：${JSON.stringify(result.error)}`);
+      assert.equal(left.trim().length === 0 && right.trim().length === 0, true);
+      continue;
+    }
+    diffChecked += 1;
+    const rebuiltLeft = result.lines.filter((line) => line.kind !== 'added').map((line) => line.text).join('\n');
+    const rebuiltRight = result.lines.filter((line) => line.kind !== 'removed').map((line) => line.text).join('\n');
+    assert.equal(rebuiltLeft, splitDiffLines(left).join('\n'), '左文本必须能由 same+removed 重建');
+    assert.equal(rebuiltRight, splitDiffLines(right).join('\n'), '右文本必须能由 same+added 重建');
+    const sameCount = result.lines.filter((line) => line.kind === 'same').length;
+    const addedCount = result.lines.filter((line) => line.kind === 'added').length;
+    const removedCount = result.lines.filter((line) => line.kind === 'removed').length;
+    assert.equal(sameCount, referenceLcs(splitDiffLines(left), splitDiffLines(right)), 'same 行数应为最优 LCS 长度');
+    assert.equal(addedCount, result.added);
+    assert.equal(removedCount, result.removed);
+    assert.equal(sameCount, result.unchanged);
+  }
+  assert.ok(diffChecked >= 50, `实际核对的样本数应足够多：${diffChecked}`);
+  // 行号口径
+  const numbered = diffTools.diffLines('a\nb\nc', 'a\nB\nc');
+  for (const line of numbered.lines) {
+    if (line.kind === 'same') { assert.ok(line.leftNo > 0 && line.leftNo === line.rightNo); }
+    if (line.kind === 'added') { assert.ok(line.rightNo > 0 && line.leftNo === 0); }
+    if (line.kind === 'removed') { assert.ok(line.leftNo > 0 && line.rightNo === 0); }
+  }
+  // 规模与空输入边界
+  const linesOf = (count) => Array.from({ length: count }, (_entry, index) => 'line' + index).join('\n');
+  assert.equal(diffTools.diffLines(linesOf(600), linesOf(600)).ok, true, '600 行应通过（恰好等于上限）');
+  assert.equal(diffTools.diffLines(linesOf(601), linesOf(601)).error, 'toolarge');
+  assert.equal(diffTools.diffLines(linesOf(601), linesOf(2)).error, 'toolarge', '任一侧超限即报 toolarge');
+  assert.equal(diffTools.diffLines('  \n ', '\t').error, 'empty');
+  assert.equal(diffTools.diffLines('', '').error, 'empty');
+}
 
 console.log('All toolbox model assertions passed');

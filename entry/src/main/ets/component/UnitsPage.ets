@@ -5,9 +5,9 @@ import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData } from '../model/LocalData';
 import { CATEGORIES, UnitCategory, UnitDef, PRECISION_OPTIONS, DEFAULT_PRECISION,
-  convert, formatValue, categoryIndex, unitIndex } from '../model/Units';
+  convert, formatValue, parseUnitInput, categoryIndex, unitIndex } from '../model/Units';
 import { FxCurrency, FxTable, FX_CURRENCIES, FX_DEFAULT_BASE, fxDataAgeText,
-  fxErrorText, convertFx } from '../model/FxTools';
+  fxErrorText, convertFx, mergeFxTable, formatFxAmount } from '../model/FxTools';
 import { FxFetchOutcome, fetchFxRates, loadCachedFx, saveCachedFx } from '../services/FxService';
 
 /**
@@ -75,10 +75,9 @@ export struct UnitsPage {
   /** 是否货币类别——只看 `special` 标记，不看 id（与 temperature/fuel 同一套机制）。 */
   private isCurrency(): boolean { return this.currentCategory().special === 'currency'; }
 
+  /** 输入解析在纯逻辑里（`parseUnitInput()`，可测）：只收十进制数字，拒绝 `0x10`/`1e3` 这类写法。 */
   private numericInput(): number | undefined {
-    if (!this.unitInput.trim()) { return undefined; }
-    const value: number = Number(this.unitInput);
-    return Number.isFinite(value) ? value : undefined;
+    return parseUnitInput(this.unitInput);
   }
 
   /**
@@ -95,7 +94,9 @@ export struct UnitsPage {
       if (table === undefined) { return ''; }
       const converted: number | undefined =
         convertFx(value, this.currencyCode(this.fromUnit), this.currencyCode(this.toUnit), table);
-      return converted === undefined ? '' : formatValue(converted, this.precision);
+      // 货币按**币种自己的小数位数**展示（日元/韩元无「分」→ 整数）；极小金额回退到有效数字，
+      // 避免显示成 0.00（2026-10-20 审计 P1/§3.10①）。
+      return converted === undefined ? '' : formatFxAmount(converted, this.currencyCode(this.toUnit));
     }
     const category: UnitCategory = this.currentCategory();
     return formatValue(convert(value, category, category.units[this.fromUnit], category.units[this.toUnit]),
@@ -125,7 +126,7 @@ export struct UnitsPage {
       if (table === undefined) { return '—'; }
       const converted: number | undefined =
         convertFx(value, this.currencyCode(this.fromUnit), this.currencyCode(index), table);
-      return converted === undefined ? '—' : formatValue(converted, this.precision);
+      return converted === undefined ? '—' : formatFxAmount(converted, this.currencyCode(index));
     }
     const category: UnitCategory = this.currentCategory();
     const unit: UnitDef | undefined = category.units[index];
@@ -331,12 +332,15 @@ export struct UnitsPage {
       return;
     }
 
-    this.fxTable = outcome.table;
+    // 合并而不是整表覆盖：页面按当前「从」币种取表，整表覆盖会让旧表里其它币种凭空消失，
+    // 原本可用的币对变成「没有缓存」（mergeFxTable 内部只在 base 相同时保留旧条目）。
+    const merged: FxTable = mergeFxTable(this.fxTable, outcome.table);
+    this.fxTable = merged;
     this.fxError = '';
     const store: LocalData | undefined = this.data;
     if (store !== undefined) {
       try {
-        await saveCachedFx(store, outcome.table);
+        await saveCachedFx(store, merged);
       } catch (_) {
         this.onStatus(this.tr('汇率已更新，但本机缓存写入失败', 'Rates updated, but saving the local cache failed'));
         return;

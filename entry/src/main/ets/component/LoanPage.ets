@@ -6,7 +6,10 @@ import { ToolPalette } from '../model/ToolPalette';
 import { formatMoney } from '../model/QuickCalculators';
 import { LoanMethod, LoanMethodEntry, LoanResult, LOAN_METHODS, DEFAULT_LOAN_METHOD,
   loanMethodIndex, loanMethodLabel, loanMonths, loanCents, loanRatePercent, calculateLoan,
-  loanErrorText, MAX_LOAN_MONTHS } from '../model/LoanMath';
+  loanErrorText, loanSchedule, LoanScheduleRow, MAX_LOAN_MONTHS, loanTermText } from '../model/LoanMath';
+
+/** 计划表最多渲染多少期（30 年期是 360 期，全渲染会拖慢页面；汇总值不受影响）。 */
+const SCHEDULE_VIEW_MAX: number = 120;
 
 /**
  * 贷款计算页（等额本息 / 等额本金）。
@@ -29,6 +32,10 @@ export struct LoanPage {
   @Local extraMonths: string = '';
   @Local method: LoanMethod = DEFAULT_LOAN_METHOD;
   @Local result: LoanResult | undefined = undefined;
+  // 计划表是否展开（默认收起：360 期铺开太长）。
+  @Local scheduleOpen: boolean = false;
+  // 计算成功后保留的完整计划表（最多 `MAX_LOAN_MONTHS` 行），展示时再按上限截取。
+  @Local allScheduleRows: LoanScheduleRow[] = [];
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
@@ -39,10 +46,29 @@ export struct LoanPage {
     });
   }
 
+  /** 合计期限文案（「366 期（30 年 6 个月）」）；两框都为 0 或超上限时为空串。 */
+  private termText(): string {
+    return loanTermText(this.wholeNumber(this.years), this.wholeNumber(this.extraMonths), this.english);
+  }
+
   private wholeNumber(raw: string): number {
     const value: string = raw.trim();
     if (value.length === 0) { return 0; }
     return /^\d+$/.test(value) ? Number(value) : -1;
+  }
+
+  /** 计划表行数上限：30 年期有 360 期，全部渲染会明显拖慢页面；汇总值不受影响。 */
+  private scheduleViewMax(): number { return SCHEDULE_VIEW_MAX; }
+
+  /** 展示用的计划表：只取前 `SCHEDULE_VIEW_MAX` 期。 */
+  private scheduleRows(): LoanScheduleRow[] {
+    return this.allScheduleRows.length > SCHEDULE_VIEW_MAX
+      ? this.allScheduleRows.slice(0, SCHEDULE_VIEW_MAX) : this.allScheduleRows;
+  }
+
+  /** 分 → 纯数字文本（表格里不重复「¥」与千分位，列宽优先）。 */
+  private centsText(cents: number): string {
+    return (cents / 100).toFixed(2);
   }
 
   private compute(): void {
@@ -59,8 +85,7 @@ export struct LoanPage {
       return;
     }
     const years: number = this.wholeNumber(this.years);
-    const extraMonths: number = this.wholeNumber(this.extraMonths);
-    const months: number = years < 0 || extraMonths < 0 ? 0 : loanMonths(years, extraMonths);
+    const extraMonths: number = this.wholeNumber(this.extraMonths);    const months: number = years < 0 || extraMonths < 0 ? 0 : loanMonths(years, extraMonths);
     if (months <= 0) {
       this.result = undefined;
       this.onStatus(loanErrorText('months', this.english));
@@ -69,10 +94,14 @@ export struct LoanPage {
     const computed: LoanResult = calculateLoan(principalCents, rate, months, this.method);
     if (!computed.ok) {
       this.result = undefined;
+      this.scheduleOpen = false;
+      this.allScheduleRows = [];
       this.onStatus(loanErrorText(computed.error, this.english));
       return;
     }
     this.result = computed;
+    // 计划表与结果卡同源：都由纯逻辑 `loanSchedule()` 按同一套摊还规则生成。
+    this.allScheduleRows = loanSchedule(principalCents, rate, months, this.method);
   }
 
   /** 结果摘要：复制与历史都只记这一行，避免把整张还款表塞进剪贴板。 */
@@ -141,6 +170,46 @@ export struct LoanPage {
     }.width('100%')
   }
 
+  /**
+   * 还款计划表（逐期本金 / 利息 / 月供 / 剩余本金）。
+   *
+   * 表格行数上限 `SCHEDULE_VIEW_MAX`：30 年期是 360 期，一次性全部渲染会明显拖慢页面，
+   * 因此只铺前 N 期并**如实说明**（不假装是全部）；汇总值仍然覆盖全部期数。
+   */
+  @Builder private scheduleTable() {
+    if (this.scheduleRows().length === 0) {
+      Text(this.tr('先点「计算」生成计划表。', 'Tap Calculate to build the schedule.'))
+        .fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
+    } else {
+      Row({ space: 4 }) {
+        Text(this.tr('期', 'No.')).fontSize(12).fontColor(ToolPalette.textMuted).width(48)
+        Text(this.tr('月供', 'Payment')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(this.tr('本金', 'Principal')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(this.tr('利息', 'Interest')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(this.tr('剩余', 'Balance')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+      }.width('100%')
+      List({ space: 2 }) {
+        ForEach(this.scheduleRows(), (row: LoanScheduleRow) => {
+          ListItem() {
+            Row({ space: 4 }) {
+              Text(row.index.toString()).fontSize(12).width(48).fontColor(ToolPalette.textSecondary)
+              Text(this.centsText(row.paymentCents)).fontSize(12).layoutWeight(1)
+              Text(this.centsText(row.principalCents)).fontSize(12).layoutWeight(1)
+              Text(this.centsText(row.interestCents)).fontSize(12).layoutWeight(1)
+              Text(this.centsText(row.remainingCents)).fontSize(12).layoutWeight(1)
+                .fontColor(ToolPalette.textSecondary)
+            }.width('100%')
+          }
+        }, (row: LoanScheduleRow): string => 's' + row.index.toString())
+      }.width('100%').height(300)
+      if (this.result !== undefined && this.result.months > this.scheduleRows().length) {
+        Text(this.tr('只显示前 ' + this.scheduleRows().length + ' 期（共 ' + this.result.months + ' 期）',
+          'Showing the first ' + this.scheduleRows().length + ' of ' + this.result.months + ' months'))
+          .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+      }
+    }
+  }
+
   @Builder private resultCard() {
     Column({ space: 10 }) {
       Text(this.tr('估算结果', 'Estimate')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
@@ -162,6 +231,22 @@ export struct LoanPage {
             a11yText: this.tr('复制结果摘要', 'Copy the summary'), onTap: () => this.onCopy(this.summary())
           })
         }.width('100%')
+        // 还款计划表：默认收起（360 期一次铺开会很长），展开后最多显示前 SCHEDULE_VIEW_MAX 期。
+        Row({ space: 8 }) {
+          Text(this.tr('还款计划表', 'Repayment schedule')).fontSize(15).layoutWeight(1)
+            .fontColor(ToolPalette.textSecondary)
+          IconActionButton({
+            icon: this.scheduleOpen ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'),
+            tintColor: ToolPalette.primaryDeep,
+            a11yText: this.scheduleOpen ? this.tr('收起还款计划表', 'Hide the schedule')
+              : this.tr('展开还款计划表', 'Show the schedule'),
+            boxSize: 44, iconSize: 22,
+            onTap: () => { this.scheduleOpen = !this.scheduleOpen; }
+          })
+        }.width('100%')
+        if (this.scheduleOpen) {
+          this.scheduleTable()
+        }
       } else {
         Text(this.tr('填入本金、年利率与期限后点「计算」。',
           'Fill in the amount, annual rate and term, then tap Calculate.'))
@@ -178,7 +263,12 @@ export struct LoanPage {
       this.inputField('principal', '贷款金额（元）', 'Loan amount', '如 1000000', 'e.g. 1000000')
       this.inputField('rate', '年利率（%）', 'Annual rate (%)', '如 4.9', 'e.g. 4.9')
       this.inputField('years', '期限（年）', 'Term (years)', '如 30', 'e.g. 30')
-      this.inputField('extraMonths', '期限（月）', 'Term (months)', '不足一年时填这里，如 6', 'e.g. 6')
+      // 两框是**相加**关系，文案必须写清（此前写「不足一年时填这里」，会让人以为填了月就不看年）。
+      this.inputField('extraMonths', '期限（月，与年数相加）', 'Term (months, added to years)',
+        '如 6，表示 6 个月', 'e.g. 6 for six months')
+      if (this.termText().length > 0) {
+        Text(this.termText()).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
+      }
       OptionSelect({
         label: this.tr('还款方式', 'Method'),
         options: this.methodOptions(),
@@ -212,8 +302,8 @@ export struct LoanPage {
       }) {
         this.resultCard()
       }
-      Text(this.tr('期限上限 ' + MAX_LOAN_MONTHS + ' 期（50 年）；利率填 0 表示无息。计算只在本机进行，不上传任何数据。',
-        'Up to ' + MAX_LOAN_MONTHS + ' months (50 years); a rate of 0 means interest-free. Everything is calculated on this device.'))
+      Text(this.tr('期限上限 ' + MAX_LOAN_MONTHS + ' 期（50 年）；「期限（年）」与「期限（月）」相加后得到总期数，利率填 0 表示无息。计算只在本机进行，不上传任何数据。',
+        'Up to ' + MAX_LOAN_MONTHS + ' months (50 years); the years and months fields are added together. A rate of 0 means interest-free. Everything is calculated on this device.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

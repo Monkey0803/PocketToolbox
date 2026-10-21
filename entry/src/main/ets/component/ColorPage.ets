@@ -155,6 +155,22 @@ export struct ColorPage {
     return this.tr('用系统颜色选择器选择对比背景色', 'Pick a background colour with the system colour picker');
   }
 
+  /**
+   * 对比示例块的无障碍名：把这行视觉示例的**内容**读出来（前景色写在背景色上、比值多少）。
+   *
+   * 纯颜色/图形节点对读屏用户是不可见的，必须给文字替代（2026-10-20 审计 §3.11）。
+   */
+  private contrastSampleAccessibility(): string {
+    const foreground: string = this.valueText('hex');
+    const background: RgbColor | undefined = this.backgroundRgb();
+    const backgroundText: string = background === undefined ? '—' : toHex(background);
+    const ratio: number = this.ratio();
+    const ratioText: string = Number.isFinite(ratio) ? ratio.toFixed(2) : '—';
+    return this.tr('对比示例：前景色 ' + foreground + ' 写在背景色 ' + backgroundText + ' 上，对比度比值 ' + ratioText,
+      'Contrast sample: foreground ' + foreground + ' on background ' + backgroundText +
+      ', ratio ' + ratioText);
+  }
+
   private setFieldText(id: string, value: string): void {
     if (id === 'color') { this.colorInput = value; } else { this.backgroundInput = value; }
   }
@@ -193,8 +209,7 @@ export struct ColorPage {
   }
 
   // 对比度检查：前景色 + 对比背景色 → 实叠示例、比值、两档判定与建议前景色。
-  @Builder private contrastPanel() {
-    Text(this.tr('对比度按 WCAG 2.x 计算：普通文字 AA 需 4.5、AAA 需 7，大号文字 AA 需 3、AAA 需 4.5。',
+  @Builder private contrastPanel() {    Text(this.tr('对比度按 WCAG 2.x 计算：普通文字 AA 需 4.5、AAA 需 7，大号文字 AA 需 3、AAA 需 4.5。',
       'Contrast follows WCAG 2.x: body text needs 4.5 for AA and 7 for AAA; large text needs 3 and 4.5.'))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     this.inputBlock('color', '前景色', 'Foreground', '#0D3B66')
@@ -208,7 +223,8 @@ export struct ColorPage {
         if (!Number.isFinite(this.ratio())) {
           Text(colorErrorText(this.english)).fontSize(15).fontColor(ToolPalette.warning).width('100%')
         } else {
-          // 用两色实际叠一次，肉眼确认是否看得清
+          // 用两色实际叠一次，肉眼确认是否看得清。这行是**纯视觉示例**，读屏用户拿不到任何信息，
+          // 因此补无障碍名说明「哪种颜色写在哪种底色上」（2026-10-20 审计 §3.11）。
           Stack() {
             Text(this.tr('示例文字 Sample', 'Sample text'))
               .fontSize(20).fontWeight(FontWeight.Bold)
@@ -216,6 +232,7 @@ export struct ColorPage {
           }.width('100%').height(72).borderRadius(12)
             .backgroundColor(this.backgroundRgb() === undefined ? Color.White :
               toHex(this.backgroundRgb() as RgbColor))
+            .accessibilityText(this.contrastSampleAccessibility())
           this.valueRow('对比度比值', 'Ratio', 'ratio')
           Row({ space: 12 }) {
             Text(this.tr('普通文字', 'Body text')).fontSize(13).fontColor(ToolPalette.textMuted)

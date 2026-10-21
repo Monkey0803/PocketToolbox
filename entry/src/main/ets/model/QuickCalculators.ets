@@ -22,6 +22,76 @@ const MAX_FOLD_HUNDREDTHS: number = 1000;
 /** 百分比类结果的上限，与 `percentageOf()` 的历史口径一致。 */
 const MAX_RESULT: number = 1000000000;
 
+/**
+ * 折数与比率类结果的小数格式化（2026-10-20 审计 §3.7①）。
+ *
+ * 折数和百分比是**给人看的量级**，用 10 位有效数字会写出 `6.666666667` 折这种读不下去的数：
+ * 这里保留两位小数并裁掉尾零（`6.666666667 → 6.67`、`8 → 8`、`7.5 → 7.5`）。非有限值返回 `—`。
+ */
+export function formatFold(value: number): string {
+  if (!Number.isFinite(value)) { return '—'; }
+  const rounded: string = value.toFixed(2);
+  return rounded.indexOf('.') < 0 ? rounded : rounded.replace(/\.?0+$/, '');
+}
+
+/**
+ * 百分比的展示串（两位小数、裁尾零，可按需带 `+`）：`13 → +13%`、`-19.999999999999996 → -20%`。
+ *
+ * 与 `formatFold()` 同一口径——比率类结果不参与有效位数设置，避免把浮点噪声摆到界面上。
+ */
+export function formatPercent(value: number, withSign: boolean): string {
+  if (!Number.isFinite(value)) { return '—'; }
+  const text: string = formatFold(Math.abs(value) < 0.005 ? 0 : value);
+  return (withSign && value > 0 ? '+' : '') + text + '%';
+}
+
+/**
+ * 金额输入的即时错误文案；**空串表示「还没填」而不是「填错了」**（返回空串由调用方决定不提示）。
+ *
+ * 界面上非法输入此前只显示一个 `—`，用户不知道是金额写错了还是折数写错了（2026-10-20 审计 §3.7②）。
+ */
+export function moneyInputErrorText(raw: string, english: boolean): string {
+  const value: string = raw.trim();
+  if (value.length === 0) { return ''; }
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+    return english ? 'Amounts must be digits with up to two decimals' : '金额请填数字，最多两位小数';
+  }
+  const cents: number = Math.round(Number(value) * 100);
+  if (!Number.isSafeInteger(cents) || cents > MAX_RESULT) {
+    return english ? 'The amount is too large' : '金额超出可计算范围';
+  }
+  return '';
+}
+
+/** 折数输入的即时错误文案（0–10、最多两位小数）；空串表示「还没填」。 */
+export function foldInputErrorText(raw: string, english: boolean): string {
+  const value: string = raw.trim();
+  if (value.length === 0) { return ''; }
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+    return english ? 'The price factor must be digits with up to two decimals'
+      : '折数请填数字，最多两位小数';
+  }
+  const hundredths: number = Math.round(Number(value) * 100);
+  if (hundredths > MAX_FOLD_HUNDREDTHS) {
+    return english ? 'The price factor must be between 0 and 10' : '折数请在 0–10 之间';
+  }
+  return '';
+}
+
+/** 百分比/费率输入的即时错误文案（0–1000%、最多两位小数）；空串表示「还没填」。 */
+export function rateInputErrorText(raw: string, english: boolean): string {
+  const value: string = raw.trim();
+  if (value.length === 0) { return ''; }
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+    return english ? 'Percentages must be digits with up to two decimals' : '百分比请填数字，最多两位小数';
+  }
+  const hundredths: number = Math.round(Number(value) * 100);
+  if (hundredths > MAX_RATE_HUNDREDTHS) {
+    return english ? 'The percentage is too large' : '百分比超出可计算范围';
+  }
+  return '';
+}
+
 export class DiscountResult {
   finalCents: number = 0;
   savedCents: number = 0;

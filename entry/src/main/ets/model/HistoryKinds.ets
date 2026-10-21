@@ -115,3 +115,104 @@ export function historyContentSnippet(value: string): string {
   const trimmed: string = value.trim();
   return trimmed.length > 500 ? trimmed.slice(0, 500) + '…' : trimmed;
 }
+
+/**
+ * 英文「N 个单位」的单复数（第 58 轮新增）。
+ *
+ * 第 57 轮在汇率时效文案里查出 `Updated 1 hours ago`，第 58 轮顺着这条线**又查出 5 处**同样的问题
+ * （导出条数、清空历史、删除筛选结果…）——计数为 1 时英文名词必须用单数。中文不需要处理。
+ * 抽成纯函数是为了能断言（页面里的内联字符串没法单测）。
+ */
+export function englishCountText(count: number, singular: string, plural: string): string {
+  return count === 1 ? '1 ' + singular : count.toString() + ' ' + plural;
+}
+
+/** 「清空历史记录」确认框正文：条数如实 + 不可撤销（历史页与设置页**共用这一份**，别各写一句）。 */
+export function historyClearConfirmText(count: number, english: boolean): string {
+  if (english) {
+    return 'This deletes all ' + englishCountText(count, 'history record', 'history records') +
+      '. It cannot be undone.';
+  }
+  return '将删除全部 ' + count.toString() + ' 条历史记录，此操作不可撤销。';
+}
+
+/** 「删除当前筛选结果」确认框正文：条数如实 + 不可撤销。 */
+export function historyDeleteFilteredConfirmText(count: number, english: boolean): string {
+  if (english) {
+    return 'This deletes the ' + englishCountText(count, 'record', 'records') +
+      ' matching the current filter or search. It cannot be undone.';
+  }
+  return '将删除当前筛选/搜索命中的 ' + count.toString() + ' 条记录，此操作不可撤销。';
+}
+
+// ---------------------------------------------------------------------------
+// 历史条目与置顶
+// ---------------------------------------------------------------------------
+
+/**
+ * 历史条目。
+ *
+ * 定义在纯逻辑文件里（而不是含 `@kit` 依赖的 `model/LocalData.ets`），这样排序与置顶规则可以
+ * 直接被单测加载；`LocalData` 只负责读写与字段归一。
+ */
+export class HistoryItem {
+  id: string = '';
+  kind: string = '';
+  content: string = '';
+  createdAt: number = 0;
+  /** 置顶：置顶条目排在最前，并在列表里带一枚图钉标记。 */
+  pinned: boolean = false;
+}
+
+/**
+ * 历史条目的**唯一归一化入口**：丢弃不可用条目 → 置顶优先排序 → 截断到 `max`。
+ *
+ * 读写两侧共用同一条规则。第 26 轮自查发现读侧（`LocalData.getHistory()`）此前只
+ * `filter(...).slice(0, 50)`、**没有先排序**：正常路径上存储里已经是排好序的，所以看不出来；
+ * 但导入一份「未排序且超过 50 条」的备份时，落在后面的置顶条目会被静默丢掉——与第 24 轮
+ * 纪念日那处「读侧截断没考虑写侧语义」是同一类缺陷。
+ *
+ * `max` 非法（非正数）时只做归一化与排序，不截断。
+ */
+export function normalizeHistoryItems(items: HistoryItem[], max: number): HistoryItem[] {
+  const usable: HistoryItem[] = items.filter((item: HistoryItem): boolean =>
+    typeof item.id === 'string' && item.id.length > 0 &&
+    typeof item.content === 'string' && item.content.length > 0);
+  const sorted: HistoryItem[] = pinnedFirst(usable);
+  if (!Number.isFinite(max) || max < 1) { return sorted; }
+  return sorted.slice(0, Math.floor(max));
+}
+
+/**
+ * 置顶优先、其余按时间倒序（新的在前）；不修改入参顺序。
+ *
+ * 与收藏页同一套口径：**顺序就是显示顺序**，因此排序结果同时用于渲染与落盘，
+ * 这样置顶条目不会因为 50 条上限被新记录挤掉。
+ */
+export function pinnedFirst(items: HistoryItem[]): HistoryItem[] {
+  const copy: HistoryItem[] = items.slice();
+  copy.sort((first: HistoryItem, second: HistoryItem): number => {
+    if (first.pinned !== second.pinned) { return first.pinned ? -1 : 1; }
+    return second.createdAt - first.createdAt;
+  });
+  return copy;
+}
+
+/** 切换某条的置顶状态；id 不存在时原样返回一份副本（不修改入参数组本身）。 */
+export function withToggledPin(items: HistoryItem[], id: string): HistoryItem[] {
+  const copy: HistoryItem[] = items.slice();
+  for (let index: number = 0; index < copy.length; index++) {
+    if (copy[index].id === id) {
+      copy[index].pinned = !copy[index].pinned;
+      break;
+    }
+  }
+  return copy;
+}
+
+/** 该条目当前是否置顶（未知 id 返回 false，界面据此决定菜单文案）。 */
+export function historyItemPinned(items: HistoryItem[], id: string): boolean {
+  const found: HistoryItem | undefined =
+    items.find((item: HistoryItem): boolean => item.id === id);
+  return found === undefined ? false : found.pinned;
+}

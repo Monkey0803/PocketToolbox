@@ -3,10 +3,11 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { parseIntegerInput } from '../model/Units';
 import {
-  PasswordMode, PasswordOptions, PASSWORD_MODES, PIN_LENGTHS,
-  passwordModeIndex, pinLengthIndex, entropyBits, pinEntropyBits, strengthLevel, strengthText,
-  validPasswordOptions
+  PasswordMode, PasswordOptions, PASSWORD_MODES, PIN_LENGTHS, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH,
+  PASSWORD_CUSTOM_MAX, passwordModeIndex, pinLengthIndex, entropyBits, pinEntropyBits, strengthLevel,
+  strengthText, entropyNoteText, passwordLengthErrorText, customCharsetErrorText, validPasswordOptions
 } from '../model/PasswordTools';
 import { createPassword, createPin } from '../services/PasswordGenerator';
 
@@ -34,6 +35,7 @@ export struct PasswordPage {
   @Local passwordLower: boolean = true;
   @Local passwordDigits: boolean = true;
   @Local passwordSymbols: boolean = true;
+  @Local passwordCustom: string = '';
   @Local pinLength: string = '6';
   @Local passwordValue: string = '';
   @Local passwordVisible: boolean = false;
@@ -80,12 +82,25 @@ export struct PasswordPage {
   /** 当前状态下完整密码的字符集选项（供熵估算，与生成逻辑共用同一份构造）。 */
   private passwordOptions(): PasswordOptions {
     const options: PasswordOptions = new PasswordOptions();
-    options.length = Number(this.passwordLength.trim());
+    options.length = this.passwordLengthValue();
     options.upper = this.passwordUpper;
     options.lower = this.passwordLower;
     options.digits = this.passwordDigits;
     options.symbols = this.passwordSymbols;
+    options.custom = this.passwordCustom;
     return options;
+  }
+
+  /**
+   * 长度输入框的数值（非法输入按 `NaN` 处理，交给 `passwordLengthErrorText()` 报错）。
+   *
+   * 用 `parseIntegerInput()` 而不是 `Number()`：后者会把 `0x10` 静默变成 16 位、`1e1` 变成 10 位，
+   * 而这些都落在 8–128 的合法区间里，于是**用户输入的不是他以为的长度、且完全没有任何提示**
+   * （AGENTS「数字输入解析放纯逻辑，且只收十进制」）。
+   */
+  private passwordLengthValue(): number {
+    const parsed: number | undefined = parseIntegerInput(this.passwordLength);
+    return parsed === undefined ? Number.NaN : parsed;
   }
 
   /** 结果卡下方那行强度文案：密码用字符集熵，PIN 用固定数字集熵。 */
@@ -110,16 +125,24 @@ export struct PasswordPage {
       const options: PasswordOptions = this.passwordOptions();
       if (!validPasswordOptions(options)) {
         this.passwordValue = '';
-        this.onStatus(this.tr('长度须为 8–64 的整数，并至少选择一种字符',
-          'Use a whole-number length from 8 to 64 and select at least one character set'));
+        this.onStatus(this.tr('长度须为 ' + PASSWORD_MIN_LENGTH + '–' + PASSWORD_MAX_LENGTH + ' 的整数，并至少选择一种字符',
+          'Use a whole-number length from ' + PASSWORD_MIN_LENGTH + ' to ' + PASSWORD_MAX_LENGTH +
+          ' and select at least one character set'));
         return;
       }
     }
     this.passwordBusy = true;
     const request: number = ++this.passwordRequest;
     try {
+      // 服务层把「无法生成」转成空串（模型层不再抛异常），这里据空串给明确原因。
       const value: string = pin ? await createPin(pinLength) : await createPassword(this.passwordOptions());
       if (request !== this.passwordRequest) { return; }
+      if (value.length === 0) {
+        this.passwordValue = '';
+        this.onStatus(this.tr('无法生成：请检查长度与字符集设置',
+          'Could not generate; check the length and character set'));
+        return;
+      }
       this.passwordValue = value;
       this.passwordVisible = false;
       this.onStatus(pin ? this.tr('PIN 码已生成', 'PIN generated') : this.tr('密码已生成', 'Password generated'));
@@ -157,7 +180,8 @@ export struct PasswordPage {
 
   @Builder private passwordPanel() {
     Column({ space: 14 }) {
-      Text(this.tr('密码长度（8–64）', 'Password length (8–64)'))
+      Text(this.tr('密码长度（' + PASSWORD_MIN_LENGTH + '–' + PASSWORD_MAX_LENGTH + '）',
+        'Password length (' + PASSWORD_MIN_LENGTH + '–' + PASSWORD_MAX_LENGTH + ')'))
         .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
@@ -170,6 +194,11 @@ export struct PasswordPage {
           .backgroundColor(Color.Transparent).type(InputType.Number)
           .onChange((value: string) => { this.passwordLength = value; this.invalidatePassword(); }).height(52)
       }
+      // 长度即时校验（§3.23⑤）：不等按下「生成」才被拒绝。
+      if (passwordLengthErrorText(this.passwordLengthValue(), this.english).length > 0) {
+        Text(passwordLengthErrorText(this.passwordLengthValue(), this.english))
+          .fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      }
       Text(this.tr('选择字符类型', 'Character sets')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       this.passwordGroup(this.tr('大写字母', 'Uppercase letters'), this.passwordUpper, 'upper')
       this.passwordGroup(this.tr('小写字母', 'Lowercase letters'), this.passwordLower, 'lower')
@@ -178,6 +207,28 @@ export struct PasswordPage {
       Text(this.tr('为避免混淆，字母和数字中排除了部分相似字符。',
         'Some lookalike letters and digits are excluded for readability.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      // 自定义字符集（§3.23 新增）：填了就以它为准，下面四个开关不再参与。
+      Text(this.tr('自定义字符（可选）', 'Custom characters (optional)'))
+        .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported,
+        level: this.materialLevel,
+        fallback: ToolPalette.surface,
+        corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.passwordCustom, placeholder: this.tr('填了就只用这些字符', 'If set, only these are used') })
+          .backgroundColor(Color.Transparent).type(InputType.Normal)
+          .onChange((value: string) => { this.passwordCustom = value; this.invalidatePassword(); }).height(52)
+      }
+      Text(this.tr('填了自定义字符后，上面的四个开关不再生效（最多 ' + PASSWORD_CUSTOM_MAX + ' 个不同字符）。',
+        'When custom characters are set, the four switches above no longer apply (up to ' +
+        PASSWORD_CUSTOM_MAX + ' distinct characters).'))
+        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      if (customCharsetErrorText(this.passwordOptions(), this.english).length > 0) {
+        Text(customCharsetErrorText(this.passwordOptions(), this.english))
+          .fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      }
     }.width('100%')
   }
 
@@ -238,6 +289,8 @@ export struct PasswordPage {
           .fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')
       }
         Text(this.strengthLabel()).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
+        // 强度数字只是理论熵，必须把估算范围写出来，避免被当成「安全保证」（§3.23②）。
+        Text(entropyNoteText(this.english)).fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
         Row({ space: 8 }) {
           IconActionButton({
             icon: this.passwordVisible ? $r('sys.symbol.eye_slash') : $r('sys.symbol.eye'),

@@ -5,7 +5,8 @@ import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { HealthGender, GenderEntry, GENDERS, ActivityEntry, ACTIVITY_LEVELS, BmiResult, RangeKg,
   DEFAULT_GENDER, DEFAULT_ACTIVITY, genderIndex, genderLabel, activityIndex, activityLabel,
-  healthNumber, bmi, bmiCategoryText, normalWeightRange, bmr, tdee, healthErrorText } from '../model/HealthMath';
+  healthNumber, bmi, bmiCategoryText, normalWeightRange, bmr, tdee, healthErrorText,
+  healthFieldValid, healthContextText } from '../model/HealthMath';
 
 /**
  * 健康计算页：BMI（含分类与中国标准下的正常体重范围）、基础代谢 BMR、每日消耗 TDEE。
@@ -107,7 +108,11 @@ export struct HealthPage {
       parts.push('TDEE ' + this.tdeeText());
     }
     if (parts.length === 0) { return; }
-    this.onCopy(parts.join(' · '));
+    // 复制出去的整句要**带输入上下文**：只有一行「BMI 22.9（正常）」贴在别处没人知道是按什么算的
+    // （2026-10-20 审计 §3.12，与折扣页「带输入上下文的整句」同一口径）。文案在纯逻辑里，可测。
+    const context: string = healthContextText(this.heightCm, this.weightKg, this.ageYears, this.gender,
+      this.english);
+    this.onCopy(context.length > 0 ? context + ' · ' + parts.join(' · ') : parts.join(' · '));
   }
 
   @Builder private inputField(id: string, zh: string, en: string, placeholder: string) {
@@ -188,18 +193,19 @@ export struct HealthPage {
     }.padding(16).width('100%')
   }
 
-  /** 显式校验入口：输入不全时给出具体字段提示（结果卡本身是实时计算的）。 */
+  /** 显式校验入口：输入不全或越界时给出具体字段提示（结果卡本身是实时计算的）。 */
   private validateInputs(): void {
-    const height: number | undefined = this.heightValue();
-    if (height === undefined || height < 50) {
+    // 范围判断走纯逻辑 `healthFieldValid()`：与 `bmi()`/`bmr()`/`healthErrorText()` 同一组边界，
+    // 不能再只判下界——否则 300 cm / 600 kg / 200 岁会提示「输入有效」而结果卡是空的（2026-10-20 审计 P0）。
+    if (!healthFieldValid('height', this.heightValue())) {
       this.onStatus(healthErrorText('height', this.english));
       return;
     }
-    if (this.weightValue() === undefined) {
+    if (!healthFieldValid('weight', this.weightValue())) {
       this.onStatus(healthErrorText('weight', this.english));
       return;
     }
-    if (this.ageYears.length > 0 && this.ageValue() === undefined) {
+    if (this.ageYears.length > 0 && !healthFieldValid('age', this.ageValue())) {
       this.onStatus(healthErrorText('age', this.english));
       return;
     }

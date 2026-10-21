@@ -85,7 +85,14 @@ export function activityFactor(id: string): number {
   return entry === undefined ? 1.375 : entry.factor;
 }
 
-/** 输入解析：允许一位小数，范围检查由调用方按字段判断。非法输入返回 undefined。 */
+/**
+ * 输入解析：**最多两位小数**（正则 `^\d+(\.\d{1,2})?$`），范围检查由调用方按字段判断；非法输入返回 `undefined`。
+ *
+ * 口径说明（第 74 轮修正）：原注释写的是「允许一位小数」，但实现一直允许**两位**（`70.55` 合法、`70.123` 非法），
+ * 与本文件另一处注释（「上下文字段里的数字展示：整数不带小数点，其余最多两位小数」）以及
+ * `QuickCalculators`/`LoanMath` 的「最多两位小数」口径都一致——**以两位为准，注释此前写错了**。
+ * 体重这类字段两位小数是有意义的（如 70.55 kg），因此修的是注释而不是把行为收紧成一位。
+ */
 export function healthNumber(raw: string): number | undefined {
   const value: string = raw.trim();
   if (value.length === 0 || !/^\d+(\.\d{1,2})?$/.test(value)) { return undefined; }
@@ -105,6 +112,39 @@ export class BmiResult {
 }
 
 /** BMI = 体重(kg) / 身高(m)²，保留一位小数；身高或体重非法时返回 undefined。 */
+/**
+ * 复制摘要里的「输入上下文」整句（身高/体重/年龄/性别）。
+ *
+ * 只放**已填且可解析**的值；一个都没有时返回空串（调用方就不加前缀）。此前健康页复制出去的只有一行
+ * 「BMI 22.9（正常）」，贴在别处没人知道是按什么身高体重算的（2026-10-20 审计 §3.12，与折扣页
+ * 「带输入上下文的整句」同一口径）。
+ */
+export function healthContextText(heightInput: string, weightInput: string, ageInput: string,
+  genderId: string, english: boolean): string {
+  const items: string[] = [];
+  const height: number | undefined = healthNumber(heightInput);
+  if (height !== undefined) {
+    items.push((english ? 'Height ' : '身高 ') + formatHealthNumber(height) + (english ? ' cm' : ' cm'));
+  }
+  const weight: number | undefined = healthNumber(weightInput);
+  if (weight !== undefined) {
+    items.push((english ? 'Weight ' : '体重 ') + formatHealthNumber(weight) + (english ? ' kg' : ' kg'));
+  }
+  const age: number | undefined = healthNumber(ageInput);
+  if (age !== undefined) {
+    items.push((english ? 'Age ' : '年龄 ') + formatHealthNumber(age));
+  }
+  if (items.length === 0) { return ''; }
+  items.push(genderLabel(genderId, english));
+  return items.join(' · ');
+}
+
+/** 上下文字段里的数字展示：整数不带小数点，其余最多两位小数。 */
+function formatHealthNumber(value: number): string {
+  if (Number.isInteger(value)) { return value.toString(); }
+  return value.toFixed(2).replace(/\.?0+$/, '');
+}
+
 export function bmi(weightKg: number, heightCm: number): BmiResult | undefined {
   if (!Number.isFinite(weightKg) || !Number.isFinite(heightCm)) { return undefined; }
   if (weightKg <= 0 || weightKg > 500 || heightCm <= 0 || heightCm > 260) { return undefined; }
@@ -127,9 +167,14 @@ export const BMI_OBESE_MIN: number = 28;
 /** 分类文案。 */
 export function bmiCategoryText(category: string, english: boolean): string {
   if (category === 'under') { return english ? 'Underweight' : '偏瘦'; }
+  if (category === 'normal') { return english ? 'Normal' : '正常'; }
   if (category === 'over') { return english ? 'Overweight' : '超重'; }
   if (category === 'obese') { return english ? 'Obese' : '肥胖'; }
-  return english ? 'Normal' : '正常';
+  // 2026-10-20 第 98 轮：未知分类**不能回退成「正常」**。原来 `normal` 没有自己的分支，是靠**兜底**返回
+  // 「正常」的，于是任何未知/拼错的 id 都会被显示成「正常」——这与 `destinationName()` 那条教训同源
+  // （查表兜底不要返回一个具体的正常值，漏登记时会谎报），而这里谎报的是**健康结论**，方向最危险。
+  // 现在 `normal` 有显式分支，未知值返回「未知分类」。
+  return english ? 'Unknown category' : '未知分类';
 }
 
 export class RangeKg {
@@ -154,6 +199,11 @@ export function normalWeightRange(heightCm: number): RangeKg | undefined {
 /**
  * 基础代谢 BMR（Mifflin-St Jeor，kcal/天，保留整数）：
  * 男 = 10×体重 + 6.25×身高 − 5×年龄 + 5；女 = 同式 − 161。
+ *
+ * **性别必须是登记表里的 id**（第 49 轮自查修复）：此前写成 `gender === 'female' ? … : …`，
+ * 于是任何不认识的性别都会**静默按男性算**（与女性差 166 kcal）——与第 48 轮贷款「未知还款方式
+ * 静默按等额本息」同一类。**算结果的函数不得为未知 id 编一个值**（查表/出文案的函数可以有默认，
+ * 见下方 `activityFactor()`/`genderLabel()`），未登记性别一律 `undefined`。
  */
 export function bmr(gender: HealthGender, weightKg: number, heightCm: number,
   age: number): number | undefined {
@@ -163,14 +213,23 @@ export function bmr(gender: HealthGender, weightKg: number, heightCm: number,
   if (weightKg <= 0 || weightKg > 500 || heightCm <= 0 || heightCm > 260 || age <= 0 || age > 120) {
     return undefined;
   }
+  if (genderIndex(gender) < 0) { return undefined; }
   const base: number = 10 * weightKg + 6.25 * heightCm - 5 * age;
   const value: number = gender === 'female' ? base - 161 : base + 5;
   return value <= 0 ? undefined : Math.round(value);
 }
 
-/** 每日总消耗 TDEE = BMR × 活动系数（kcal/天，保留整数）。 */
+/**
+ * 每日总消耗 TDEE = BMR × 活动系数（kcal/天，保留整数）。
+ *
+ * 与 `bmr()` 同一口径：**活动 id 也必须是登记表里的一项**，未登记时返回 `undefined`——
+ * 否则会静默套用默认系数（1.375）算出一个「看起来正常」的日消耗（第 49 轮自查）。
+ * 注意 `activityFactor()` 自身保留「未知 id 回退默认系数」的查表口径（界面标签需要能渲染），
+ * 但**算结果的地方不接受这种兜底**。
+ */
 export function tdee(bmrValue: number, activityId: string): number | undefined {
   if (!Number.isFinite(bmrValue) || bmrValue <= 0) { return undefined; }
+  if (activityIndex(activityId) < 0) { return undefined; }
   return Math.round(bmrValue * activityFactor(activityId));
 }
 
@@ -183,4 +242,25 @@ export function healthErrorText(field: string, english: boolean): string {
     return english ? 'Enter a weight of 1–500 kg' : '请输入 1–500 kg 之间的体重';
   }
   return english ? 'Enter an age of 1–120' : '请输入 1–120 之间的年龄';
+}
+
+// 各字段的合法范围：**必须与 `bmi()`/`bmr()`/`healthErrorText()` 同一口径**。
+// 页面原先只判「身高 ≥ 50」与「非空」，于是 300 cm / 600 kg / 200 岁都会提示「输入有效」，而结果卡
+// 因为模型拒绝越界值只剩占位（2026-10-20 审计 P0）。范围判断收进本文件，页面只调 `healthFieldValid()`。
+export const HEALTH_HEIGHT_MIN_CM: number = 50;
+export const HEALTH_HEIGHT_MAX_CM: number = 260;
+export const HEALTH_WEIGHT_MIN_KG: number = 1;
+export const HEALTH_WEIGHT_MAX_KG: number = 500;
+export const HEALTH_AGE_MIN_YEARS: number = 1;
+export const HEALTH_AGE_MAX_YEARS: number = 120;
+
+/**
+ * 字段值是否落在可计算范围内；未填或不可解析（undefined）一律视为不合法。
+ * `age` 之外的字段名按年龄处理（调用方只用这三个字段名）。
+ */
+export function healthFieldValid(field: string, value: number | undefined): boolean {
+  if (value === undefined || !Number.isFinite(value)) { return false; }
+  if (field === 'height') { return value >= HEALTH_HEIGHT_MIN_CM && value <= HEALTH_HEIGHT_MAX_CM; }
+  if (field === 'weight') { return value >= HEALTH_WEIGHT_MIN_KG && value <= HEALTH_WEIGHT_MAX_KG; }
+  return value >= HEALTH_AGE_MIN_YEARS && value <= HEALTH_AGE_MAX_YEARS;
 }

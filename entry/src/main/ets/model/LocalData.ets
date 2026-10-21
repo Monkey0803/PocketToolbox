@@ -1,13 +1,43 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { allowedFavorites } from './ToolMeta';
+// `HistoryItem` 定义在纯逻辑 `HistoryKinds` 里（排序/置顶规则要能被单测加载）；这里只读写与字段归一。
+import { HistoryItem, normalizeHistoryItems } from './HistoryKinds';
+// 计时条数与时长上限的单一来源（纯逻辑，可测）：读写两侧都按它过滤/夹取。
+import { timerDurationWithinLimits, TIMER_MAX_COUNT } from './TimerMath';
 
-export class HistoryItem {
-  id: string = '';
-  kind: string = '';
-  content: string = '';
-  createdAt: number = 0;
-}
+/** 历史条数上限：读写两侧共用（此前 50 这个字面量在 `getHistory`/`saveHistory` 各写一份）。 */
+const HISTORY_MAX: number = 50;
+
+/**
+ * 本应用在 `pocket_toolbox` 偏好库里用到的**全部**键（登记表）。
+ *
+ * 设置页的「清除本机数据」按这份清单删除，因此**新增持久化键必须加到这里**，
+ * 否则「清除」会留下残留数据（`tests/check-consistency.mjs` 会静态检查源码里出现的键字面量）。
+ * `history_corrupt`/`timers_corrupt` 是解析失败时的原始内容备份（见 `backupCorrupt()`），
+ * 属于「本机数据」的一部分，一并清除。
+ */
+export const LOCAL_KEYS: string[] = [
+  'schema',
+  'favorite_tools',
+  'recent_tools',
+  'history',
+  'history_corrupt',
+  'timers',
+  'timers_corrupt',
+  'stopwatch',
+  'anniversaries',
+  'fx_rates',
+  'units_state',
+  'language',
+  'compass_unit',
+  'compass_declination',
+  'level_unit',
+  'level_tolerance'
+];
+
+/** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */
+export const SCHEMA_VERSION: number = 1;
 
 export class CountdownItem {
   id: string = '';
@@ -45,7 +75,14 @@ export class LocalData {
    * 放宽后 UIAbility 侧的调用（`Index.load()`）不受影响。
    */
   static async open(context: common.Context): Promise<LocalData> {
-    return new LocalData(await preferences.getPreferences(context, 'pocket_toolbox'));
+    const data: LocalData = new LocalData(await preferences.getPreferences(context, 'pocket_toolbox'));
+    // 记下格式版本（失败不影响启动）：将来需要迁移时按它判断，而不是猜字段。
+    try {
+      await data.putString('schema', SCHEMA_VERSION.toString());
+    } catch (_) {
+      // 版本写入失败无所谓，下一次打开会再写一次。
+    }
+    return data;
   }
 
   /**
@@ -77,35 +114,100 @@ export class LocalData {
     await this.store.flush();
   }
 
-  async getHistory(): Promise<HistoryItem[]> {
+  /**
+   * 解析失败时把原始内容备份到 `<key>_corrupt`。
+   *
+   * 之前的行为是「解析失败 → 当作没有数据 → 下次写入直接覆盖」，一旦格式出问题，用户的历史就
+   * 永久消失了。先留一份原始串（本机、不上传），至少还有人工恢复的机会（2026-10-20 审计 P1）。
+   * 备份本身失败不影响主流程。
+   */
+  private async backupCorrupt(key: string, raw: string): Promise<void> {
+    if (raw.length === 0) { return; }
     try {
-      let raw: string = await this.getString('history', '[]');
-      let items: HistoryItem[] = JSON.parse(raw) as HistoryItem[];
-      return items.filter((item: HistoryItem) => item.id.length > 0 && item.content.length > 0).slice(0, 50);
+      await this.putString(key + '_corrupt', raw);
     } catch (_) {
+      // 备份失败也不能让读取路径抛错。
+    }
+  }
+
+  /** 清除全部本机数据（设置页的「清除本机数据」）：按键登记表逐个删除后一次性落盘。 */
+  async clearAll(): Promise<void> {
+    for (let index: number = 0; index < LOCAL_KEYS.length; index++) {
+      try {
+        await this.store.delete(LOCAL_KEYS[index]);
+      } catch (_) {
+        // 单个键删除失败不影响其余键。
+      }
+    }
+    await this.store.flush();
+  }
+
+  /**
+   * 读取**全部已登记键**的原始字符串（导出备份用）。
+   *
+   * 原样返回存储里的串（不解析、不归一），因此导出内容与运行时读到的一致；
+   * 读不到的键直接不出现在结果里（导出侧会跳过空值）。单个键读取失败不影响其它键。
+   */
+  async rawValues(): Promise<Map<string, string>> {
+    const values: Map<string, string> = new Map<string, string>();
+    for (let index: number = 0; index < LOCAL_KEYS.length; index++) {
+      const key: string = LOCAL_KEYS[index];
+      try {
+        const raw: string = await this.getString(key, '');
+        if (raw.length > 0) { values.set(key, raw); }
+      } catch (_) {
+        // 读不到就当没有这个键。
+      }
+    }
+    return values;
+  }
+
+  async getHistory(): Promise<HistoryItem[]> {
+    let raw: string = '';
+    try {
+      raw = await this.getString('history', '[]');
+      let items: HistoryItem[] = JSON.parse(raw) as HistoryItem[];
+      if (!Array.isArray(items)) { return []; }
+      // 旧版本写入的条目没有 pinned 字段：统一归一成布尔值，避免 undefined 让界面判断失真。
+      items.forEach((item: HistoryItem) => { item.pinned = item.pinned === true; });
+      // **读侧也走归一化规则**（置顶优先排序后再截断）：存储里通常是排好序的，但导入的备份
+      // 未必有序——只 slice 会把排在 50 条之外的置顶条目静默丢掉（2026-10-20 第 26 轮自查）。
+      return normalizeHistoryItems(items, HISTORY_MAX);
+    } catch (_) {
+      // 内容损坏：留一份原始串再返回空列表，避免下次写入把它盖掉。
+      await this.backupCorrupt('history', raw);
       return [];
     }
   }
 
   async saveHistory(items: HistoryItem[]): Promise<void> {
-    await this.putString('history', JSON.stringify(items.slice(0, 50)));
+    await this.putString('history', JSON.stringify(normalizeHistoryItems(items, HISTORY_MAX)));
   }
 
   async getTimers(): Promise<CountdownItem[]> {
+    let raw: string = '';
     try {
-      let items: CountdownItem[] = JSON.parse(await this.getString('timers', '[]')) as CountdownItem[];
+      raw = await this.getString('timers', '[]');
+      let items: CountdownItem[] = JSON.parse(raw) as CountdownItem[];
+      // 上限与页面共用 `TimerMath` 的常量，不再各写一份数字（2026-10-20 审计 §3.15④）。
       let valid: CountdownItem[] = items.filter((item: CountdownItem) => item.id.length > 0 &&
-        Number.isFinite(item.durationMs) && item.durationMs >= 1000 && item.durationMs <= 86400000).slice(0, 30);
+        timerDurationWithinLimits(item.durationMs)).slice(0, TIMER_MAX_COUNT);
       // 旧版本写入的数据没有 repeat 字段：统一归一成布尔值，避免出现 undefined 让界面判断失真。
       valid.forEach((item: CountdownItem) => { item.repeat = item.repeat === true; });
       return valid;
     } catch (_) {
+      await this.backupCorrupt('timers', raw);
       return [];
     }
   }
 
   async saveTimers(items: CountdownItem[]): Promise<void> {
-    await this.putString('timers', JSON.stringify(items));
+    // **写入口也要夹取**：读的时候会按上限过滤，写的时候不夹取就会造出「写进去、下次读不到、
+    // 且文件里还留着」的条目（2026-10-20 审计 §3.15④）。页面本来就拒绝超限输入，这里只保证
+    // 存储层不变量：够读回来的才写。
+    let bounded: CountdownItem[] = items.filter((item: CountdownItem) =>
+      item.id.length > 0 && timerDurationWithinLimits(item.durationMs)).slice(0, TIMER_MAX_COUNT);
+    await this.putString('timers', JSON.stringify(bounded));
   }
 
   async getStopwatch(): Promise<StopwatchData> {

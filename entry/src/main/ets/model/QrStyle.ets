@@ -8,6 +8,7 @@
  * 本文件只登记「id + 双语名 + 数值」，数值映射到系统枚举由 `services/SystemTools` 负责，
  * 因此这里不引入 `@kit.*`，可以在单测里断言登记表完整性与取值。
  */
+import { utf8Bytes } from './EncodingTools';
 
 export class QrLevelEntry {
   readonly id: string;
@@ -43,6 +44,49 @@ export function qrLevelIndex(id: string): number {
 
 export function qrLevelEntry(id: string): QrLevelEntry | undefined {
   return QR_LEVELS.find((entry: QrLevelEntry): boolean => entry.id === id);
+}
+
+/**
+ * 各容错等级在**版本 40** 下的字节模式容量上限（QR 规范表：L 2953 / M 2331 / Q 1663 / H 1273）。
+ *
+ * 数字与字母数字模式能装更多，这里取最保守的字节模式，保证「预校验通过就一定能生成」
+ * （2026-10-20 审计 §3.1 新增项）。
+ */
+export function qrCapacityBytes(levelId: string): number {
+  if (levelId === 'L') { return 2953; }
+  if (levelId === 'Q') { return 1663; }
+  if (levelId === 'H') { return 1273; }
+  return 2331;
+}
+
+/** 文本的 UTF-8 字节数（中文按 3 字节算，与二维码字节模式一致）。 */
+export function qrByteLength(text: string): number {
+  return utf8Bytes(text).length;
+}
+
+/** 内容是否超出该容错等级的容量。 */
+export function qrCapacityExceeded(text: string, levelId: string): boolean {
+  return qrByteLength(text) > qrCapacityBytes(levelId);
+}
+
+/**
+ * 超容量时的双语提示：**说清多少个字节、上限多少、以及怎么补救**。
+ *
+ * 此前超长内容会走到生成失败，界面只说「生成失败，请在真机重试」——用户完全不知道是内容太长
+ * （2026-10-20 审计 §3.1 新增项）。未超限返回空串。
+ *
+ * 判定走 `qrCapacityExceeded()`，**不在这里重写一遍比较**（第 25 轮自查：该谓词当时是个没人调用的
+ * 死导出，而这里自己写了一份 `used <= limit`，同一个判据两处各写一份就会漂移）。
+ */
+export function qrCapacityErrorText(text: string, levelId: string, english: boolean): string {
+  if (!qrCapacityExceeded(text, levelId)) { return ''; }
+  const used: number = qrByteLength(text);
+  const limit: number = qrCapacityBytes(levelId);
+  return english
+    ? 'Too long: ' + used.toString() + ' bytes at error correction ' + levelId +
+      ' (limit ' + limit.toString() + '). Shorten the content or lower the error correction level.'
+    : '内容过长：当前容错等级 ' + levelId + ' 最多 ' + limit.toString() + ' 字节，实际 ' +
+      used.toString() + ' 字节。请缩短内容或降低容错等级。';
 }
 
 /** 容错等级数值；未知 id 回退默认等级，避免把 undefined 传给系统。 */

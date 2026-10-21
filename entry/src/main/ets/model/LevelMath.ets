@@ -21,8 +21,53 @@ export class LevelReading {
   level: boolean = false;
 }
 
-/** 判定「水平」的倾角容差（度）。 */
+/** 判定「水平」的**默认**倾角容差（度）。实际容差由 `LEVEL_TOLERANCES` 选择，纯函数按参数接收。 */
 export const LEVEL_TOLERANCE_DEGREES: number = 2;
+
+/**
+ * 可选的「水平」判据容差。
+ *
+ * 装修找平用 2° 足够，精密工况要更严（0.5°/1°），粗放的场景（贴瓷砖前找大平）用 5° 更省事，
+ * 因此把容差做成登记表 + `OptionSelect`，而不是写死（2026-10-20 审计 P1）。
+ * 标签就是角度本身（中英一致），不需要双语字段。
+ */
+export class LevelTolerance {
+  readonly id: string;
+  readonly degrees: number;
+
+  constructor(id: string, degrees: number) {
+    this.id = id;
+    this.degrees = degrees;
+  }
+}
+
+export const LEVEL_TOLERANCES: LevelTolerance[] = [
+  new LevelTolerance('0.5', 0.5),
+  new LevelTolerance('1', 1),
+  new LevelTolerance('2', 2),
+  new LevelTolerance('5', 5)
+];
+
+export const DEFAULT_LEVEL_TOLERANCE: string = '2';
+
+/** 登记表下标；未知 id 返回 -1（页面回退默认项）。 */
+export function levelToleranceIndex(id: string): number {
+  for (let index: number = 0; index < LEVEL_TOLERANCES.length; index++) {
+    if (LEVEL_TOLERANCES[index].id === id) { return index; }
+  }
+  return -1;
+}
+
+/** 按 id 取容差度数；未知 id 回退默认值（绝不返回 NaN，否则判据会永远为假）。 */
+export function levelToleranceDegrees(id: string): number {
+  const index: number = levelToleranceIndex(id);
+  return LEVEL_TOLERANCES[index < 0 ? levelToleranceIndex(DEFAULT_LEVEL_TOLERANCE) : index].degrees;
+}
+
+/** 选项文本（`0.5°` / `2°`），中英相同。 */
+export function levelToleranceLabel(id: string): string {
+  return levelToleranceDegrees(id).toString() + '°';
+}
 
 function clamp(value: number, limit: number): number {
   return Math.max(-limit, Math.min(limit, value));
@@ -33,7 +78,8 @@ function bubbleOffset(degrees: number): number {
   return clamp(64 * Math.sin(degrees * Math.PI / 180), 64);
 }
 
-export function calculateLevel(x: number, y: number, z: number): LevelReading | undefined {
+export function calculateLevel(x: number, y: number, z: number,
+  tolerance: number = LEVEL_TOLERANCE_DEGREES): LevelReading | undefined {
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { return undefined; }
   const magnitude: number = Math.sqrt(x * x + y * y + z * z);
   if (magnitude < 1) { return undefined; }
@@ -44,8 +90,14 @@ export function calculateLevel(x: number, y: number, z: number): LevelReading | 
   reading.yDegrees = Math.atan2(y, Math.abs(z)) * degrees;
   reading.bubbleX = clamp(x / magnitude * 64, 64);
   reading.bubbleY = clamp(y / magnitude * 64, 64);
-  reading.level = reading.tiltDegrees <= LEVEL_TOLERANCE_DEGREES;
+  reading.level = reading.tiltDegrees <= levelBound(tolerance);
   return reading;
+}
+
+/** 容差兜底：非有限数或负数一律回到默认值（页面传入非法 id 时也不会让判据失真）。 */
+function levelBound(tolerance: number): number {
+  if (!Number.isFinite(tolerance) || tolerance <= 0) { return LEVEL_TOLERANCE_DEGREES; }
+  return tolerance;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +202,8 @@ export function offsetFromReading(reading: LevelReading | undefined): LevelOffse
  * 相对倾角取两轴偏差的欧氏合成（`√(x² + y²)`），气泡同样按 `64 · sin(θ)` 重算，
  * 这样「气泡居中」与「相对倾角不超过 2°」始终是同一件事；没有基准时原样返回绝对读数。
  */
-export function applyOffset(reading: LevelReading, offset: LevelOffset | undefined): LevelReading {
+export function applyOffset(reading: LevelReading, offset: LevelOffset | undefined,
+  tolerance: number = LEVEL_TOLERANCE_DEGREES): LevelReading {
   if (offset === undefined) {
     const absolute: LevelReading = new LevelReading();
     absolute.tiltDegrees = reading.tiltDegrees;
@@ -158,7 +211,7 @@ export function applyOffset(reading: LevelReading, offset: LevelOffset | undefin
     absolute.yDegrees = reading.yDegrees;
     absolute.bubbleX = reading.bubbleX;
     absolute.bubbleY = reading.bubbleY;
-    absolute.level = reading.level;
+    absolute.level = absolute.tiltDegrees <= levelBound(tolerance);
     return absolute;
   }
   const result: LevelReading = new LevelReading();
@@ -167,7 +220,7 @@ export function applyOffset(reading: LevelReading, offset: LevelOffset | undefin
   result.tiltDegrees = Math.sqrt(result.xDegrees * result.xDegrees + result.yDegrees * result.yDegrees);
   result.bubbleX = bubbleOffset(result.xDegrees);
   result.bubbleY = bubbleOffset(result.yDegrees);
-  result.level = result.tiltDegrees <= LEVEL_TOLERANCE_DEGREES;
+  result.level = result.tiltDegrees <= levelBound(tolerance);
   return result;
 }
 

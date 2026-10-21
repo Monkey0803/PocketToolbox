@@ -5,8 +5,9 @@ import { ToolPalette } from '../model/ToolPalette';
 import { LocalData } from '../model/LocalData';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { todayDate, pickerDate, pickerDateText, parseDate } from '../model/DateTools';
-import { Anniversary, ANNIVERSARY_MAX, newAnniversary, parseAnniversaries, serializeAnniversaries,
-  anniversaryText, sortAnniversaries, upsertAnniversary, removeAnniversary,
+import { Anniversary, ANNIVERSARY_MAX, newAnniversary, parseAnniversariesDetailed,
+  AnniversaryParseResult, anniversaryOverflowNoteText, serializeAnniversaries,
+  anniversaryText, anniversaryCountText, sortAnniversaries, upsertAnniversary, removeAnniversary,
   anniversaryErrorText } from '../model/AnniversaryTools';
 
 // 清单的内层 `List` 必须自带确定高度：工具页被外层 `Scroll` 包裹，没有高度的 List 拿不到稳定的
@@ -38,16 +39,26 @@ export struct AnniversaryPage {
 
   @Local entryName: string = '';
   @Local entryDate: string = todayDate();
+  /** 超上限、未在列表里显示但**仍保存在本机**的条目（保存时原样写回，§3.16③）。 */
+  @Local overflowItems: Anniversary[] = [];
+  /** 当前「今天」（跨零点后重新取值，排序与剩余天数据此刷新，§3.16①）。 */
+  @Local today: string = todayDate();
   @Local yearly: boolean = false;
   @Local items: Anniversary[] = [];
+  // 正在编辑的条目 id（空串 = 新增）：编辑不再「删了重建」，保存时按 id 覆盖（upsert）。
+  @Local editingId: string = '';
   // 新建条目的序号：与 createdAt 一起组成 id，避免同一毫秒内连续添加两条时撞 id（不用随机数）。
   private sequence: number = 0;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
   // 只给日期选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
+  /**
+   * 系统选择器对话框的材质：**只读光感，不要触控形变**（`interactive` 是给应用内输入表面用的，
+   * 对话框的交互由系统负责；2026-10-20 审计 §3.27）。
+   */
+  private dialogMaterial(): uiMaterial.Material | undefined {
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, false, true);
   }
 
   aboutToAppear(): void {
@@ -64,10 +75,16 @@ export struct AnniversaryPage {
     if (!this.data) { return; }
     try {
       const raw: string = await this.data.getString('anniversaries', '[]');
-      this.items = sortAnniversaries(parseAnniversaries(raw), todayDate());
+      // 用详细解析：超上限的条目留在 `overflowItems` 里，保存时原样写回去，避免「看一眼就被截掉」
+      // （2026-10-20 审计 §3.16③）。界面只渲染上限内的条目，并如实说明有多少条没显示。
+      const parsed: AnniversaryParseResult = parseAnniversariesDetailed(raw);
+      this.overflowItems = parsed.overflow;
+      this.today = todayDate();
+      this.items = sortAnniversaries(parsed.items, this.today);
     } catch (_) {
       // 读取失败按「没有条目」处理，不影响新建与删除。
       this.items = [];
+      this.overflowItems = [];
     }
   }
 
@@ -80,7 +97,8 @@ export struct AnniversaryPage {
     this.items = next;
     if (!this.data) { return true; }
     try {
-      await this.data.putString('anniversaries', serializeAnniversaries(next));
+      // 把超上限、未在界面上显示的条目**拼回去再写**，否则一次保存就把它们永久删掉了（§3.16③）。
+      await this.data.putString('anniversaries', serializeAnniversaries(next.concat(this.overflowItems)));
       return true;
     } catch (_) {
       this.items = previous;
@@ -90,10 +108,6 @@ export struct AnniversaryPage {
   }
 
   private async addItem(): Promise<void> {
-    if (this.items.length >= ANNIVERSARY_MAX) {
-      this.onStatus(anniversaryErrorText('limit', this.english));
-      return;
-    }
     const title: string = this.entryName.trim();
     if (title.length === 0) {
       this.onStatus(anniversaryErrorText('title', this.english));
@@ -103,14 +117,48 @@ export struct AnniversaryPage {
       this.onStatus(anniversaryErrorText('date', this.english));
       return;
     }
+    // 编辑态：按 id 覆盖原条目（保持原位置），不新增第二条、也不占用 20 条上限。
+    const editing: Anniversary | undefined =
+      this.items.find((item: Anniversary): boolean => item.id === this.editingId);
+    if (editing !== undefined) {
+      const updated: Anniversary = new Anniversary();
+      updated.id = editing.id;
+      updated.createdAt = editing.createdAt;
+      updated.title = title;
+      updated.date = this.entryDate;
+      updated.yearly = this.yearly;
+      const savedEdit: boolean = await this.saveItems(
+        sortAnniversaries(upsertAnniversary(this.items, updated), this.today));
+      if (!savedEdit) { return; }
+      this.editingId = '';
+      this.entryName = '';
+      this.onStatus(this.tr('已更新', 'Updated'));
+      return;
+    }
+    if (this.items.length >= ANNIVERSARY_MAX) {
+      this.onStatus(anniversaryErrorText('limit', this.english));
+      return;
+    }
     const createdAt: number = Date.now();
     const item: Anniversary = newAnniversary(title, this.entryDate, this.yearly, createdAt, this.sequence);
     this.sequence += 1;
     const saved: boolean = await this.saveItems(
-      sortAnniversaries(upsertAnniversary(this.items, item), todayDate()));
+      sortAnniversaries(upsertAnniversary(this.items, item), this.today));
     if (!saved) { return; }
     this.entryName = '';
     this.onStatus(this.tr('已添加', 'Added'));
+  }
+
+  /** 把某条填回上方编辑（不删除原条目：用户放弃编辑时原数据仍在）。 */
+  private editItem(id: string): void {
+    const item: Anniversary | undefined =
+      this.items.find((entry: Anniversary): boolean => entry.id === id);
+    if (item === undefined) { return; }
+    this.editingId = item.id;
+    this.entryName = item.title;
+    this.entryDate = item.date;
+    this.yearly = item.yearly;
+    this.onStatus(this.tr('已填入上方，保存将覆盖该条', 'Loaded above; saving will update this entry'));
   }
 
   private async deleteItem(id: string): Promise<void> {
@@ -123,6 +171,12 @@ export struct AnniversaryPage {
     if (item !== undefined) { this.deleteItem(item.id); }
   }
 
+  /** 行内按钮只拿到常量下标，因此在函数体内现取 id 再交给 `editItem()`（`@Builder` 只收常量参数）。 */
+  private editItemAt(index: number): void {
+    const item: Anniversary | undefined = this.items[index];
+    if (item !== undefined) { this.editItem(item.id); }
+  }
+
   private itemTitle(index: number): string {
     const item: Anniversary | undefined = this.items[index];
     return item === undefined ? '' : item.title;
@@ -131,7 +185,10 @@ export struct AnniversaryPage {
   private itemSubtitle(index: number): string {
     const item: Anniversary | undefined = this.items[index];
     if (item === undefined) { return ''; }
-    return item.date + ' · ' + anniversaryText(item, todayDate(), this.english);
+    const count: string = anniversaryCountText(item, this.today, this.english);
+    const base: string = item.date + ' · ' + anniversaryText(item, this.today, this.english);
+    // 「第 N 周年」只对每年重复的条目有意义（一次性条目由纯逻辑返回空串，不做臆测）。
+    return count.length === 0 ? base : base + ' · ' + count;
   }
 
   // 点行复制出去的整句：名称 + 日期 + 剩余天数（`anniversaryText()` 里已经是双语口径）。
@@ -160,7 +217,7 @@ export struct AnniversaryPage {
     try {
       this.getUIContext().showDatePickerDialog({
         selected: selected === undefined ? new Date() : selected,
-        systemMaterial: this.immersiveMaterial(true),
+        systemMaterial: this.dialogMaterial(),
         onDateAccept: (value: Date) => {
           this.setDateField(kind, pickerDateText(value));
         }
@@ -219,7 +276,12 @@ export struct AnniversaryPage {
         .accessibilityText(this.itemCopyText(index))
         .onClick(() => this.onCopy(this.itemCopyText(index)))
 
-        Row() {
+        Row({ space: 4 }) {
+          IconActionButton({
+            icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
+            a11yText: this.tr('编辑纪念日', 'Edit anniversary'),
+            onTap: () => this.editItemAt(index)
+          })
           IconActionButton({
             icon: $r('sys.symbol.trash'),
             tintColor: ToolPalette.danger,
@@ -231,8 +293,17 @@ export struct AnniversaryPage {
     }
   }
 
+  /** 超上限提示（未超限为空串，不占位）。 */
+  private overflowNote(): string {
+    return anniversaryOverflowNoteText(this.overflowItems.length, this.english);
+  }
+
   build() {
     Column({ space: 14 }) {
+      // 超上限的条目如实说明（它们仍保存在本机，保存时不会被截掉，§3.16③）。
+      if (this.overflowNote().length > 0) {
+        Text(this.overflowNote()).fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      }
       MaterialSurface({
         supported: this.immersiveSupported,
         level: this.materialLevel,
@@ -255,11 +326,24 @@ export struct AnniversaryPage {
         Text(this.tr('每年重复', 'Repeats yearly')).fontSize(16).fontColor(ToolPalette.textPrimary)
       }.width('100%').height(52)
 
-      Button(this.tr('添加', 'Add')).width('100%').height(48)
-        .backgroundColor(ToolPalette.primary).fontColor(Color.White).fontWeight(FontWeight.Medium)
-        .enabled(this.items.length < ANNIVERSARY_MAX)
-        .onClick(() => this.addItem())
-      if (this.items.length >= ANNIVERSARY_MAX) {
+      Row({ space: 8 }) {
+        Button(this.editingId.length > 0 ? this.tr('保存修改', 'Save changes') : this.tr('添加', 'Add'))
+          .layoutWeight(1).height(48)
+          .backgroundColor(this.editingId.length > 0 ? ToolPalette.success : ToolPalette.primary)
+          .fontColor(Color.White).fontWeight(FontWeight.Medium)
+          // 编辑态不受 20 条上限限制（只是覆盖已有条目）。
+          .enabled(this.editingId.length > 0 || this.items.length < ANNIVERSARY_MAX)
+          .onClick(() => this.addItem())
+        if (this.editingId.length > 0) {
+          Button(this.tr('取消编辑', 'Cancel')).height(48)
+            .backgroundColor(ToolPalette.borderMuted).fontColor(ToolPalette.textPrimary)
+            .onClick(() => {
+              this.editingId = ''; this.entryName = '';
+              this.onStatus(this.tr('已取消编辑', 'Editing cancelled'));
+            })
+        }
+      }.width('100%')
+      if (this.items.length >= ANNIVERSARY_MAX && this.editingId.length === 0) {
         // 达到上限是持续状态（不是一次性反馈），因此在这里如实说明为什么按钮点不动。
         Text(anniversaryErrorText('limit', this.english)).fontSize(13)
           .fontColor(ToolPalette.warning).width('100%')

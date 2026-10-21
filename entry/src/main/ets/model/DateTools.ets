@@ -310,7 +310,13 @@ function constellationDayText(month: number, day: number, english: boolean): str
 // 星座日期区间文案：'3月21日 – 4月19日' / 'Mar 21 – Apr 19'。
 // 「前一天」固定用闰年 2000 计算，避免 2 月 28/29 日差异影响结束日。
 export function constellationRangeText(target: Constellation, english: boolean): string {
-  const next: Constellation = CONSTELLATIONS[(CONSTELLATIONS.indexOf(target) + 1) % CONSTELLATIONS.length];
+  // 表里没有这个星座时**不要编造区间**：此前 `indexOf()` 返回 -1 会被 `(-1+1)%len` 变成 0，
+  // 于是静默按「下一个星座 = 表首」推出一个错误区间（2026-10-20 审计 §3.13④）。这里只回起始日。
+  const index: number = CONSTELLATIONS.indexOf(target);
+  if (index < 0) {
+    return constellationDayText(target.startMonth, target.startDay, english);
+  }
+  const next: Constellation = CONSTELLATIONS[(index + 1) % CONSTELLATIONS.length];
   const end: Date = new Date(0);
   end.setUTCFullYear(2000, next.startMonth - 1, next.startDay);
   end.setUTCHours(0, 0, 0, 0);
@@ -319,12 +325,42 @@ export function constellationRangeText(target: Constellation, english: boolean):
     constellationDayText(end.getUTCMonth() + 1, end.getUTCDate(), english);
 }
 
+/** `addWorkingDays()` 与工作日统计共用的工作日偏移上限（±36500 个工作日，约 140 年）。 */
+export const WORKING_DAYS_SHIFT_LIMIT: number = 36500;
+
+/**
+ * 工作日统计的**日历天**区间上限。
+ *
+ * 统计是逐日循环，`0001-01-01` 到 `9999-12-31` 会迭代约 365 万次、在输入框里一敲就卡住主线程
+ * （2026-10-20 审计 §3.13③）。上限取 `addWorkingDays()` 支持的最大跨度（36500 个工作日 ≈ 51100 个
+ * 日历日）再留余量，保证「能推算出来的日期也能统计」，不会出现两者口径互相打架。
+ */
+export const WORKING_DAYS_MAX_SPAN_DAYS: number = 60000;
+
+/** 两个日期都合法、且跨度超过 `WORKING_DAYS_MAX_SPAN_DAYS` 时返回 true。 */
+export function workingDaysSpanExceeded(first: string, second: string): boolean {
+  const a: Date | undefined = parseDate(first);
+  const b: Date | undefined = parseDate(second);
+  if (a === undefined || b === undefined) { return false; }
+  const span: number = Math.abs(b.getTime() - a.getTime()) / 86400000;
+  return span > WORKING_DAYS_MAX_SPAN_DAYS;
+}
+
+/** 区间过长时的双语提示；未超限返回空串。 */
+export function workingDaysSpanErrorText(first: string, second: string, english: boolean): string {
+  if (!workingDaysSpanExceeded(first, second)) { return ''; }
+  return english
+    ? 'The range is longer than ' + WORKING_DAYS_MAX_SPAN_DAYS.toString() + ' days; shorten it'
+    : '区间超过 ' + WORKING_DAYS_MAX_SPAN_DAYS.toString() + ' 天，请缩短后再算';
+}
+
 // 工作日天数：仅排除周六周日。两个日期顺序无关；includeFirst 为 false 时从次日算起，
 // 目标日始终计入，因此起止相同时结果为 0。不含法定节假日与调休数据。
 export function workingDaysBetween(first: string, second: string, includeFirst: boolean): number | undefined {
   const a: Date | undefined = parseDate(first);
   const b: Date | undefined = parseDate(second);
   if (a === undefined || b === undefined) { return undefined; }
+  if (workingDaysSpanExceeded(first, second)) { return undefined; }
   const start: Date = a.getTime() <= b.getTime() ? a : b;
   const end: Date = a.getTime() <= b.getTime() ? b : a;
   const cursor: Date = new Date(start.getTime());
@@ -345,6 +381,7 @@ export function workingDaysBetweenWithHolidays(first: string, second: string, in
   const a: Date | undefined = parseDate(first);
   const b: Date | undefined = parseDate(second);
   if (a === undefined || b === undefined) { return undefined; }
+  if (workingDaysSpanExceeded(first, second)) { return undefined; }
   const start: Date = a.getTime() <= b.getTime() ? a : b;
   const end: Date = a.getTime() <= b.getTime() ? b : a;
   const holidaySet: Set<string> = new Set<string>(holidays);
@@ -364,7 +401,7 @@ export function workingDaysBetweenWithHolidays(first: string, second: string, in
 // days 为 0 时返回原日期；上限 ±36500 个工作日（约 140 年），避免逐日循环过长。
 export function addWorkingDays(value: string, days: number): string | undefined {
   const date: Date | undefined = parseDate(value);
-  if (date === undefined || !Number.isInteger(days) || Math.abs(days) > 36500) { return undefined; }
+  if (date === undefined || !Number.isInteger(days) || Math.abs(days) > WORKING_DAYS_SHIFT_LIMIT) { return undefined; }
   const step: number = days >= 0 ? 1 : -1;
   const cursor: Date = new Date(date.getTime());
   let remaining: number = Math.abs(days);

@@ -4,9 +4,10 @@ import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { KinStep, KIN_QUICK_STEPS, KinGenderEntry, KIN_GENDERS, KinOutcome, KinResult,
-  DEFAULT_KIN_GENDER, kinGenderIndex, kinGenderLabel, computeKinship, kinChainText,
-  kinGenerationText, kinGenderText, kinshipErrorText, kinCopyText, appendKinStep,
-  removeLastKinStep } from '../model/KinshipMath';
+  KinDirectionEntry, KIN_DIRECTIONS, DEFAULT_KIN_DIRECTION, DEFAULT_KIN_GENDER,
+  kinGenderIndex, kinGenderLabel, kinDirectionIndex, kinDirectionLabel,
+  computeKinship, computeReverseKinship, kinChainText, kinGenerationText, kinGenderText,
+  kinshipErrorText, kinCopyText, appendKinStep, removeLastKinStep } from '../model/KinshipMath';
 
 /**
  * 亲戚称呼页：输入（或点选）一串亲属关系，给出称谓、关系链、辈分与性别。
@@ -27,41 +28,62 @@ export struct KinshipPage {
 
   @Local chain: string = '';
   @Local egoGender: string = DEFAULT_KIN_GENDER;
+  // 查询方向：正向（他是我什么人）/ 反向（我是他什么人）。名字避开 `direction`：ArkUI 的
+  // `CustomComponent` 基类已有同名属性，`@Local direction` 会编译失败（与 `LevelPage.offset` 同类）。
+  @Local kinDirection: string = DEFAULT_KIN_DIRECTION;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
-  private outcome(): KinOutcome { return computeKinship(this.chain, this.egoGender); }
+  /**
+   * 按当前方向取结果：正向走 `computeKinship()`，反向走 `computeReverseKinship()`。
+   *
+   * 用 `@Computed` 缓存：结果区、代际、性别、关系链、复制文案各调一次，此前同一次渲染要算 5 遍
+   * 查表（2026-10-20 审计 §3.25⑤）。`chain`/`egoGender`/`kinDirection` 变了才会重算。
+   */
+  @Computed
+  get outcome(): KinOutcome {
+    return this.kinDirection === 'reverse'
+      ? computeReverseKinship(this.chain, this.egoGender)
+      : computeKinship(this.chain, this.egoGender);
+  }
+
+  private directionOptions(): SelectOption[] {
+    return KIN_DIRECTIONS.map((entry: KinDirectionEntry): SelectOption => {
+      const option: SelectOption = { value: this.english ? entry.en : entry.zh };
+      return option;
+    });
+  }
 
   private resultPath(): string[] {
-    const computed: KinOutcome = this.outcome();
+    const computed: KinOutcome = this.outcome;
     return computed.result === undefined ? [] : computed.result.path;
   }
 
   /** 有结果（解析成功）时为 true；错误与空输入都走提示文案。 */
   private hasResult(): boolean {
-    const computed: KinOutcome = this.outcome();
+    const computed: KinOutcome = this.outcome;
     return computed.error.length === 0 && computed.result !== undefined;
   }
 
   private errorText(): string {
-    const computed: KinOutcome = this.outcome();
+    const computed: KinOutcome = this.outcome;
     return computed.error.length === 0 ? '' : kinshipErrorText(computed.error, computed.token, this.english);
   }
 
   private nameText(): string {
-    const computed: KinOutcome = this.outcome();
+    const computed: KinOutcome = this.outcome;
     const result: KinResult | undefined = computed.result;
     return result === undefined ? '' : (this.english ? result.en : result.zh);
   }
 
   /** 是否只有关系链描述（未收录成单一称谓）。 */
   private unnamed(): boolean {
-    const computed: KinOutcome = this.outcome();
+    const computed: KinOutcome = this.outcome;
     return computed.error.length === 0 && computed.result !== undefined && !computed.result.named;
   }
 
   private noteText(): string {
-    const computed: KinOutcome = this.outcome();
+    const computed: KinOutcome = this.outcome;
     const result: KinResult | undefined = computed.result;
     return result === undefined ? '' : (this.english ? result.noteEn : result.noteZh);
   }
@@ -127,7 +149,7 @@ export struct KinshipPage {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
             a11yText: this.tr('复制称谓', 'Copy the address'),
-            onTap: () => this.onCopy(kinCopyText(this.outcome(), this.english))
+            onTap: () => this.onCopy(kinCopyText(this.outcome, this.english))
           })
         }.width('100%')
       }
@@ -136,9 +158,19 @@ export struct KinshipPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('输入一串亲属关系，给出该怎么称呼；远亲与姻亲给关系描述。各地叫法不同，结果仅供参考。',
-        'Enter a chain of relationships to see how to address that person; distant and in-law relations are described. Local usage varies.'))
+      Text(this.tr('输入一串亲属关系，给出该怎么称呼；远亲与姻亲给关系描述。也可以反过来问「我是他什么人」。各地叫法不同，结果仅供参考。',
+        'Enter a chain of relationships to see how to address that person; distant and in-law relations are described. You can also ask the reverse: who am I to them. Local usage varies.'))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      OptionSelect({
+        label: this.tr('方向', 'Direction'),
+        options: this.directionOptions(),
+        selectedIndex: Math.max(0, kinDirectionIndex(this.kinDirection)),
+        selectedText: kinDirectionLabel(this.kinDirection, this.english),
+        a11yText: this.tr('查询方向', 'Lookup direction'),
+        onSelected: (index: number): void => {
+          if (index >= 0 && index < KIN_DIRECTIONS.length) { this.kinDirection = KIN_DIRECTIONS[index].id; }
+        }
+      })
       OptionSelect({
         label: this.tr('我', 'Me'),
         options: this.genderOptions(),

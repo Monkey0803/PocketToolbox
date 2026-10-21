@@ -7,8 +7,10 @@ import { ToolPalette } from '../model/ToolPalette';
 import { LocalData } from '../model/LocalData';
 import { setKeepScreenOn } from '../services/ScreenLight';
 import {
-  DEFAULT_LEVEL_UNIT, LEVEL_UNITS, LevelOffset, LevelReading, LevelUnit, applyOffset, calculateLevel,
-  levelCopyText, levelUnitIndex, levelUnitLabel, offsetFromReading, peakTilt, tiltDisplayText
+  DEFAULT_LEVEL_TOLERANCE, DEFAULT_LEVEL_UNIT, LEVEL_TOLERANCES, LEVEL_UNITS, LevelOffset, LevelReading,
+  LevelTolerance, LevelUnit, applyOffset, calculateLevel, levelCopyText, levelToleranceDegrees,
+  levelToleranceIndex, levelToleranceLabel, levelUnitIndex, levelUnitLabel, offsetFromReading, peakTilt,
+  tiltDisplayText
 } from '../model/LevelMath';
 import { sensorAccuracyHint } from '../model/SensorAccuracy';
 
@@ -47,19 +49,22 @@ export struct LevelPage {
   @Local levelReady: boolean = false;
   @Local levelMessage: string = '';
   @Local levelUnit: string = DEFAULT_LEVEL_UNIT;
+  // 「水平」判据容差（0.5°/1°/2°/5°，落盘键 `level_tolerance`）。
+  @Local levelTolerance: string = DEFAULT_LEVEL_TOLERANCE;
   @Local accuracy: number = Number.NaN;
 
   private levelSubscribed: boolean = false;
   private keepApplied: boolean = false;
   private levelCallback: (reading: sensor.AccelerometerResponse) => void =
     (reading: sensor.AccelerometerResponse): void => {
-      const result: LevelReading | undefined = calculateLevel(reading.x, reading.y, reading.z);
+      const result: LevelReading | undefined =
+        calculateLevel(reading.x, reading.y, reading.z, this.toleranceDegrees());
       if (result === undefined) { return; }
       this.raw = result;
       this.peak = peakTilt(this.peak, result);
       this.accuracy = reading.accuracy;
       // 锁定后不再改写显示读数（峰值仍按真实读数累计）。
-      if (this.held === undefined) { this.shown = applyOffset(result, this.zeroBase); }
+      if (this.held === undefined) { this.shown = applyOffset(result, this.zeroBase, this.toleranceDegrees()); }
       this.levelReady = true;
     };
 
@@ -97,6 +102,12 @@ export struct LevelPage {
     if (this.levelSubscribed) { return; }
     this.levelReady = false;
     this.levelMessage = '';
+    // 与指南针同一口径的能力门控：只靠 `getSingleSensorSync` 抛错探测不够稳（2026-10-20 审计 P1）。
+    if (!canIUse('SystemCapability.Sensors.Sensor')) {
+      this.levelMessage = this.tr('当前设备无法读取加速度传感器', 'Accelerometer unavailable on this device');
+      this.applyKeepScreenOn(false);
+      return;
+    }
     try {
       sensor.getSingleSensorSync(sensor.SensorId.ACCELEROMETER);
       sensor.on(sensor.SensorId.ACCELEROMETER, this.levelCallback, { interval: 100000000 });
@@ -131,10 +142,12 @@ export struct LevelPage {
     if (!this.data) { return; }
     try {
       const raw: string = await this.data.getString('level_unit', '');
-      if (raw.length === 0) { return; }
-      if (levelUnitIndex(raw) >= 0) { this.levelUnit = raw; }
+      if (raw.length > 0 && levelUnitIndex(raw) >= 0) { this.levelUnit = raw; }
+      // 容差与单位同一次读取；两者都是「显示偏好」而不是测量数据。
+      const tolerance: string = await this.data.getString('level_tolerance', '');
+      if (tolerance.length > 0 && levelToleranceIndex(tolerance) >= 0) { this.levelTolerance = tolerance; }
     } catch (_) {
-      // 读取失败保持默认单位，不影响测量。
+      // 读取失败保持默认单位与容差，不影响测量。
     }
   }
 
@@ -142,9 +155,36 @@ export struct LevelPage {
     if (!this.data) { return; }
     try {
       await this.data.putString('level_unit', this.levelUnit);
+      await this.data.putString('level_tolerance', this.levelTolerance);
     } catch (_) {
       // 保存失败只影响下次默认选择。
     }
+  }
+
+  private toleranceOptions(): SelectOption[] {
+    return LEVEL_TOLERANCES.map((entry: LevelTolerance): SelectOption => {
+      const option: SelectOption = { value: levelToleranceLabel(entry.id) };
+      return option;
+    });
+  }
+
+  private toleranceIndex(): number {
+    const index: number = levelToleranceIndex(this.levelTolerance);
+    return index < 0 ? levelToleranceIndex(DEFAULT_LEVEL_TOLERANCE) : index;
+  }
+
+  private selectTolerance(index: number): void {
+    const entry: LevelTolerance = LEVEL_TOLERANCES[index];
+    if (entry === undefined || entry.id === this.levelTolerance) { return; }
+    this.levelTolerance = entry.id;
+    // 判据变化要立刻反映到当前读数上（否则要等下一帧传感器回调），并且尊重锁定态。
+    this.refreshShown();
+    this.saveUnit();
+  }
+
+  /** 当前判据容差（度）：非法 id 由纯逻辑回退默认值。 */
+  private toleranceDegrees(): number {
+    return levelToleranceDegrees(this.levelTolerance);
   }
 
   private unitOptions(): SelectOption[] {
@@ -195,8 +235,22 @@ export struct LevelPage {
     this.held = this.shown;
   }
 
-  private resetPeak(): void {
-    if (this.peak === 0) { return; }
+  /**
+   * 峰值那一行的文案。
+   *
+   * 校准过（`zeroed`）时读数行是「相对基准」的，而峰值一直是「相对重力」的绝对值，因此
+   * 标签必须写明「绝对」，并补一句口径说明（2026-10-20 审计 §3.19②）。
+   */
+  private peakLabelText(): string {
+    const value: string = tiltDisplayText(this.peak, this.levelUnit, this.english);
+    if (!this.zeroed) {
+      return this.tr('本轮最大倾角（绝对）', 'Max tilt this round (absolute)') + ' ' + value;
+    }
+    return this.tr('本轮最大绝对倾角 ', 'Max absolute tilt this round ') + value +
+      this.tr('（相对重力，不含校准基准）', ' (from gravity, ignoring the zero reference)');
+  }
+
+  private resetPeak(): void {    if (this.peak === 0) { return; }
     this.peak = 0;
   }
 
@@ -206,10 +260,10 @@ export struct LevelPage {
     this.onCopy(text);
   }
 
-  /** 基准变化后按最新绝对读数重算显示值；锁定期间不动（保持冻结的读数）。 */
+  /** 基准/容差变化后按最新绝对读数重算显示值；锁定期间不动（保持冻结的读数）。 */
   private refreshShown(): void {
     if (this.held !== undefined) { return; }
-    this.shown = applyOffset(this.raw, this.zeroBase);
+    this.shown = applyOffset(this.raw, this.zeroBase, this.toleranceDegrees());
   }
 
   private accuracyHint(): string {
@@ -218,9 +272,9 @@ export struct LevelPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('将设备平放在待测表面。圆点位于中心且倾角不超过 2° 时显示水平；点「置零」可把当前姿态当作基准。',
-        'Place the device flat on the surface. It is level when the dot is centered and tilt is within 2°. ' +
-        'Tap zero to use the current pose as the reference.'))
+      Text(this.tr('将设备平放在待测表面。圆点位于中心且倾角不超过所选容差时显示水平；点「置零」可把当前姿态当作基准。',
+        'Place the device flat on the surface. It is level when the dot is centered and tilt is within the ' +
+        'chosen tolerance. Tap zero to use the current pose as the reference.'))
         .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
       if (this.levelMessage) {
         Text(this.levelMessage).fontSize(16).fontColor(ToolPalette.warning).width('100%')
@@ -249,7 +303,9 @@ export struct LevelPage {
             tiltDisplayText(this.raw.tiltDegrees, this.levelUnit, this.english))
             .fontSize(14).fontColor(ToolPalette.textSecondary)
         }
-        Text(this.tr('本轮最大倾角 ', 'Max tilt ') + tiltDisplayText(this.peak, this.levelUnit, this.english))
+        // 峰值统计的是**绝对倾角**（相对重力），而上面那行读数在校准后是相对基准的——同一屏两个口径，
+        // 标签必须写明，否则用户会把峰值当成相对值读（2026-10-20 审计 §3.19②）。
+        Text(this.peakLabelText())
           .fontSize(14).fontColor(ToolPalette.textSecondary)
         if (this.accuracyHint().length > 0) {
           Text(this.accuracyHint()).fontSize(14).fontColor(ToolPalette.warning).width('100%')
@@ -262,6 +318,14 @@ export struct LevelPage {
         selectedText: this.unitName(),
         a11yText: this.tr('倾角显示单位', 'Tilt display unit'),
         onSelected: (index: number): void => { this.selectUnit(index); }
+      })
+      OptionSelect({
+        label: this.tr('容差', 'Tolerance'),
+        options: this.toleranceOptions(),
+        selectedIndex: this.toleranceIndex(),
+        selectedText: levelToleranceLabel(this.levelTolerance),
+        a11yText: this.tr('判定水平的角度容差', 'Tolerance for calling it level'),
+        onSelected: (index: number): void => { this.selectTolerance(index); }
       })
       Row({ space: 4 }) {
         IconActionButton({

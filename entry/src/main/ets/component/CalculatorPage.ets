@@ -7,7 +7,8 @@ import { formatValue } from '../model/Units';
 import { AdjustResult, CalcMode, CALC_MODES, DiscountResult, FoldResult, MarginResult, PricingResult,
   ReversePriceResult, SplitResult, discountPrice, foldFromPrices, marginFromPrices, originalFromFinal,
   percentAdjust, percentDelta, percentageOf, percentageRatio, priceFromMarkup, splitBill,
-  formatMoney } from '../model/QuickCalculators';
+  formatFold, formatMoney, formatPercent, moneyInputErrorText, foldInputErrorText,
+  rateInputErrorText } from '../model/QuickCalculators';
 
 /**
  * 折扣 / 百分比 / 均摊计算页。
@@ -56,6 +57,47 @@ export struct CalculatorPage {
   @Local splitAmount: string = '100';
   @Local splitPeople: string = '3';
   @Local splitTip: string = '0';
+
+  /**
+   * 当前计算方式下**第一条输入错误**的中英文案（没有错误返回空串）。
+   *
+   * 只报第一条，避免一屏警告；金额/折数/费率的判定都在纯逻辑 `QuickCalculators` 里（可测）。
+   */
+  private inputErrorText(): string {
+    const pairs: string[][] = this.modeInputFields();
+    for (let index = 0; index < pairs.length; index++) {
+      const field: string[] = pairs[index];
+      const hint: string = this.fieldErrorText(field[0], field[1]);
+      if (hint.length > 0) { return hint; }
+    }
+    return '';
+  }
+
+  /** 当前方式的「输入值 → 判据类型」列表（判据类型取 `money`/`fold`/`rate`）。 */
+  private modeInputFields(): string[][] {
+    if (this.calcMode === 'discount') {
+      return [[this.discountAmount, 'money'], [this.discountFold, 'fold'], [this.discountOff, 'money']];
+    }
+    if (this.calcMode === 'reverse') {
+      return [[this.reverseFinal, 'money'], [this.reverseFold, 'fold'],
+        [this.reverseOriginal, 'money']];
+    }
+    if (this.calcMode === 'percentage') {
+      return [[this.percentBase, 'money'], [this.percentRate, 'rate'], [this.ratioPart, 'money'],
+        [this.ratioWhole, 'money'], [this.adjustBase, 'money'], [this.adjustRate, 'rate'],
+        [this.deltaFrom, 'money'], [this.deltaTo, 'money']];
+    }
+    if (this.calcMode === 'markup') {
+      return [[this.costPrice, 'money'], [this.markupRate, 'rate']];
+    }
+    return [[this.splitAmount, 'money'], [this.splitPeople, 'money'], [this.splitTip, 'money']];
+  }
+
+  private fieldErrorText(value: string, kind: string): string {
+    if (kind === 'fold') { return foldInputErrorText(value, this.english); }
+    if (kind === 'rate') { return rateInputErrorText(value, this.english); }
+    return moneyInputErrorText(value, this.english);
+  }
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
@@ -192,7 +234,7 @@ export struct CalculatorPage {
     if (result.equivalentFold < 0) {
       return this.tr('省 ' + saved, 'Saved ' + saved);
     }
-    let fold: string = formatValue(result.equivalentFold);
+    let fold: string = formatFold(result.equivalentFold);
     return this.tr('省 ' + saved + ' · 等效 ' + fold + ' 折',
       'Saved ' + saved + ' · Equivalent price factor ' + fold);
   }
@@ -212,16 +254,17 @@ export struct CalculatorPage {
 
   private reverseFoldText(): string {
     let result: FoldResult | undefined = foldFromPrices(this.reverseOriginal, this.reverseFinal);
-    return result === undefined ? '—' : formatValue(result.fold);
+    return result === undefined ? '—' : formatFold(result.fold);
   }
 
   private reverseFoldDetail(): string {
     let result: FoldResult | undefined = foldFromPrices(this.reverseOriginal, this.reverseFinal);
     if (result === undefined) { return ''; }
-    let percent: string = formatValue(Math.abs(result.offPercent));
+    // 比率走 formatPercent（两位小数、裁尾零，自带 `%`）；用 formatValue 会写出「33.33333333%」。
+    let percent: string = formatPercent(Math.abs(result.offPercent), false);
     return result.offPercent >= 0 ?
-      this.tr('省 ' + percent + '%', percent + '% off') :
-      this.tr('贵 ' + percent + '%', percent + '% more');
+      this.tr('省 ' + percent, percent + ' off') :
+      this.tr('贵 ' + percent, percent + ' more');
   }
 
   private percentOfResult(): string {
@@ -231,10 +274,12 @@ export struct CalculatorPage {
 
   private percentRatioResult(): string {
     let result: number | undefined = percentageRatio(this.ratioPart, this.ratioWhole);
-    return result === undefined ? '—' : formatValue(result) + '%';
+    // percentageRatio 返回的是**百分比**（`numerator * 100 / denominator`），走 formatPercent
+    return result === undefined ? '—' : formatPercent(result, false);
   }
 
   private adjustText(): string {
+    // 注意：percentAdjust 返回的是**金额（元）**而不是百分比，这里保持 formatValue
     let result: AdjustResult | undefined = percentAdjust(this.adjustBase, this.adjustRate);
     return result === undefined ? '—' : formatValue(result.increased) + ' / ' + formatValue(result.decreased);
   }
@@ -242,8 +287,8 @@ export struct CalculatorPage {
   private deltaText(): string {
     let result: number | undefined = percentDelta(this.deltaFrom, this.deltaTo);
     if (result === undefined) { return '—'; }
-    // 正数带 `+`（明确是「上升」），负数由 `formatValue` 自带 `-`。
-    return (result > 0 ? '+' : '') + formatValue(result) + '%';
+    // 正数带 `+`（明确是「上升」）；formatPercent 的 withSign 已包含这个语义
+    return formatPercent(result, true);
   }
 
   private markupPriceText(): string {
@@ -254,13 +299,14 @@ export struct CalculatorPage {
   private markupPriceDetail(): string {
     let result: PricingResult | undefined = priceFromMarkup(this.costPrice, this.markupRate);
     if (result === undefined) { return ''; }
-    return this.tr('毛利 ' + formatMoney(result.profitCents) + ' · 毛利率 ' + formatValue(result.marginPercent) + '%',
-      'Profit ' + formatMoney(result.profitCents) + ' · Margin ' + formatValue(result.marginPercent) + '%');
+    // 毛利是金额（formatMoney），毛利率是比率（formatPercent）
+    return this.tr('毛利 ' + formatMoney(result.profitCents) + ' · 毛利率 ' + formatPercent(result.marginPercent, false),
+      'Profit ' + formatMoney(result.profitCents) + ' · Margin ' + formatPercent(result.marginPercent, false));
   }
 
   private marginText(): string {
     let result: MarginResult | undefined = marginFromPrices(this.marginCost, this.marginPrice);
-    return result === undefined ? '—' : formatValue(result.marginPercent) + '%';
+    return result === undefined ? '—' : formatPercent(result.marginPercent, false);
   }
 
   private marginDetail(): string {
@@ -269,8 +315,8 @@ export struct CalculatorPage {
     if (result.markupPercent < 0) {
       return this.tr('成本为 0，加价率不适用', 'Cost is 0; markup is not applicable');
     }
-    return this.tr('加价率 ' + formatValue(result.markupPercent) + '%',
-      'Markup ' + formatValue(result.markupPercent) + '%');
+    return this.tr('加价率 ' + formatPercent(result.markupPercent, false),
+      'Markup ' + formatPercent(result.markupPercent, false));
   }
 
   private splitTotal(): string {
@@ -466,6 +512,11 @@ export struct CalculatorPage {
   build() {
     Column({ space: 16 }) {
       this.calcModeSelect()
+      // 输入非法时结果卡只显示一个 `—`，用户不知道是哪一格写错了（2026-10-20 审计 §3.7②）：
+      // 这里把**第一条输入错误**如实说出来（空串表示没有错误，不占位）。
+      if (this.inputErrorText().length > 0) {
+        Text(this.inputErrorText()).fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      }
       if (this.calcMode === 'reverse') {
         this.sectionTitle('由折后价与折数反推原价', 'Recover the original price from the final price')
         this.inputField('reverseFinal', '80', false)

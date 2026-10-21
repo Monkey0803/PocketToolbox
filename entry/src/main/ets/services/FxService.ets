@@ -74,7 +74,9 @@ export async function fetchFxRates(base: string, now: number): Promise<FxFetchOu
         method: 'GET',
         // ArkTS 的对象字面量必须把类的字段写全，这里显式给出「不跟随重定向」。
         maxRedirects: 0,
-        timeoutMs: 5000
+        timeoutMs: 5000,
+        // 汇率快照不展示响应头，截断提示用不到语言。
+        english: false
       };
       outcome = await httpRequest(spec);
     } catch (_) {

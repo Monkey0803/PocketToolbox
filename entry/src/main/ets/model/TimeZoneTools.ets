@@ -35,9 +35,14 @@ export const LOCAL_ZONE_ID: string = 'local';
  * 常用时区：先城市（覆盖亚太、欧洲、美洲主要城市；IANA id 交给系统解析，含夏令时），
  * 再是「按偏移直选」的固定偏移条目。
  *
- * 固定偏移条目只列出**城市表覆盖不到的整点偏移**（+05:00、+06:00、+10:00、+11:00、+14:00、
- * -09:00、-10:00、-11:00、-12:00），供「只知道偏移、不知道城市」时使用；
- * 不要为了凑数把城市已覆盖的偏移（+08:00、-03:00 等）再写一遍，否则同一下拉里会出现两个等效项。
+ * 固定偏移条目只列出**城市表覆盖不到的整点偏移**——当前共 **10** 条：
+ * `UTC`(0)、`+05:00`、`+06:00`、`+10:00`、`+11:00`、`+14:00`、`-09:00`、`-10:00`、`-11:00`、`-12:00`
+ * （原先注释漏列了 `UTC`，第 46 轮核对时补齐；单测按这份清单逐项断言，改这里要同步改注释）。
+ * 不要为了凑数把城市已覆盖的偏移（`+08:00`、`-03:00` 等）再写一遍，否则同一下拉里会出现两个等效项。
+ *
+ * 注：`-08:00`/`-06:00`/`-02:00`/`-01:00`/`+12:00` 这几个整点偏移**没有**单列——它们分别可由
+ * `America/Los_Angeles`（冬令时）、`America/Chicago`（冬令时）、`America/Sao_Paulo`、
+ * `Atlantic/Azores` 一类城市条目按季节得到，属于「精选子集」而非遗漏（2026-10-20 第 46 轮审计结论）。
  */
 export const TIME_ZONES: TimeZoneEntry[] = [
   new TimeZoneEntry(LOCAL_ZONE_ID, '本机', 'Local'),
@@ -59,6 +64,10 @@ export const TIME_ZONES: TimeZoneEntry[] = [
   new TimeZoneEntry('America/Sao_Paulo', '圣保罗', 'São Paulo'),
   new TimeZoneEntry('Pacific/Auckland', '奥克兰', 'Auckland'),
   new TimeZoneEntry('UTC-12:00', 'UTC-12:00', 'UTC-12:00', -720),
+  // 纯 UTC 必须单独登记：伦敦（Europe/London）有夏令时、并不等价于 UTC+00:00，
+  // 少了这一条用户根本选不到「零偏移」（2026-10-20 审计 P1）。
+  // id 必须等于 `formatOffsetText(0)`（单测断言两者一致，零偏移的规范写法就是 `UTC`）。
+  new TimeZoneEntry('UTC', 'UTC', 'UTC', 0),
   new TimeZoneEntry('UTC-11:00', 'UTC-11:00', 'UTC-11:00', -660),
   new TimeZoneEntry('UTC-10:00', 'UTC-10:00', 'UTC-10:00', -600),
   new TimeZoneEntry('UTC-09:00', 'UTC-09:00', 'UTC-09:00', -540),

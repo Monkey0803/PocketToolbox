@@ -3,9 +3,9 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { HistoryItem } from '../model/LocalData';
-import { HistoryKindEntry, historyFilters, historyKindLabel, historyItemShown,
-  historyTargetRoute, historyTimeText } from '../model/HistoryKinds';
+import { HistoryItem, HistoryKindEntry, historyFilters, historyKindLabel, historyItemShown,
+  historyTargetRoute, historyTimeText, historyItemPinned, pinnedFirst,
+  historyClearConfirmText, historyDeleteFilteredConfirmText } from '../model/HistoryKinds';
 
 /**
  * 历史记录页（二维码生成/扫码 + 文本、换算、时间戳的复制结果）。
@@ -26,12 +26,39 @@ export struct HistoryPage {
   @Event onDelete: (id: string) => void = () => {};
   @Event onDeleteMany: (ids: string[]) => void = () => {};
   @Event onClear: () => void = () => {};
+  // 导出历史为纯文本（保存位置由用户在系统保存器里选择）。
+  @Event onExport: () => void = () => {};
   @Event onOpen: (kind: string, content: string) => void = () => {};
+  // 置顶/取消置顶：与收藏页同一套手势（长按弹系统菜单），不额外占一行图标按钮——
+  // 50 条 × 每行 3 个图标会让历史页节点数明显变多（2026-10-20 审计 P1）。
+  @Event onTogglePin: (id: string) => void = () => {};
+  // 一次性反馈（例如确认框打不开）经父组件 `status` 转 toast；本页不自绘提示。
+  @Event onStatus: (message: string) => void = () => {};
 
   @Local filter: string = 'all';
   @Local query: string = '';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  /**
+   * 批量删除前的系统确认框。
+   *
+   * 「清空全部」与「删除当前筛选结果」都是不可撤销的批量操作（单条删除保留即时执行：一次只影响一行，
+   * 再弹一次确认反而碍事）。确认框由系统渲染，不做自绘弹层（2026-10-20 审计 P1「删除二次确认」）。
+   */
+  private confirmDestructive(title: string, message: string, action: () => void): void {
+    try {
+      this.getUIContext().showAlertDialog({
+        title: title,
+        message: message,
+        primaryButton: { value: this.tr('取消', 'Cancel'), action: () => {} },
+        secondaryButton: { value: this.tr('删除', 'Delete'), fontColor: ToolPalette.danger, action: action }
+      });
+    } catch (_) {
+      // 真的打不开确认框时**不执行**删除：不可逆操作宁可这次不做。
+      this.onStatus(this.tr('无法打开确认框，已取消删除', 'Could not open the confirmation dialog; nothing was deleted'));
+    }
+  }
 
   private filterEntries(): HistoryKindEntry[] { return historyFilters(); }
 
@@ -55,9 +82,17 @@ export struct HistoryPage {
     return this.english ? entry.en : entry.zh;
   }
 
-  private visibleItems(): HistoryItem[] {
-    return this.items.filter((item: HistoryItem): boolean =>
-      historyItemShown(item.kind, item.content, this.filter, this.query));
+  /**
+   * 当前筛选/搜索命中的条目（置顶优先、其余按时间倒序）。
+   *
+   * 用 `@Computed` 缓存：删除按钮的可用性、确认框文案、条目数、空态判断与列表渲染都要用它，
+   * 此前同一次渲染最多算 4 遍（2026-10-20 审计 §3.26⑥）。
+   */
+  @Computed
+  get visibleItems(): HistoryItem[] {
+    // 排序规则在纯逻辑 `HistoryKinds.pinnedFirst()`，页面不重写。
+    return pinnedFirst(this.items.filter((item: HistoryItem): boolean =>
+      historyItemShown(item.kind, item.content, this.filter, this.query)));
   }
 
   // 只有「筛选或搜索生效」时才显示「删除当前结果」，避免与「清空全部」两个删除按钮同时出现造成误触。
@@ -71,34 +106,54 @@ export struct HistoryPage {
     return this.tr('该类别下暂无记录', 'No records in this category');
   }
 
-  @Builder private itemCard(item: HistoryItem) {
-    MaterialSurface({
-      supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
-      interactive: historyTargetRoute(item.kind).length > 0,
-      lightEffect: true
-    }) {
-      Column({ space: 8 }) {
-        Row({ space: 8 }) {
-          Text(historyKindLabel(item.kind, this.english)).fontSize(12).fontColor(ToolPalette.textMuted)
-            .layoutWeight(1)
-          if (historyTimeText(item.createdAt).length > 0) {
-            Text(historyTimeText(item.createdAt)).fontSize(12).fontColor(ToolPalette.textFaint)
-          }
-        }.width('100%').onClick(() => this.onOpen(item.kind, item.content))
-        Text(item.content).fontSize(16).maxLines(3).width('100%')
-          .onClick(() => this.onOpen(item.kind, item.content))
-        Row({ space: 8 }) {
-          IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-            a11yText: this.tr('复制记录', 'Copy history item'), onTap: () => this.onCopy(item.content)
-          })
-          IconActionButton({
-            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-            a11yText: this.tr('删除记录', 'Delete history item'), onTap: () => this.onDelete(item.id)
-          })
-        }.width('100%')
-      }.padding(16).width('100%')
+  /**
+   * 长按菜单：置顶 / 取消置顶。菜单文案在构建函数体内现取（`@Builder` 只收常量 id），
+   * 否则切换语言后菜单文案不会刷新（与收藏页 `favoriteMenu` 同一约定）。
+   */
+  @Builder private pinMenu(id: string) {
+    Menu() {
+      MenuItem({
+        content: historyItemPinned(this.items, id) ? this.tr('取消置顶', 'Unpin') : this.tr('置顶', 'Pin to top')
+      })
+        .onClick(() => this.onTogglePin(id))
     }
+  }
+
+  @Builder private itemCard(item: HistoryItem) {
+    // 长按菜单挂在**外层 Column** 上（与收藏页 `favoriteCard` 同一写法）：直接给自定义组件链式挂
+    // 通用属性在本工程编译不过（ArkTS 报「Declaration or statement expected」）。
+    Column() {
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        interactive: historyTargetRoute(item.kind).length > 0,
+        lightEffect: true
+      }) {
+        Column({ space: 8 }) {
+          Row({ space: 8 }) {
+            if (item.pinned) {
+              SymbolGlyph($r('sys.symbol.pin')).fontSize(14).fontColor([ToolPalette.primaryDeep])
+            }
+            Text(historyKindLabel(item.kind, this.english)).fontSize(12).fontColor(ToolPalette.textMuted)
+              .layoutWeight(1)
+            if (historyTimeText(item.createdAt).length > 0) {
+              Text(historyTimeText(item.createdAt)).fontSize(12).fontColor(ToolPalette.textFaint)
+            }
+          }.width('100%').onClick(() => this.onOpen(item.kind, item.content))
+          Text(item.content).fontSize(16).maxLines(3).width('100%')
+            .onClick(() => this.onOpen(item.kind, item.content))
+          Row({ space: 8 }) {
+            IconActionButton({
+              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+              a11yText: this.tr('复制记录', 'Copy history item'), onTap: () => this.onCopy(item.content)
+            })
+            IconActionButton({
+              icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+              a11yText: this.tr('删除记录', 'Delete history item'), onTap: () => this.onDelete(item.id)
+            })
+          }.width('100%')
+        }.padding(16).width('100%')
+      }
+    }.width('100%').bindContextMenu(this.pinMenu(item.id), ResponseType.LongPress)
   }
 
   build() {
@@ -135,20 +190,31 @@ export struct HistoryPage {
           IconActionButton({
             icon: $r('sys.symbol.minus_circle'), tintColor: ToolPalette.danger,
             a11yText: this.tr('删除当前筛选结果', 'Delete filtered records'),
-            usable: this.visibleItems().length > 0,
-            onTap: () => this.onDeleteMany(this.visibleItems().map((item: HistoryItem): string => item.id))
+            usable: this.visibleItems.length > 0,
+            onTap: () => this.confirmDestructive(
+              this.tr('删除当前筛选结果', 'Delete filtered records'),
+              historyDeleteFilteredConfirmText(this.visibleItems.length, this.english),
+              (): void => this.onDeleteMany(this.visibleItems.map((item: HistoryItem): string => item.id)))
           })
         }
         IconActionButton({
+          icon: $r('sys.symbol.arrowshape_up_to_line'), tintColor: ToolPalette.primaryDeep,
+          a11yText: this.tr('导出历史记录', 'Export history'), usable: this.items.length > 0,
+          onTap: () => this.onExport()
+        })
+        IconActionButton({
           icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
           a11yText: this.tr('清空历史记录', 'Clear all history'), usable: this.items.length > 0,
-          onTap: () => this.onClear()
+          onTap: () => this.confirmDestructive(
+            this.tr('清空历史记录', 'Clear all history'),
+            historyClearConfirmText(this.items.length, this.english),
+            (): void => this.onClear())
         })
       }.width('100%')
-      if (this.visibleItems().length === 0) {
+      if (this.visibleItems.length === 0) {
         Text(this.emptyText()).fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
       } else {
-        ForEach(this.visibleItems(), (item: HistoryItem) => {
+        ForEach(this.visibleItems, (item: HistoryItem) => {
           this.itemCard(item)
         }, (item: HistoryItem): string => item.id)
       }

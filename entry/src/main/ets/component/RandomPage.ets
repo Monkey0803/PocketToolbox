@@ -3,11 +3,16 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { parseIntegerInput } from '../model/Units';
 import { chooseCandidate, shuffleCandidates, groupCandidates, groupCandidatesBySize, drawCandidates,
-  randomIntegers, rangeSize, rollDice, flipCoins, parseDiceModifier, diceNotationText, diceTotal,
+  groupCountChoices, groupSizeChoices, nearestChoice, clampDrawFraction,
+  randomIntegers, rangeSize, rollDice, flipCoins, parseDiceModifier, parseDiceNotation, DiceSpec,
+  diceNotationText, diceTotal, candidates, remainingCandidates, remainingCandidateTokens, mergeDrawn,
+  poolProgressText, poolExhaustedText,
   drawWeightedCandidates, indexFromDraw, DICE_COUNTS, DICE_SIDES, DRAW_COUNTS, COIN_COUNTS,
   GROUP_COUNTS, GROUP_SIZES, GROUP_MODES, LIST_DRAW_MODES, RANDOM_MODES,
-  RandomOption } from '../model/RandomTools';
+  MAX_CANDIDATES, candidatesWithinLimit, seededDraws, seedFromText, RandomOption,
+  MAX_WEIGHT } from '../model/RandomTools';
 
 /**
  * 随机选择页（随机整数 / 骰子与硬币 / 名单抽取、排序与分组）。
@@ -37,6 +42,7 @@ export struct RandomPage {
   @Local diceSides: number = 6;
   @Local diceCount: number = 2;
   @Local diceModifier: string = '0';
+  @Local diceNotation: string = '';
   @Local diceResult: string = '';
   @Local coinCount: number = 1;
   @Local coinResult: string = '';
@@ -47,10 +53,31 @@ export struct RandomPage {
   @Local groupSize: number = 2;
   @Local listResult: string = '';
   @Local listResultLabel: string = '';
+  // 多轮不重复抽奖（§3.24）：开关、已抽过的名字、进度提示。
+  @Local poolEnabled: boolean = false;
+  @Local usedPool: string[] = [];
+  @Local poolNote: string = '';
+  // 可复现随机：开启后所有抽取都用「种子文字 → 固定序列」的伪随机源，同种子同输入必得同结果。
+  @Local useSeed: boolean = false;
+  @Local seedText: string = '';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
-  private next(bound: number): number { return indexFromDraw(Math.random(), bound); }
+  /**
+   * 本次动作的随机源。
+   *
+   * 关闭「固定种子」时就是 `Math.random()`；开启时**每次动作新建一个 `seededDraws()`**——
+   * 因此同一个种子重复点同一个动作会得到同一个结果（可复现、可用于留证），这正是该开关的语义。
+   */
+  private draws(): () => number {
+    if (!this.useSeed) { return (): number => Math.random(); }
+    return seededDraws(seedFromText(this.seedText));
+  }
+
+  private next(bound: number): number { return indexFromDraw(this.draws()(), bound); }
+
+  /** 当前生效的种子数值（界面展示，让用户看到「关键词」被换算成了什么）。 */
+  private seedValue(): number { return seedFromText(this.seedText); }
 
   // 复制 + 记一条历史：历史内容 = 「输入上下文的整句」（例如「随机整数 1–100：42」），
   // 与折扣与均摊页同口径；空值由父组件拦截，不重复判断。
@@ -164,18 +191,45 @@ export struct RandomPage {
     });
   }
 
+  /** 分组组数只列**当前候选数允许的**（否则选下去才报错，§3.24⑥）。 */
   private groupOptions(): SelectOption[] {
-    return GROUP_COUNTS.map((count: number): SelectOption => {
+    return this.groupCountChoicesList().map((count: number): SelectOption => {
       const option: SelectOption = { value: this.tr(count + ' 组', count + ' groups') };
       return option;
     });
   }
 
+  /** 可选组数列表：候选不足时回退整张登记表（此时按键本身会给出「先输入候选项」的提示）。 */
+  private groupCountChoicesList(): number[] {
+    const choices: number[] = groupCountChoices(candidates(this.randomItems).length);
+    return choices.length > 0 ? choices : GROUP_COUNTS;
+  }
+
+  /** 可选「每组人数」列表：同上。 */
+  private groupSizeChoicesList(): number[] {
+    const choices: number[] = groupSizeChoices(candidates(this.randomItems).length);
+    return choices.length > 0 ? choices : GROUP_SIZES;
+  }
+
+  /** 每组人数同样按候选数收窄。 */
   private groupSizeOptions(): SelectOption[] {
-    return GROUP_SIZES.map((count: number): SelectOption => {
+    return this.groupSizeChoicesList().map((count: number): SelectOption => {
       const option: SelectOption = { value: this.tr(count + ' 人', count + ' people') };
       return option;
     });
+  }
+
+  /** 候选数变化后把已选的分组组数/人数收窄到仍可用的值（选中的选项不能在下拉里消失）。 */
+  private clampGroupChoices(): void {
+    const total: number = candidates(this.randomItems).length;
+    const counts: number[] = groupCountChoices(total);
+    const sizes: number[] = groupSizeChoices(total);
+    if (counts.length > 0) {
+      this.groupCount = nearestChoice(counts, this.groupCount, counts[0]);
+    }
+    if (sizes.length > 0) {
+      this.groupSize = nearestChoice(sizes, this.groupSize, sizes[0]);
+    }
   }
 
   private numberButtonText(): string {
@@ -208,8 +262,20 @@ export struct RandomPage {
   private drawNumbers(): void {
     const minText: string = this.randomMin.trim();
     const maxText: string = this.randomMax.trim();
-    const size: number | undefined =
-      minText.length > 0 && maxText.length > 0 ? rangeSize(Number(minText), Number(maxText)) : undefined;
+    // 区分「还没填」与「填错了」：只收十进制整数（`Number('0x10')` 会静默变成 16，与文案承诺不符）
+    if (minText.length === 0 || maxText.length === 0) {
+      this.onStatus(this.tr('请先填写最小值和最大值',
+        'Enter both the minimum and the maximum'));
+      return;
+    }
+    const minimum: number | undefined = parseIntegerInput(minText);
+    const maximum: number | undefined = parseIntegerInput(maxText);
+    if (minimum === undefined || maximum === undefined) {
+      this.onStatus(this.tr('请只输入十进制整数（如 -5、10），不支持 0x10 / 1e3 / 小数',
+        'Enter plain whole numbers only (e.g. -5, 10); 0x10 / 1e3 / decimals are not accepted'));
+      return;
+    }
+    const size: number | undefined = rangeSize(minimum, maximum);
     if (size === undefined) {
       this.onStatus(this.tr('请输入 -1000000 至 1000000 内的整数区间',
         'Enter a whole-number range within -1000000 to 1000000'));
@@ -220,7 +286,7 @@ export struct RandomPage {
         'Not enough numbers in the range for that amount'));
       return;
     }
-    const values: number[] | undefined = randomIntegers(Number(minText), Number(maxText),
+    const values: number[] | undefined = randomIntegers(minimum, maximum,
       this.numberDrawCount, (bound: number) => this.next(bound));
     if (values === undefined) {
       this.onStatus(this.tr('区间内可用数字不足，请减少抽取个数或扩大区间',
@@ -229,6 +295,28 @@ export struct RandomPage {
     }
     this.onStatus('');
     this.randomNumberResult = values.join(' · ');
+  }
+
+  /**
+   * 套用输入的骰子记法（`2d6+3`）。
+   *
+   * 记法不合法时**拒绝并说明**（不猜、不静默取默认值）；合法时同步到上面两个下拉与加值输入，
+   * 让「记法」和「下拉」始终是同一份状态。
+   */
+  private applyDiceNotation(): void {
+    if (this.diceNotation.trim().length === 0) { return; }
+    const spec: DiceSpec | undefined = parseDiceNotation(this.diceNotation);
+    if (spec === undefined) {
+      this.onStatus(this.tr('记法无法识别，请写成 2d6+3 这样（面数支持 4/6/8/10/12/20，颗数 1–5）',
+        'Unrecognised notation; try 2d6+3 (sides: 4/6/8/10/12/20, dice: 1–5)'));
+      return;
+    }
+    this.diceCount = spec.count;
+    this.diceSides = spec.sides;
+    this.diceModifier = spec.modifier.toString();
+    this.diceResult = '';
+    this.onStatus(this.tr('已套用 ' + diceNotationText(spec.count, spec.sides, spec.modifier),
+      'Applied ' + diceNotationText(spec.count, spec.sides, spec.modifier)));
   }
 
   private roll(): void {
@@ -264,46 +352,94 @@ export struct RandomPage {
     this.coinResult = this.tr('正面 ' + front + ' · 反面 ' + back, 'heads ' + front + ' · tails ' + back);
   }
 
-  private pickList(): void {
+  /**
+   * 名单动作的统一守卫：空名单与超长名单都在这里拦下，避免每个动作各写一遍。
+   * 超长时**拒绝这次动作并说清上限**，不做静默截断（截断会让抽奖结果少人而用户不知道）。
+   */
+  private listReady(emptyHintZh: string, emptyHintEn: string): boolean {
     if (this.randomItems.trim().length === 0) {
-      this.onStatus(this.tr('请至少输入一个候选项', 'Enter at least one choice'));
+      this.onStatus(this.tr(emptyHintZh, emptyHintEn));
+      return false;
+    }
+    if (!candidatesWithinLimit(this.randomItems)) {
+      this.onStatus(this.tr('名单过长，最多 ' + MAX_CANDIDATES + ' 项（当前已超出，请先精简）',
+        'List is too long: ' + MAX_CANDIDATES + ' items max; please trim it first'));
+      return false;
+    }
+    return true;
+  }
+
+  private pickList(): void {
+    if (!this.listReady('请至少输入一个候选项', 'Enter at least one choice')) { return; }
+    // 多轮不重复：先从候选里剔除「已经抽出来过的名字」（按名字去重，用户改名单也不用重置）。
+    // 注意保留原始 token 文本（加权模式下是 `名称*权重`），因此过滤按名字、传下去的是原串。
+    const pool: string = this.poolEnabled ? this.remainingPoolText() : this.randomItems;
+    const total: number = this.listCandidates().length;
+    const remaining: number = remainingCandidates(this.listCandidates(), this.usedPool).length;
+    if (this.poolEnabled && remaining <= 0) {
+      this.onStatus(poolExhaustedText(0, this.english));
       return;
     }
     let picked: string[] | undefined;
     if (this.drawMode === 'weighted') {
-      picked = drawWeightedCandidates(this.randomItems, this.listDrawCount, () => Math.random());
+      picked = drawWeightedCandidates(pool, this.listDrawCount, this.draws());
     } else if (this.listDrawCount <= 1) {
-      const single: string | undefined = chooseCandidate(this.randomItems, Math.random());
+      const single: string | undefined = chooseCandidate(pool, this.draws()());
       picked = single === undefined ? undefined : [single];
     } else {
-      picked = drawCandidates(this.randomItems, this.listDrawCount, (bound: number) => this.next(bound));
+      picked = drawCandidates(pool, this.listDrawCount, (bound: number) => this.next(bound));
     }
     if (picked === undefined) {
-      this.onStatus(this.tr('候选项数量需不少于抽取人数',
-        'Need at least as many choices as the amount to draw'));
+      // 「候选不够抽」在开启不重复时要说明还剩多少，否则用户只看到一句通用提示。
+      this.onStatus(this.poolEnabled
+        ? this.tr('只剩 ' + remaining + ' 个没抽过，不够抽 ' + this.listDrawCount + ' 名',
+          'Only ' + remaining + ' left; cannot draw ' + this.listDrawCount)
+        : this.tr('候选项数量需不少于抽取人数', 'Need at least as many choices as the amount to draw'));
       return;
     }
     this.onStatus('');
+    if (this.poolEnabled) { this.usedPool = mergeDrawn(this.usedPool, picked); }
     this.listResultLabel = this.listDrawCount <= 1 ? this.tr('抽取结果', 'Chosen item')
       : this.tr('抽取结果（' + this.listDrawCount + ' 名）', 'Chosen ' + this.listDrawCount);
     this.listResult = picked.join(this.tr('、', ', '));
+    if (this.poolEnabled) {
+      const progress: string = poolProgressText(total, this.usedPool.length, this.english);
+      this.poolNote = progress + (this.usedPool.length >= total
+        ? ' · ' + poolExhaustedText(0, this.english) : '');
+    }
+  }
+
+  /** 候选名单（与抽取同一套解析：换行/逗号/分号分隔、去空、去重）。 */
+  private listCandidates(): string[] {
+    return candidates(this.randomItems);
+  }
+
+  /**
+   * 过滤掉「已抽过」的候选项（保留 `名称*权重` 原文，交给下游解析）。
+   *
+   * 解析与过滤都在 `model/RandomTools.ets` 里，页面不再自己 split——输入支持逗号/分号分隔，
+   * 页面里手写按换行切会把「甲,乙,丙」当成一个候选项（2026-10-20 审计 §3.24）。
+   */
+  private remainingPoolText(): string {
+    return remainingCandidateTokens(this.randomItems, this.usedPool);
+  }
+
+  /** 重置「已抽过」集合，开始新一轮（候选名单本身不动）。 */
+  private resetPool(): void {
+    this.usedPool = [];
+    this.poolNote = poolProgressText(this.listCandidates().length, 0, this.english);
+    this.onStatus(this.tr('已重置，可以重新抽', 'Reset — you can draw again'));
   }
 
   private shuffleList(): void {
-    if (this.randomItems.trim().length === 0) {
-      this.onStatus(this.tr('请先输入候选项', 'Enter the choices first'));
-      return;
-    }
+    if (!this.listReady('请先输入候选项', 'Enter the choices first')) { return; }
     this.onStatus('');
     this.listResultLabel = this.tr('随机排序', 'Shuffled order');
     this.listResult = shuffleCandidates(this.randomItems, (bound: number) => this.next(bound)).join('\n');
   }
 
   private groupList(): void {
-    if (this.randomItems.trim().length === 0) {
-      this.onStatus(this.tr('请先输入候选项', 'Enter the choices first'));
-      return;
-    }
+    if (!this.listReady('请先输入候选项', 'Enter the choices first')) { return; }
     if (this.groupMode === 'size') {
       const groups: string[][] | undefined =
         groupCandidatesBySize(this.randomItems, this.groupSize, (bound: number) => this.next(bound));
@@ -407,6 +543,28 @@ export struct RandomPage {
   }
 
   @Builder private dicePanel() {
+    // 骰子记法直输（2026-10-20 审计 §3.24）：选面数/颗数之外，也允许直接写 `2d6+3`。
+    Row({ space: 12 }) {
+      Text(this.tr('记法', 'Notation')).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
+      Column() {
+        MaterialSurface({
+          supported: this.immersiveSupported,
+          level: this.materialLevel,
+          fallback: ToolPalette.surface,
+          corner: 16,
+          interactive: true
+        }) {
+          TextInput({ text: this.diceNotation, placeholder: '2d6+3' })
+            .backgroundColor(Color.Transparent)
+            .type(InputType.Normal).height(52)
+            .onChange((value: string) => { this.diceNotation = value; })
+            .onSubmit(() => this.applyDiceNotation())
+        }
+      }.layoutWeight(1)
+      Button(this.tr('套用', 'Apply')).height(44)
+        .backgroundColor(Color.Transparent).fontColor(ToolPalette.primaryDeep)
+        .onClick(() => this.applyDiceNotation())
+    }.width('100%')
     OptionSelect({
       label: this.tr('骰子面数', 'Sides'),
       options: this.diceSideOptions(),
@@ -503,6 +661,8 @@ export struct RandomPage {
         .backgroundColor(Color.Transparent)
         .onChange((value: string) => {
           this.randomItems = value; this.listResult = ''; this.listResultLabel = '';
+        // 候选数变了，分组组数/人数要跟着收窄，否则选中的值会落在下拉列表之外（§3.24⑥）。
+        this.clampGroupChoices();
         }).height(150)
     }
     OptionSelect({
@@ -516,9 +676,35 @@ export struct RandomPage {
         if (mode !== undefined) { this.drawMode = mode.id; this.listResult = ''; this.listResultLabel = ''; }
       }
     })
+    // 多轮不重复（§3.24）：一次抽奖里本来就不重复，这个开关管的是**跨轮**——抽到的名字下轮不再出现。
+    Row({ space: 12 }) {
+      Text(this.tr('多轮不重复', 'No repeats across rounds'))
+        .fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: this.poolEnabled })
+        .onChange((value: boolean) => {
+          this.poolEnabled = value;
+          // 关掉再打开时给出当前进度；关掉时不清空已抽集合（再次打开能接着用）。
+          this.poolNote = value ? poolProgressText(this.listCandidates().length, this.usedPool.length, this.english) : '';
+        })
+    }.width('100%')
+    if (this.poolEnabled) {
+      Text(this.tr('抽到的人下一轮不会重复出现；改名单不会重置，点「重置」重新开始一轮',
+        'Names already drawn will not come up again; editing the list does not reset it — use Reset for a new round'))
+        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      Row({ space: 12 }) {
+        if (this.poolNote.length > 0) {
+          Text(this.poolNote).fontSize(13).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+        }
+        IconActionButton({
+          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textSecondary,
+          a11yText: this.tr('重置抽取记录', 'Reset the draw pool'), boxSize: 44, iconSize: 22,
+          usable: this.usedPool.length > 0, onTap: () => this.resetPool()
+        })
+      }.width('100%')
+    }
     if (this.drawMode === 'weighted') {
-      Text(this.tr('按权重：写成「名称*权重」，如 张三*3；同名只算第一次，权重是 1 至 1000 的整数',
-        'By weight: write name*weight, e.g. Alex*3; first occurrence wins, weight is a whole number from 1 to 1000'))
+      Text(this.tr('按权重：写成「名称*权重」，如 张三*3；同名只算第一次，权重是 1 至 ' + MAX_WEIGHT.toString() + ' 的整数',
+        'By weight: write name*weight, e.g. Alex*3; first occurrence wins, weight is a whole number from 1 to ' + MAX_WEIGHT.toString()))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }
     OptionSelect({
@@ -554,11 +740,14 @@ export struct RandomPage {
       OptionSelect({
         label: this.tr('每组人数', 'Group size'),
         options: this.groupSizeOptions(),
-        selectedIndex: GROUP_SIZES.indexOf(this.groupSize),
+        // 选中下标必须在**收窄后的列表**里取，否则收窄后显示与列表对不上（§3.24⑥）。
+        selectedIndex: this.groupSizeChoicesList().indexOf(this.groupSize),
         selectedText: this.tr(this.groupSize + ' 人', this.groupSize + ' people'),
         a11yText: this.tr('每组人数', 'Number of people in each group'),
         onSelected: (index: number): void => {
-          this.groupSize = GROUP_SIZES[index]; this.listResult = ''; this.listResultLabel = '';
+          const list: number[] = this.groupSizeChoicesList();
+          if (index >= 0 && index < list.length) { this.groupSize = list[index]; }
+          this.listResult = ''; this.listResultLabel = '';
         }
       })
       Text(this.tr('按每组人数分组时，最后一组可能少于设定人数',
@@ -596,6 +785,38 @@ export struct RandomPage {
     }
   }
 
+  /**
+   * 「固定种子」区块：开启后所有方式都用可复现的伪随机源。
+   *
+   * 必须如实说明「不是密码学安全」——它只解决「同种子同结果」的可复现需求（留证、演示、回归）。
+   */
+  @Builder private seedSection() {
+    Row({ space: 8 }) {
+      Column({ space: 4 }) {
+        Text(this.tr('固定种子（可复现）', 'Fixed seed (reproducible)')).fontSize(15).width('100%')
+        Text(this.tr('同一种子重复点同一动作会得到同一结果；不是密码学安全，别用它生成密码。',
+          'The same seed repeats the same result for the same action; not cryptographically secure, ' +
+          'so do not use it for passwords.'))
+          .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+      }.layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: this.useSeed })
+        .accessibilityText(this.tr('固定种子', 'Fixed seed'))
+        .onChange((isOn: boolean) => { this.useSeed = isOn; })
+    }.width('100%')
+    if (this.useSeed) {
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        interactive: true
+      }) {
+        TextInput({ text: this.seedText, placeholder: this.tr('种子（任意文字，空则用默认）', 'Seed (any text)') })
+          .backgroundColor(Color.Transparent).height(48)
+          .onChange((value: string) => { this.seedText = value; })
+      }
+      Text(this.tr('当前种子值 ' + this.seedValue().toString(), 'Seed value ' + this.seedValue().toString()))
+        .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+    }
+  }
+
   build() {
     Column({ space: 14 }) {
       this.modeSelect()
@@ -606,6 +827,7 @@ export struct RandomPage {
       } else {
         this.numberPanel()
       }
+      this.seedSection()
     }.width('100%')
   }
 }

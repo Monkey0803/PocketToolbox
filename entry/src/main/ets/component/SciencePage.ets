@@ -3,9 +3,10 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { PRECISION_OPTIONS } from '../model/Units';
+import { PRECISION_OPTIONS, DEFAULT_PRECISION } from '../model/Units';
 import { AngleUnit, AngleEntry, ANGLE_UNITS, CalcResult, DEFAULT_ANGLE, QuickKey, QUICK_KEYS, FUNCTION_KEYS,
-  angleIndex, angleLabel, evaluate, formatResult, calcErrorText, calcHintText } from '../model/ScientificCalc';
+  angleIndex, angleLabel, evaluate, formatResult, calcErrorText, calcHintText,
+  appendQuickKey } from '../model/ScientificCalc';
 
 /**
  * 科学计算器页：一行表达式输入 + 结果，支持括号、幂、阶乘、取模与常见函数。
@@ -22,22 +23,31 @@ export struct SciencePage {
 
   @Local expression: string = '';
   @Local angle: AngleUnit = DEFAULT_ANGLE;
-  @Local precision: number = 10;
+  @Local precision: number = DEFAULT_PRECISION;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
-  private result(): CalcResult { return evaluate(this.expression, this.angle); }
+  /**
+   * 表达式求值结果（**只算一次**，`expression`/`angle` 变了才重算）。
+   *
+   * 此前 `result()` 是个普通方法，结果区文案、可用性判断、两个按钮各调一次，每次渲染要跑 4 遍
+   * 解析+求值（2026-10-20 审计 §3.6）。改成 `@Computed` 后同一次渲染只算一次。
+   */
+  @Computed
+  get evaluation(): CalcResult {
+    return evaluate(this.expression, this.angle);
+  }
 
   /** 结果行文案：成功给数值、失败给双语原因（空输入时给占位提示）。 */
   private resultText(): string {
     if (this.expression.trim().length === 0) { return this.tr('等待输入', 'Waiting for input'); }
-    const computed: CalcResult = this.result();
+    const computed: CalcResult = this.evaluation;
     if (computed.error.length === 0) { return formatResult(computed.value, this.precision); }
     return calcErrorText(computed.error, this.english);
   }
 
   private resultValid(): boolean {
-    return this.expression.trim().length > 0 && this.result().error.length === 0;
+    return this.expression.trim().length > 0 && this.evaluation.error.length === 0;
   }
 
   /** 精度文案与登记表一一对应（选项来自单位换算的 `PRECISION_OPTIONS`）。 */
@@ -88,7 +98,7 @@ export struct SciencePage {
           .fontSize(15).fontColor(ToolPalette.primaryDeep)
           .backgroundColor(ToolPalette.borderSoft)
           .accessibilityText(this.tr(key.zh, key.en))
-          .onClick(() => { this.expression = this.expression + key.id; })
+          .onClick(() => { this.expression = appendQuickKey(this.expression, key.id); })
       }, (key: QuickKey) => key.id)
     }.width('100%')
   }
@@ -105,12 +115,12 @@ export struct SciencePage {
             icon: $r('sys.symbol.arrow_down_to_line'), tintColor: ToolPalette.primary,
             // 没有光标跟踪，只能整串替换：把结果追加到已有表达式后面会与数字粘成一个字面量（`2^100` + `1.26e+30`）
             a11yText: this.tr('用结果替换表达式', 'Replace the expression with the result'),
-            onTap: () => { this.expression = formatResult(this.result().value, this.precision); }
+            onTap: () => { this.expression = formatResult(this.evaluation.value, this.precision); }
           })
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
             a11yText: this.tr('复制结果', 'Copy the result'),
-            onTap: () => this.onCopy(formatResult(this.result().value, this.precision))
+            onTap: () => this.onCopy(formatResult(this.evaluation.value, this.precision))
           })
           IconActionButton({
             icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,

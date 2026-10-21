@@ -1,11 +1,14 @@
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
+import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { parseIntegerInput } from '../model/Units';
 import { TaxResult, TaxKindEntry, TAX_KINDS, taxKindIndex, WageInput, parseMoney, moneyText,
   contributionFromBase, wageTax, oneOffTax, severanceTax, reverseOneOff, reverseWage,
-  BONUS_LIMITS, BONUS_QUICK, bonusTax, bonusTrapHint, bonusNoteText } from '../model/IncomeTax';
+  BONUS_LIMITS, BONUS_QUICK, bonusTax, bonusQuickDeductionCents, bonusTrapHint, bonusNoteText,
+  reverseUnsupportedNoteText, TAX_RULES_REVIEWED } from '../model/IncomeTax';
 
 /**
  * 居民个人个税估算页（工资累计预扣 / 稿酬 / 劳务 / 特许权 / 离职补偿）。
@@ -19,6 +22,9 @@ export struct TaxPage {
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Event onStatus: (message: string) => void = () => {};
+  // 复制计算结果（纯值整句）：本页此前完全没有复制入口，结果只能手抄（2026-10-20 审计 P0）。
+  // 与科学计算器/亲戚称呼同口径：只复制，不写历史。
+  @Event onCopy: (value: string) => void = () => {};
 
   @Local taxKind: string = 'wage';
   @Local taxReverse: boolean = false;
@@ -113,6 +119,18 @@ export struct TaxPage {
     return parsed === undefined ? -1 : parsed;
   }
 
+  /**
+   * 「计税期数」输入框的整数值：非法输入返回 `-1`（`wageTax()` 只接受 1–12，会照常拒绝）。
+   *
+   * 用 `parseIntegerInput()` 而不是 `Number()`：`Number('0x2')` = 2 会被当成合法期数，
+   * 于是法定减除费用按 2 个月算（5000 元/月 × 期数），**结果直接错但没有提示**
+   * （AGENTS「数字输入解析放纯逻辑，且只收十进制」；与随机区间、密码长度同一类）。
+   */
+  private taxPeriodValue(): number {
+    const parsed: number | undefined = parseIntegerInput(this.taxPeriod);
+    return parsed === undefined ? -1 : parsed;
+  }
+
   private taxContribution(byBase: boolean, amount: string, base: string, rate: string): number {
     if (!byBase) { return this.taxValue(amount); }
     const baseCents: number = this.taxValue(base);
@@ -137,14 +155,11 @@ export struct TaxPage {
     return 0;
   }
 
-  /** 年终奖单独计税的速算扣除数：按「奖金 ÷ 12」重新定档，与 bonusTax 用同一张月度表。 */
+  /** 年终奖单独计税的速算扣除数：定档口径在 `IncomeTax.bonusQuickDeductionCents()`，页面不再自己算。 */
   private bonusQuickCents(): number {
     const result: TaxResult | undefined = this.taxResult;
     if (result === undefined || result.grossCents <= 0) { return 0; }
-    let index: number = 0;
-    const monthly: number = result.grossCents / 12;
-    while (index < BONUS_LIMITS.length && monthly > BONUS_LIMITS[index]) { index++; }
-    return BONUS_QUICK[index];
+    return bonusQuickDeductionCents(result.grossCents);
   }
 
   /** 临界点提示：按当前输入的税前奖金现取，输入不可解析时为空串。 */
@@ -155,7 +170,7 @@ export struct TaxPage {
 
   private wageTaxInput(): WageInput {
     const input: WageInput = new WageInput();
-    input.period = Number(this.taxPeriod.trim());
+    input.period = this.taxPeriodValue();
     input.previousGrossCents = this.taxValue(this.taxPreviousGross);
     input.previousContributionCents = this.taxValue(this.taxPreviousContribution);
     input.previousSpecialCents = this.taxValue(this.taxPreviousSpecial);
@@ -199,6 +214,13 @@ export struct TaxPage {
       result = oneOffTax(this.taxKind, amount);
     }
     if (result === undefined) {
+      // 先问「这类所得本身支持反推吗」——稿酬不在 `reverseOneOff()` 的范围内，此时上面那句面向工资薪金
+      // 的提示（期数/房贷与租金/养老金）会把人引向不存在的原因（2026-10-20 第 94 轮）。
+      const unsupported: string = reverseUnsupportedNoteText(this.taxKind, this.english);
+      if (unsupported.length > 0) {
+        this.onStatus(unsupported);
+        return;
+      }
       this.onStatus(this.taxKind === 'bonus'
         ? this.tr('请输入大于 0 的年终奖金额', 'Enter a bonus amount greater than 0')
         : this.tr('请检查期数、各项金额和比例；房贷与租金不可同时扣除，养老金全年不超过 12000 元',
@@ -209,9 +231,42 @@ export struct TaxPage {
     this.taxResult = result;
   }
 
-  @Builder private taxField(zh: string, en: string, value: string, update: (value: string) => void) {
+  /** 复制出去的整句：计税类型 + 税前/应纳税所得/个税/实得/税率（都取当前结果，金额到分）。 */
+  private taxCopyText(): string {
+    const result: TaxResult | undefined = this.taxResult;
+    if (result === undefined) { return ''; }
+    return this.taxKindLabel() + this.tr('：', ': ') +
+      this.tr('税前 ', 'Gross ') + '¥' + moneyText(result.grossCents) +
+      this.tr(' · 应纳税所得 ', ' · Taxable ') + '¥' + moneyText(result.taxableCents) +
+      this.tr(' · 个税 ', ' · Tax ') + '¥' + moneyText(result.taxCents) +
+      this.tr(' · 实得 ', ' · Net ') + '¥' + moneyText(result.netCents) +
+      this.tr(' · 税率 ', ' · Rate ') + result.ratePercent.toString() + '%';
+  }
+
+  /**
+   * 金额行的标签随「计税类型 / 计算方向」变化，必须在**构建函数体内现取**：
+   * `@Builder` 按值传参不随状态刷新，调用方把算好的字符串传进来，切换后行内内容不会更新。
+   * 2026-10-20 模拟器实测：把「计算方向」切到「税后反推」后，这一行仍显示「税前收入（元）」
+   * （应为「目标税后金额（元）」）——审计 §4.6 记的就是这一类。`dynamic` 传**常量 id**，
+   * 其余字段传空串、标签照旧用调用方给的常量文案（常量没有刷新问题）。
+   */
+  private taxFieldLabelZh(zh: string, dynamic: string): string {
+    if (dynamic !== 'amount') { return zh; }
+    if (this.taxKind === 'bonus') { return '税前年终奖（元）'; }
+    return this.taxReverse ? '目标税后金额（元）' : '税前收入（元）';
+  }
+
+  private taxFieldLabelEn(en: string, dynamic: string): string {
+    if (dynamic !== 'amount') { return en; }
+    if (this.taxKind === 'bonus') { return 'Gross annual bonus (CNY)'; }
+    return this.taxReverse ? 'Target net amount (CNY)' : 'Gross income (CNY)';
+  }
+
+  @Builder private taxField(zh: string, en: string, value: string, update: (value: string) => void,
+    dynamic: string = '') {
     Column({ space: 6 }) {
-      Text(this.tr(zh, en)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
+      Text(this.tr(this.taxFieldLabelZh(zh, dynamic), this.taxFieldLabelEn(en, dynamic)))
+        .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
         level: this.materialLevel,
@@ -219,10 +274,12 @@ export struct TaxPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: value, placeholder: zh.includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
-          this.tr('金额（元）', 'Amount (CNY)') })
+        TextInput({ text: value,
+          placeholder: this.taxFieldLabelZh(zh, dynamic).includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
+            this.tr('金额（元）', 'Amount (CNY)') })
           .backgroundColor(Color.Transparent)
-          .type(InputType.Normal).height(48).accessibilityText(this.tr(zh, en))
+          .type(InputType.Normal).height(48)
+          .accessibilityText(this.tr(this.taxFieldLabelZh(zh, dynamic), this.taxFieldLabelEn(en, dynamic)))
           .onChange((next: string) => { update(next); this.taxResult = undefined; })
       }
     }.width('100%')
@@ -244,6 +301,9 @@ export struct TaxPage {
     Column({ space: 14 }) {
       Text(this.tr('中国大陆居民个人 · 本机估算', 'Mainland China resident · on-device estimate'))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
+      // 政策复核日期要露出来：规则随政策变，用户有权知道按哪天的规则算（§3.8）。
+      Text(this.tr('税率与扣除口径复核日期 ' + TAX_RULES_REVIEWED, 'Tax rules reviewed ' + TAX_RULES_REVIEWED))
+        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       OptionSelect({
         label: this.tr('计税类型', 'Tax type'),
         options: this.taxKindOptions(),
@@ -266,7 +326,7 @@ export struct TaxPage {
         (this.taxReverse ? '目标税后金额（元）' : '税前收入（元）'),
         this.taxKind === 'bonus' ? 'Gross annual bonus (CNY)' :
           (this.taxReverse ? 'Target net amount (CNY)' : 'Gross income (CNY)'),
-        this.taxAmount, (value: string) => this.taxAmount = value)
+        this.taxAmount, (value: string) => this.taxAmount = value, 'amount')
       if (this.taxKind === 'wage') {
         this.taxHeading('本期工资与扣除', 'Current wage and deductions')
         Text(this.tr('任职受雇期数为本年在同一单位的第几期；基本减除费用按每期 5000 元累计。',
@@ -322,7 +382,7 @@ export struct TaxPage {
           this.taxField('本期个人公积金实缴额（元）', 'Personal housing contribution (CNY)', this.taxHousingAmount,
             (value: string) => this.taxHousingAmount = value)
         }
-        if (Number(this.taxPeriod.trim()) > 1) {
+        if (this.taxPeriodValue() > 1) {
           Text(this.tr('第二期起需核对本年此前累计数据。', 'From period 2, check prior year-to-date amounts.'))
             .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         } else {
@@ -335,7 +395,7 @@ export struct TaxPage {
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }
         }
-        if (this.taxAdvanced || Number(this.taxPeriod.trim()) > 1) {
+        if (this.taxAdvanced || this.taxPeriodValue() > 1) {
         this.taxHeading('本期专项附加扣除', 'Current special deductions')
         Text(this.tr('填写已确认可在本期预扣的扣除额；房贷利息与住房租金不能同时填写。大病医疗在年度汇算时处理。',
           'Enter eligible withholding deductions. Mortgage interest and rent cannot both apply. Serious illness expenses are handled in annual settlement.'))
@@ -396,7 +456,15 @@ export struct TaxPage {
           lightEffect: true
         }) {
         Column({ space: 10 }) {
-          this.taxHeading('计算结果', 'Result')
+          Row({ space: 8 }) {
+            Text(this.tr('计算结果', 'Result')).fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
+            IconActionButton({
+              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+              a11yText: this.tr('复制计算结果', 'Copy the result'),
+              boxSize: 44, iconSize: 22,
+              onTap: (): void => { this.onCopy(this.taxCopyText()); }
+            })
+          }.width('100%')
           if (this.taxKind === 'bonus') {
             this.taxResultLine('应纳税所得（奖金全额）', 'Taxable income (full bonus)', 'taxable')
           } else {

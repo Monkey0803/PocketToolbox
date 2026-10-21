@@ -47,13 +47,17 @@ export const CATEGORIES: UnitCategory[] = [
     new UnitDef('chi', '尺（市制）', 'Chi (1/3 m)', 1 / 3), new UnitDef('cun', '寸（市制）', 'Cun (1/30 m)', 1 / 30),
     new UnitDef('li', '里（市制）', 'Li (500 m)', 500),
     new UnitDef('in', '英寸', 'Inch', 0.0254), new UnitDef('ft', '英尺', 'Foot', 0.3048),
-    new UnitDef('mi', '英里', 'Mile', 1609.344)
+    new UnitDef('mi', '英里', 'Mile', 1609.344),
+    // 海里：航海/航空常用（国际定义值 1 海里 = 1852 m）；此前只有「节」没有对应长度单位。
+    new UnitDef('nmi', '海里', 'Nautical mile', 1852)
   ]),
   new UnitCategory('mass', '重量', 'Mass', [
     new UnitDef('mg', '毫克', 'Milligram', 0.000001), new UnitDef('g', '克', 'Gram', 0.001),
     new UnitDef('kg', '千克', 'Kilogram', 1), new UnitDef('t', '吨', 'Tonne', 1000),
     new UnitDef('jin', '斤（市制）', 'Jin (0.5 kg)', 0.5), new UnitDef('liang', '两（市制）', 'Liang (50 g)', 0.05),
-    new UnitDef('oz', '盎司', 'Ounce', 0.028349523125), new UnitDef('lb', '磅', 'Pound', 0.45359237)
+    // 「盎司」在中文里常用于**贵金属**，那里指的是**金衡盎司** 31.1034768 g；这里的因子是**常衡盎司**（磅/16）
+    // = 28.349523125 g，两者相差 9.7%。与美制/英制加仑同一处理：标签写明是哪种（2026-10-20 第 97 轮）。
+    new UnitDef('oz', '盎司（常衡）', 'Ounce (avoirdupois)', 0.028349523125), new UnitDef('lb', '磅', 'Pound', 0.45359237)
   ]),
   new UnitCategory('temperature', '温度', 'Temperature', [
     new UnitDef('c', '摄氏度', 'Celsius', 1), new UnitDef('f', '华氏度', 'Fahrenheit', 1),
@@ -69,7 +73,10 @@ export const CATEGORIES: UnitCategory[] = [
   new UnitCategory('volume', '体积', 'Volume', [
     new UnitDef('ml', '毫升', 'Milliliter', 0.001), new UnitDef('l', '升', 'Liter', 1),
     new UnitDef('m3', '立方米', 'Cubic meter', 1000), new UnitDef('floz', '美制液盎司', 'US fluid ounce', 0.0295735295625),
-    new UnitDef('gal', '美制加仑', 'US gallon', 3.785411784)
+    new UnitDef('gal', '美制加仑', 'US gallon', 3.785411784),
+    // 英制加仑与美制不同（4.54609 L vs 3.78541 L），分开登记以免混用（2026-10-20 审计 §3.26）。
+    new UnitDef('ukgal', '英制加仑', 'Imperial gallon', 4.54609),
+    new UnitDef('cup', '美制杯', 'US cup', 0.2365882365)
   ]),
   new UnitCategory('speed', '速度', 'Speed', [
     new UnitDef('mps', '米每秒', 'Meter per second', 1), new UnitDef('kph', '千米每小时', 'Kilometer per hour', 1 / 3.6),
@@ -78,7 +85,11 @@ export const CATEGORIES: UnitCategory[] = [
   new UnitCategory('time', '时间', 'Time', [
     new UnitDef('ms', '毫秒', 'Millisecond', 0.001), new UnitDef('s', '秒', 'Second', 1),
     new UnitDef('min', '分钟', 'Minute', 60), new UnitDef('h', '小时', 'Hour', 3600),
-    new UnitDef('day', '天', 'Day', 86400), new UnitDef('week', '周', 'Week', 604800)
+    new UnitDef('day', '天', 'Day', 86400), new UnitDef('week', '周', 'Week', 604800),
+    // 月/年按**平均**长度登记（30.44 天 / 365.25 天），并把口径写进名称——月与年本就没有固定天数，
+    // 不写清楚会让「1 月 = 30 天」被当成精确值（2026-10-20 审计 §3.26）。
+    new UnitDef('month', '月（平均 30.44 天）', 'Month (avg 30.44 days)', 2629800),
+    new UnitDef('year', '年（平均 365.25 天）', 'Year (avg 365.25 days)', 31557600)
   ]),
   new UnitCategory('data', '数据容量', 'Data size', [
     new UnitDef('bit', '比特', 'Bit', 0.125), new UnitDef('B', '字节', 'Byte', 1),
@@ -86,7 +97,12 @@ export const CATEGORIES: UnitCategory[] = [
     new UnitDef('GB', '吉字节', 'Gigabyte', 1000000000),
     new UnitDef('KiB', '二进制千字节', 'Kibibyte', 1024),
     new UnitDef('MiB', '二进制兆字节', 'Mebibyte', 1048576),
-    new UnitDef('GiB', '二进制吉字节', 'Gibibyte', 1073741824)
+    new UnitDef('GiB', '二进制吉字节', 'Gibibyte', 1073741824),
+    // PB/EB 按 1000 进制（与 KB/MB/GB 同一套），二进制侧给 PiB（2026-10-20 审计 §3.26）。
+    new UnitDef('TB', '太字节', 'Terabyte', 1000000000000),
+    new UnitDef('PB', '拍字节', 'Petabyte', 1000000000000000),
+    new UnitDef('TiB', '二进制太字节', 'Tebibyte', 1099511627776),
+    new UnitDef('PiB', '二进制拍字节', 'Pebibyte', 1125899906842624)
   ]),
   new UnitCategory('pressure', '压力', 'Pressure', [
     new UnitDef('pa', '帕斯卡', 'Pascal', 1), new UnitDef('kpa', '千帕', 'Kilopascal', 1000),
@@ -102,7 +118,11 @@ export const CATEGORIES: UnitCategory[] = [
   new UnitCategory('power', '功率', 'Power', [
     new UnitDef('w', '瓦', 'Watt', 1), new UnitDef('kw', '千瓦', 'Kilowatt', 1000),
     new UnitDef('mw', '兆瓦', 'Megawatt', 1000000),
-    new UnitDef('hp', '马力', 'Horsepower', 745.6998715823)
+    // 「马力」在中文里通常指**米制马力**（75 kgf·m/s = 735.49875 W），而 745.6998715823 是**英制/机械马力**，
+    // 两者差约 1.4%——原来只有一个不带限定的「马力」标签，中文用户按习惯读到的含义与实际数值不符。
+    // 与美制/英制加仑同一处理：**分开登记 + 标签写明是哪种**（2026-10-20 第 96 轮）。
+    new UnitDef('hp', '英制马力（机械）', 'Horsepower (mechanical)', 745.6998715823),
+    new UnitDef('ps', '米制马力', 'Metric horsepower (PS)', 735.49875)
   ]),
   new UnitCategory('angle', '角度', 'Angle', [
     new UnitDef('deg', '度', 'Degree', 1), new UnitDef('rad', '弧度', 'Radian', 57.29577951308232),
@@ -163,6 +183,38 @@ export function convert(value: number, category: UnitCategory, from: UnitDef, to
  * 在大数量级上不保证最短表示（实测 `Number('1.26765e+30').toString()` 给出 `1.2676500000000001e+30`，
  * 即 17 位而不是 6 位），直接用它会让「有效位数」选项失效。指数部分仍用 `toString()` 的口径。
  */
+/**
+ * 换算输入解析：只接受**十进制**数字（可选正负号、可选小数点）。
+ *
+ * 直接用 `Number()` 会静默接受 `0x10`（=16）、`1e3`（=1000）、`0b11` 这类写法，用户看到的结果与输入
+ * 的字面意思不符（2026-10-20 审计 §3.10④）。这里用严格正则，非法输入返回 `undefined`，由界面提示。
+ * 空串也返回 `undefined`（表示「还没输入」，与「输入非法」同样不产生结果）。
+ */
+export function parseUnitInput(text: string): number | undefined {
+  const trimmed: string = text.trim();
+  if (trimmed.length === 0) { return undefined; }
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(trimmed)) { return undefined; }
+  const value: number = Number(trimmed);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * 整数输入解析：**只接受十进制整数**（可选正负号），其余一律 `undefined`。
+ *
+ * 与 `parseUnitInput()` 同一族：`Number('0x10')` = 16、`Number('1e3')` = 1000、`Number('1.5')` = 1.5，
+ * 而界面文案往往承诺「请输入整数」——用户输入 `0x10` 却被当成 16，字面意思与实际不一致
+ * （AGENTS「数字输入解析放纯逻辑，且只收十进制」，2026-10-20 审计 §3.10④）。
+ * 小数也拒绝（不静默取整）；空串返回 `undefined`，调用方据此区分「还没填」与「填错了」。
+ * 这是全项目**唯一**的整数输入解析口径（随机区间、日期推算数量、密码长度都用它）。
+ */
+export function parseIntegerInput(text: string): number | undefined {
+  const trimmed: string = text.trim();
+  if (trimmed.length === 0) { return undefined; }
+  if (!/^[+-]?\d+$/.test(trimmed)) { return undefined; }
+  const value: number = Number(trimmed);
+  return Number.isInteger(value) ? value : undefined;
+}
+
 export function formatValue(value: number, significant: number = DEFAULT_PRECISION): string {
   if (!Number.isFinite(value)) {
     return '—';

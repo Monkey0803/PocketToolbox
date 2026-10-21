@@ -1,6 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { HolidayTable, parseHolidayIcs } from '../model/HolidayIcs';
-import { formatDate } from '../model/DateTools';
+import { HolidayTable, holidayDataIsStale, parseHolidayIcs } from '../model/HolidayIcs';
 import { markHolidayDownloaded, readCachedIcs, writeHolidayIcs } from './HolidayData';
 import { httpRequest, HttpRequestSpec, HttpOutcome } from './HttpClient';
 
@@ -24,7 +23,7 @@ import { httpRequest, HttpRequestSpec, HttpOutcome } from './HttpClient';
 export const HOLIDAY_ICS_URL: string =
   'https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/holiday-cn.ics';
 
-/** 单次更新的结果：`ok=false` 时 `error` 是错误码（`offline`/`timeout`/`http`/`parse`）。 */
+/** 单次更新的结果：`ok=false` 时 `error` 是错误码（`offline`/`timeout`/`http`/`parse`/`stale`）。 */
 export class HolidayUpdateOutcome {
   ok: boolean = false;
   error: string = '';
@@ -54,11 +53,26 @@ function bodyText(outcome: HttpOutcome): string {
  * 上游 `holiday-cn.ics` 没有 `X-POCKET-TOOLBOX-FETCHED`：不补的话，更新成功后的数据日期会是空串、
  * 界面只能显示「随包数据」，而且「用户已在线更新」标记也没法按数据日期比对。补头对 iCalendar 无害
  * （未知 `X-` 属性会被解析器忽略），日期取抓取当天。
+ *
+ * **必须取本机日期字段**：`formatDate()` 取的是 UTC 字段，在东八区凌晨抓取会记成前一天，
+ * 于是「新数据比本地旧」的判据可能误判（2026-10-20 审计 §3.15⑥）。
  */
 function withProvenanceHeader(text: string): string {
-  const today: string = formatDate(new Date());
+  const now: Date = new Date();
+  const today: string = now.getFullYear().toString().padStart(4, '0') + '-' +
+    (now.getMonth() + 1).toString().padStart(2, '0') + '-' + now.getDate().toString().padStart(2, '0');
   return 'X-POCKET-TOOLBOX-SOURCE:' + HOLIDAY_ICS_URL + '\n' +
     'X-POCKET-TOOLBOX-FETCHED:' + today + '\n' + text;
+}
+
+/**
+ * 取一份 `.ics` 文本里的数据日期（`X-POCKET-TOOLBOX-FETCHED`）；没有返回空串。
+ *
+ * 与 `HolidayData.fetchedMarker()` 同口径，但这里只需要日期值本身（用于新旧比较）。
+ */
+function dataDateOf(text: string): string {
+  const match: RegExpMatchArray | null = text.match(/X-POCKET-TOOLBOX-FETCHED:([0-9-]{8,10})/);
+  return match === null ? '' : match[1];
 }
 
 /**
@@ -78,7 +92,9 @@ export async function updateHolidayData(context: common.Context): Promise<Holida
       method: 'GET',
       // ArkTS 的对象字面量必须把类的字段写全；数据源是固定 URL，不需要跟随重定向。
       maxRedirects: 0,
-      timeoutMs: 5000
+      timeoutMs: 5000,
+      // 节假日 `.ics` 不展示响应头，截断提示用不到语言。
+      english: false
     };
     outcome = await httpRequest(spec);
   } catch (_) {
@@ -106,6 +122,15 @@ export async function updateHolidayData(context: common.Context): Promise<Holida
   }
 
   const ctx: common.UIAbilityContext = context as common.UIAbilityContext;
+  // 防「用更旧的数据覆盖本地」：远端镜像、CDN 缓存或回滚都可能给出比当前更早的快照。
+  // 只在**新数据的日期严格更早**时拒绝；日期相同或缺失（老文件没有溯源行）按可更新处理，
+  // 否则会因为缺少元数据把正常更新也挡掉（2026-10-20 审计 §3.15⑤）。
+  const current: string | undefined = readCachedIcs(ctx);
+  const currentDate: string = current === undefined ? '' : dataDateOf(current);
+  if (holidayDataIsStale(parsed.dataDate, currentDate)) {
+    result.error = 'stale';
+    return result;
+  }
   try {
     writeHolidayIcs(ctx, content);
   } catch (_) {

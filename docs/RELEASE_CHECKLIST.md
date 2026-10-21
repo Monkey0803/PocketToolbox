@@ -283,7 +283,7 @@
   - **本轮修掉的真缺陷（模拟器实测发现）**：秒表点「开始/计次」后界面不刷新。原因是 `this.watch = this.watch` 是同一引用，ArkUI V2 收不到 `@Local` 变更通知；而当没有倒计时在跑时，页面里只有 `watchElapsedMs()` 会读 `this.now`，读不到就不会因 250 ms tick 重建，于是状态变了界面不动（实测：点开始后时间停在 `00:05:04`、计次按钮状态不变）。现改为 `syncWatch()` 复制出一个**新对象**再赋值，点开始后时间正常递增、计次立即出现新行。
   - **测试基础设施**：`tests/run-unit-tests.mjs` 的加载器由 `data:` URL 改为把去类型后的模块写到 `/.cache/unit-tests/` 下（保持相对目录结构并重写相对 import），因此**模型文件之间可以互相 import**（`HashTools` 复用 `EncodingTools` 的 UTF-8 与十六进制函数）；此前「纯逻辑文件不能互相引用」的限制已解除。
   - **验证**：单测全绿（本轮新增约 90 条：随机 30+、编码与摘要 60+、计次 15+，其中 MD5/SHA-1/SHA-256 与 Node `node:crypto` 交叉验证并覆盖 55/56/63/64/65/119/120/127/128/1000 字节填充边界）；`assembleHap` `BUILD SUCCESSFUL`；模拟器复验骰子（`1 · 5  合计 6`）、硬币（`反面`）、分组（5 人 2 组 → `第 1 组：d、c、b` / `第 2 组：e、a`）、随机排序、Base64 编码（`abc` → `YWJj`）、Base64 解码错误提示、SHA-256（`abc` → `BA7816BF…0015AD`）、时长预设（1 分 → `00:01:00`）、重复计时（跨轮自动开始下一轮）、秒表计时与计次（`#1 00:05:04 / 00:05:04`、`#2 00:00:00 / 00:05:04`、`最快 00:00:00 · 最慢 00:05:04`，再点计次出现 `#3`）。
-  - **仍未覆盖（真机待验）**：平板/折叠屏下的新分段与列表布局、深色模式（未实现）、秒表长时运行与后台切换表现；逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 8 节。
+  - **仍未覆盖（真机待验）**：平板/折叠屏下的新分段与列表布局、深色模式下的下拉菜单/对话框/按钮对比度（**色板已资源化并跟随系统**，2026-10-20 审计修掉了写死白底的 `OptionSelect` 与 `accentAmber` 图标色，但真机深色观感仍未验）、秒表长时运行与后台切换表现；逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 8 节。
   - **时效提示**：本轮的设备回执跑于 2026-10-19 15:15–15:26 的构建。同期另一个会话在同一检出/同一模拟器上并行重构（抽出 `component/OptionSelect.ets` 并应用于 `RandomPage`/`QrPage`/`UnitsPage`/`DatesPage`/`BarcodePage`/`TaxPage`/`SettingsPage` 等），期间一度编译失败后已由其修复；复跑第 8 节前请确认并行会话已停止，避免结论被后续改动覆盖。
 - **竞品对比与一期能力落地（2026-10-19，已完成单测、构建与模拟器复验）**：本轮按 [竞品对比与演进路线](COMPETITIVE_ANALYSIS.md) 的一期范围改了五处，**不新增工具卡片（仍 14 项）、不新增权限、不引入联网**：
   ① **工具元数据单一数据源**：新增纯逻辑 `model/ToolMeta.ets`（`TOOL_META`/`TOOL_IDS`/`allowedFavorites`/`matchTools`），`model/ToolCatalog.ets` 改为由元数据派生图标与卡片底色（缺图标时回退通用图标并打日志）。**修复缺陷**：`model/LocalData.ets` 原先手写的收藏白名单只有 13 个 id、漏掉 `timestamp`，收藏「时间戳」后重启会被静默丢弃；现由 `allowedFavorites()` 派生，模拟器已验证「收藏时间戳 → 重启 → 仍在收藏页」。
@@ -292,7 +292,7 @@
   ④ **单位换算深化**：`model/Units.ets` 由 8 类扩到 14 类（新增压力、能量、功率、角度、频率、油耗，并在长度/重量/面积加入市制尺、寸、里、斤、两、亩）；非线性换算改用 `UnitCategory.special`（`temperature`/`fuel`）驱动，不再按类别 id 硬编码；新增 `PRECISION_OPTIONS`（6/8/10/12 位有效数字，默认 10 保持旧显示）、`categoryIndex`/`unitIndex`，`formatValue` 对 `|v| < 1e-6` 定点展开（1 mm → 英里 显示 `0.0000006213711922` 而非 `6.2e-7`）；`component/UnitsPage.ets` 增加精度下拉与「同类其他单位」对照表（排除当前目标单位），并把类别/源单位/目标单位/精度写入 `units_state`，读取时按 id 校验并夹取。
   ⑤ **二维码内容模板**：新增纯逻辑 `model/QrContent.ets`（文本/网址/WiFi/名片/电话/短信/邮件/位置八种模板，含 WIFI 与 vCard 转义、URL/邮箱/电话/经纬度校验、双语错误码），`component/QrPage.ets` 加内容类型下拉与按类型的字段（字段值统一放 `@Local fields` Map，`@Builder textField(id)` 只收常量 id，避免按值传状态不刷新）。
   - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` 全绿（新增约 150 条断言：ToolMeta/搜索、文本 30+、换算 60+、二维码模板 40+）；`hvigorw assembleHap --mode module -p product=default` `BUILD SUCCESSFUL`；API 26 模拟器（@240 dpi 4 列形态）复验搜索过滤与空态、文本三段操作与统计、换算 14 类与市制、精度切换与同类对照、`units_state` 重启保持、收藏时间戳重启保持，证据图存于 `docs/screenshots/emulator/`（`tools-search-box-zh.jpeg`、`tools-search-qr-zh.jpeg`、`tools-search-empty-zh.jpeg`、`qr-wifi-fields-zh.jpeg`、`qr-generate-emulator-unavailable-zh.jpeg`、`units-pressure-6digits-zh.jpeg`）。
-  - **仍未覆盖（真机待验）**：二维码生成与真机相机扫描 WiFi/名片二维码（本机模拟器的二维码生成 API 直接失败，只验证到错误提示）、平板与折叠屏下搜索框与新按钮布局、深色模式下新界面（深色主题未实现，属既有设计）。逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 7 节。
+  - **仍未覆盖（真机待验）**：二维码生成与真机相机扫描 WiFi/名片二维码（本机模拟器的二维码生成 API 直接失败，只验证到错误提示）、平板与折叠屏下搜索框与新按钮布局、深色模式下新界面（色板已资源化并跟随系统，见第 16 节；本轮审计又修掉写死的白菜单底与低对比度图标色）。逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 7 节。
 
 
 ## 发版步骤（HarmonyOS / AppGallery Connect）
@@ -324,11 +324,13 @@
    产物：`entry/build/default/outputs/default/entry-default-signed.hap`。
 4. **产物自检**（每次发版都做）
    - `hdc install -r <hap>` 覆盖安装后启动，逐项冒烟：工具网格、日期（工作日应显示「已排除周末与法定节假日，并计入调休上班日」与数据日期）、时间戳、二维码、计时、设置。
-   - 核对包名、`versionCode`/`versionName`、权限列表（应只有 3 项，无网络权限）。
+   - 核对包名、`versionCode`/`versionName`、权限列表（**应为 5 项**：`PUBLISH_AGENT_REMINDER` / `DETECT_GESTURE` / `ACCELEROMETER` / `INTERNET` / `GET_NETWORK_INFO`）。<br>`node tests/check-consistency.mjs` 会断言权限集合与 `docs/PRIVACY.md` 披露一致、快捷方式包名与 `app.json5` 一致、两套色板键集合一致。
    - 用 DevEco Studio 的 CodeLinter 跑一次推荐规则（历史上为 0 错误 0 警告 1 建议：启动图标建议 ≤ 256×256）。
 5. **上传与商店资料**
    - AGC 上传 HAP → 填写应用信息（文案取自 [`STORE_LISTING.md`](STORE_LISTING.md)）→ 隐私政策需**可公网访问的网址**（`PRIVACY.md` 补运营主体、联系邮箱、生效日期与网址）。
-   - 权限说明只覆盖 `PUBLISH_AGENT_REMINDER` / `DETECT_GESTURE` / `ACCELEROMETER`（应用不申请网络权限）。
+   - **隐私政策网址的落地位置（2026-10-21 细化）**：应用内入口已做好（设置 → 关于 → 隐私政策），地址只有**一处常量** `model/AboutInfo.ets` 的 `PRIVACY_POLICY_URL`（当前是空串占位，此时点入口会如实提示「尚未填写」）。上架前把它填成真实地址，并**同步三处**：① 该常量；② [`PRIVACY.md`](PRIVACY.md)（生效日期与网址）；③ 本文件与 [`STORE_LISTING.md`](STORE_LISTING.md) 的隐私政策链接字段。
+   - **地址的硬要求**：`https://` 开头、公开可访问、**不需要登录**、打开即政策正文、长期不改名不删除（`isUsablePolicyUrl()` 只认 `https://` + 有主机名，明文 http 与缺协议都不算）。**推荐静态页**（Gitee Pages / GitHub Pages / 对象存储静态站）→ `https://<用户>.gitee.io/<仓库>/privacy.html`；次选托管平台的 **raw 纯文本**链接；**不要**用仓库的 blob/文件浏览页（带仓库导航、正文靠脚本渲染，审校常判「不是独立政策页」）。面向海外渠道时建议「Gitee 主 + GitHub 备」两条都写进商店资料。
+   - 权限说明覆盖全部五项：`PUBLISH_AGENT_REMINDER`（倒计时到期提醒）、`DETECT_GESTURE`（握姿适配）、`ACCELEROMETER`（水平仪）、`INTERNET`（**只在用户点击时**发起：网络工具探测 / 更新汇率 / 检查更新）、`GET_NETWORK_INFO`（只用于 DNS 域名解析）。措辞须与 [`PRIVACY.md`](PRIVACY.md) 一致，**不能再写「不申请网络权限」**。
    - 截图：手机、平板、折叠屏（展开/折叠）分别提供，中文与英文各一套；不得用模拟图冒充设备截图。
    - 第三方数据声明随仓库分发：见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 6. **提交审核**后按审核意见修正；真机未覆盖项（握姿、光感等级、无闪光灯设备、代理提醒权益）在发布说明里如实标注。
@@ -378,7 +380,7 @@
 | 五款应用图标切换、恢复默认与重启保持 | 手机通过；四款备选与默认均可选择，桌面图标及选中状态正确，进程重启后保持，设置页中英文显示正常 | PLR-AL00（API 26）；平板另验 |
 | 五类个税计算、正反推、错误输入和官方链接 | 模型测试与构建通过；手机五类基础结果、工资及劳务反推、收藏返回、英文显示、错误输入、房贷扣除、税务及社保链接、首期折叠与后续期数展开通过；其他复杂扣除组合待测 | PLR-AL00 调试签名包；平板和折叠屏另验 |
 | 智感握姿左右手适配及未知状态退化 | 待测 | 支持此能力的真机；模拟器不能替代 |
-| 全局沉浸光感、材质类型与设备材质等级 | 导航与入口基础显示、点击通过；模拟器复验输入框/多行文本框/结果卡片/列表行为**单层圆角、无材质嵌套、行内布局未被撑坏**；**深色模式已核查**：系统切到深色后本应用仍按 `ToolPalette` 的固定浅色板渲染（工具网格、快捷计算、日期、时间戳、设置、日期/时间选择器对话框均清晰可读），对比度与浅色模式一致——本应用未实现深色主题，属既有设计而非缺陷 | PLR-AL00 与 API 26 模拟器，截图见 `docs/screenshots/emulator/darkmode-*.jpeg`；动态光感与真机材质等级仍需验收 |
+| 全局沉浸光感、材质类型与设备材质等级 | 导航与入口基础显示、点击通过；模拟器复验输入框/多行文本框/结果卡片/列表行为**单层圆角、无材质嵌套、行内布局未被撑坏**；**深色模式**：色板已于 2026-10-19 资源化并跟随系统（`resources/{base,dark}/element/color.json` 各 38 项，键集合由 `tests/check-consistency.mjs` 断言一致）；**2026-10-20 审计进一步修掉两处写死色**（`OptionSelect` 的白色菜单底、手电筒开灯态图标色），真机深色下的下拉菜单/对话框/按钮对比度仍待验收 | PLR-AL00 与 API 26 模拟器，截图见 `docs/screenshots/emulator/darkmode-*.jpeg`；动态光感与真机材质等级仍需验收 |
 | 倒计时时长时间选择器与材质 | 模拟器复验通过：时长卡片点开系统时间选择器（时/分/秒三列、24 小时制），确定后卡片立即更新、取消保持原值；`00:00:00` 被拒并提示，`00:01:00` 添加后正常递减；名称输入框与列表行均为单层 | API 26 模拟器，截图见 `docs/screenshots/emulator/timers-duration-time-picker.jpeg`、`timers-zero-duration-rejected.jpeg`；对话框材质观感仍需真机 |
 | 工具搜索（过滤、空态、清空） | 模拟器复验通过：输入 `qr` 仅剩「二维码」；输入 `zzz` 显示中英空结果提示且网格为空；清空后 14 张卡片恢复 | API 26 模拟器 @240 dpi，截图见 `tools-search-box-zh.jpeg`、`tools-search-qr-zh.jpeg`、`tools-search-empty-zh.jpeg`；平板/折叠屏布局与超大字体待验 |
 | 文本工具深化（11 个操作 + 6 项统计） | 模拟器复验通过：三段操作齐全，`hello` → 转大写 `HELLO` → 首字母大写 `Hello`；统计显示 `字符 5 · 非空白字符 5 · 行数 1` 与 `单词 1 · 中文字 0 · 段落 1`；30+ 条模型断言 | API 26 模拟器；长文本滚动、结果「用作输入/清空」真机交互待验 |

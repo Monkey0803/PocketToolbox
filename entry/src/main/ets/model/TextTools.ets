@@ -7,6 +7,20 @@
  * - 「单词数」按空白切分，只对拉丁文等有空格分隔的文本有意义；中文请用「中日韩字」计数。
  */
 
+/**
+ * 文本输入的字符上限。
+ *
+ * 文本页每次按键都会跑整份统计（`Array.from` + 多次 filter + 正则），编码/摘要/摩尔斯也会把整串
+ * 同步拷贝处理；没有上限时几十万字符的粘贴会让界面逐键掉帧（2026-10-20 审计 P1「输入护栏各自为政」）。
+ * 10 万字符对日常整理/编码足够，且仍能在一帧内算完。
+ */
+export const TEXT_INPUT_MAX: number = 100000;
+
+/** 文本是否超过输入上限（页面据此拒绝这次输入并给出提示，而不是静默截断）。 */
+export function textInputTooLong(value: string): boolean {
+  return value.length > TEXT_INPUT_MAX;
+}
+
 export class TextStats {
   characters: number = 0;
   nonSpaceCharacters: number = 0;
@@ -25,6 +39,25 @@ function linesOf(value: string): string[] {
   return value.split(new RegExp('\\r\\n|\\r|\\n'));
 }
 
+/**
+ * 行数口径：**末尾换行不产生额外的一行**（2026-10-20 第 66 轮修正）。
+ *
+ * 修正前 `textStats().lines` 直接用 `linesOf(value).length`，于是末尾有换行的文本会**多算一行**：
+ * 从编辑器/终端复制的单行文本通常带末尾换行，界面「行数」就会显示 2；`'\n\n'`（两行空行）会显示 3。
+ * 这与仓库里 `DiffTools.splitLines()` 的口径（注释写明「末尾换行不产生额外的空行」）也**互相矛盾**，
+ * 且 `wc -l` 等常规工具同样按「换行符个数」计数。
+ *
+ * 现在的口径与 `wc -l` 一致：`换行符个数 + (不以换行结尾 ? 1 : 0)`，空串为 0
+ * （`'a'`→1、`'a\n'`→1、`'a\nb'`→2、`'a\nb\n'`→2、`'\n'`→1、`'\n\n'`→2）。
+ * 单测里另有一条**跨模块一致性**断言：`textStats().lines` 必须等于 `DiffTools` 对同一文本给出的行数。
+ */
+function countedLines(value: string): number {
+  if (value.length === 0) { return 0; }
+  const breaks: number = (value.match(new RegExp('\\r\\n|\\r|\\n', 'g')) || []).length;
+  const endsWithBreak: boolean = value.endsWith('\n') || value.endsWith('\r');
+  return breaks + (endsWithBreak ? 0 : 1);
+}
+
 export function textStats(value: string): TextStats {
   const stats: TextStats = new TextStats();
   if (value.length === 0) { return stats; }
@@ -32,7 +65,7 @@ export function textStats(value: string): TextStats {
   stats.characters = characters.length;
   stats.nonSpaceCharacters = characters.filter((character: string) => character.trim().length > 0).length;
   const lines: string[] = linesOf(value);
-  stats.lines = lines.length;
+  stats.lines = countedLines(value);
   stats.words = value.split(new RegExp('\\s+')).filter((word: string) => word.length > 0).length;
   stats.cjk = characters.filter((character: string) => CJK_PATTERN.test(character)).length;
   let paragraphs: number = 0;

@@ -158,11 +158,17 @@ export function headingDelta(first: number, second: number): number {
   return delta;
 }
 
-/** 传感器不可用时的双语说明（不要显示 0°，以免被误读成正北）。 */
+/**
+ * 传感器不可用时的双语说明（不要显示 0°，以免被误读成正北）。
+ *
+ * **不提权限**：方向传感器订阅不需要任何权限，此前写成「或权限被拒绝」会让用户去设置里
+ * 找根本不存在的权限项（2026-10-20 审计 §3.21③）。现在只说明两种真实原因：设备没有磁力计 /
+ * 系统未返回有效读数。
+ */
 export function headingErrorText(english: boolean): string {
   return english
-    ? 'No direction sensor reading — this device may not have a magnetometer, or access was denied.'
-    : '读不到方向传感器——设备可能没有磁力计，或权限被拒绝。';
+    ? 'No direction reading — this device may not have a magnetometer, or the system is not reporting one yet.'
+    : '读不到方向传感器——设备可能没有磁力计，或系统暂未返回有效读数。';
 }
 
 /** 设备接近水平的判定容差（度）：方位角只有在设备接近水平时才可靠。 */
@@ -185,6 +191,69 @@ export function compassTiltHint(english: boolean): string {
   return english
     ? 'Hold the device flat — the bearing is unreliable while tilted.'
     : '请尽量放平设备——倾斜时方位角会不准。';
+}
+
+// ---------------------------------------------------------------------------
+// 磁偏角 / 真北校正（手动输入，零权限）
+// ---------------------------------------------------------------------------
+
+/** 磁偏角输入范围（度）：超出这个范围的输入一定是写错了。 */
+export const DECLINATION_LIMIT_DEGREES: number = 180;
+
+/**
+ * 解析手动输入的磁偏角。
+ *
+ * 接受多种写法（都按「东偏为正、西偏为负」归一）：
+ * `7.5`、`+7.5`、`-7.5`、`7.5E`/`7.5东`（东偏正）、`7.5W`/`7.5西`（西偏负）、`东偏 7.5`、`西偏 7.5`。
+ * 空串、非数字、越界都返回 `undefined`——界面据此提示，**不要回退成 0**（0 会让用户以为已校正）。
+ */
+export function parseDeclination(raw: string): number | undefined {
+  const text: string = raw.trim().toUpperCase().replace(/\s+/g, '');
+  if (text.length === 0) { return undefined; }
+  let sign: number = 1;
+  let body: string = text;
+  // 先剥离方位词（前缀或后缀），剩下纯数字部分。
+  // **长前缀必须排在短前缀前面**（`东偏7.5` 要先吃掉「东偏」，否则「东」被吃掉后剩下「偏7.5」不是数字）。
+  const negativeHints: string[] = ['西偏', '西', '-', 'W'];
+  const positiveHints: string[] = ['东偏', '东', '+', 'E'];
+  for (const hint of negativeHints) {
+    if (body.startsWith(hint)) { sign = -1; body = body.substring(hint.length); break; }
+    if (body.endsWith(hint)) { sign = -1; body = body.substring(0, body.length - hint.length); break; }
+  }
+  if (sign === 1) {
+    for (const hint of positiveHints) {
+      if (body.startsWith(hint)) { body = body.substring(hint.length); break; }
+      if (body.endsWith(hint)) { body = body.substring(0, body.length - hint.length); break; }
+    }
+  }
+  if (body.length === 0) { return undefined; }
+  const value: number = Number(body);
+  if (!Number.isFinite(value)) { return undefined; }
+  if (Math.abs(value) > DECLINATION_LIMIT_DEGREES) { return undefined; }
+  return sign * value;
+}
+
+/**
+ * 磁北 → 真北。
+ *
+ * 口径：磁偏角为**东偏时为正**（磁北在真北以东），因此真北 = 磁北 + 磁偏角；
+ * 传入 `undefined`（没输入）时原样返回磁北，界面据此区分「已校正 / 未校正」。
+ */
+export function trueHeading(magneticDegrees: number, declination: number | undefined): number {
+  if (!Number.isFinite(magneticDegrees)) { return magneticDegrees; }
+  if (declination === undefined || !Number.isFinite(declination)) { return normalizeHeading(magneticDegrees); }
+  return normalizeHeading(magneticDegrees + declination);
+}
+
+/** 磁偏角的展示文案（含方向词）；未输入返回空串（界面据此隐藏该行）。 */
+export function declinationText(declination: number | undefined, english: boolean): string {
+  if (declination === undefined || !Number.isFinite(declination)) { return ''; }
+  if (declination === 0) { return english ? 'Declination 0°' : '磁偏角 0°'; }
+  const magnitude: string = Math.abs(declination).toFixed(1);
+  if (declination > 0) {
+    return english ? 'Declination ' + magnitude + '° east' : '磁偏角 东偏 ' + magnitude + '°';
+  }
+  return english ? 'Declination ' + magnitude + '° west' : '磁偏角 西偏 ' + magnitude + '°';
 }
 
 /** 校准提示：把设备画「8」字，用于磁力计受附近磁场干扰后的校正。 */

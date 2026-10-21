@@ -19,10 +19,16 @@ import { formatValue } from './Units';
  * - 阶乘只接受 0..170 的整数（`0! = 1`），非整数/负数报 `domain`、`171!` 报 `overflow`；
  * - `ncr`/`npr`/`gcd`/`lcm` 要求整数且 `0 ≤ r ≤ n`、`n ≤ 1000`，否则报 `domain`。
  *
- * 求值失败返回**错误码**而不是抛异常：`empty`/`syntax`/`unknown`/`domain`/`divzero`/`overflow`。
+ * 求值失败返回**错误码**而不是抛异常：`empty`/`syntax`/`unknown`/`domain`/`divzero`/`overflow`/`toolarge`。
  */
 
 export type AngleUnit = 'deg' | 'rad';
+
+/**
+ * 表达式长度上限：递归下降对超长输入（例如 `'('.repeat(50000)`）会一路加深递归栈，
+ * 既可能卡住主线程也可能栈溢出。超过就返回 `toolarge`，不进入解析（2026-10-20 审计 P1）。
+ */
+export const MAX_EXPRESSION_LENGTH: number = 2000;
 
 export class AngleEntry {
   readonly id: AngleUnit;
@@ -145,6 +151,20 @@ export const FUNCTION_KEYS: QuickKey[] = [
   new QuickKey('ncr(', '插入组合数', 'Insert combinations')
 ];
 
+/**
+ * 把一个快速键追加到表达式末尾（页面点按键时调用）。
+ * **只有 `mod` 需要额外补分隔**：它是**关键字运算符**，而标识符扫描会贪婪吞掉后面的字符——`7mod3` 会被读成
+ * 数字 `7` 加名字 `mod3`，于是报语法错误（解析层这个行为是**有意保留**的，见文件头：`7 mod 3` 才是合法写法）。
+ * 页面的快速键若只做 `expression + key.id`，用户「输 7 → 点 mod → 输 3」永远算不出来，而同一屏的提示
+ * （`calcHintText`）写的正是 `7 mod 3`——**能输入不能算**。这里补上解析层需要的分隔；其余按键原样拼接，
+ * 行为与从前完全一致（`2pi`、`5!`、`sqrt(` 这类依赖紧邻的写法不受影响）。
+ */
+export function appendQuickKey(expression: string, keyId: string): string {
+  if (keyId !== 'mod') { return expression + keyId; }
+  const needsLeadingSpace: boolean = expression.length > 0 && !expression.endsWith(' ');
+  return expression + (needsLeadingSpace ? ' mod ' : 'mod ');
+}
+
 export class CalcResult {
   readonly value: number;
   readonly error: string;
@@ -181,6 +201,8 @@ export function formatResult(value: number, significant: number = 10): string {
 export function evaluate(expression: string, angle: AngleUnit = DEFAULT_ANGLE): CalcResult {
   const text: string = expression.trim();
   if (text.length === 0) { return fail('empty'); }
+  // 递归下降对超长输入会一路加深递归栈（`'('.repeat(50000)`），先挡长度再解析（2026-10-20 审计 P1）。
+  if (text.length > MAX_EXPRESSION_LENGTH) { return fail('toolarge'); }
   const parser: Parser = new Parser(text, angle);
   const value: number = parser.parseExpression();
   if (parser.error.length > 0) { return fail(parser.error); }
@@ -376,6 +398,9 @@ class Parser {
       this.next();
       const exponent: number = this.parseUnary(); // 右结合 + 允许负指数
       const value: number = Math.pow(base, exponent);
+      // 负数的非整数次幂在实数域无定义（`(-8)^0.5`、`Math.pow(-8, 1/3)` 都得到 NaN），这是**定义域**问题
+      // 而不是溢出——此前一律报 `overflow`，会让人误以为「数值太大」（2026-10-20 审计）。
+      if (Number.isNaN(value)) { this.error = 'domain'; return Number.NaN; }
       if (!Number.isFinite(value)) { this.error = 'overflow'; return Number.NaN; }
       return value;
     }
@@ -563,7 +588,19 @@ export function calcErrorText(code: string, english: boolean): string {
   }
   if (code === 'divzero') { return english ? 'Division by zero' : '除数不能为 0'; }
   if (code === 'overflow') { return english ? 'Result is too large' : '结果超出可表示范围'; }
-  return english ? 'Cannot parse the expression' : '表达式无法解析，请检查括号与运算符';
+  if (code === 'toolarge') {
+    return english
+      ? `Expression is too long (${MAX_EXPRESSION_LENGTH} characters max)`
+      : `表达式过长（最多 ${MAX_EXPRESSION_LENGTH} 个字符）`;
+  }
+  // `'syntax'` 是**最常见**的错误码（括号不配对、运算符缺操作数、函数参数个数不对……），
+  // 第 51 轮把它显式列出来：此前它靠「最后的兜底 return」出文案——那样一旦将来加了新错误码却
+  // 忘了补分支，用户会看到「表达式无法解析」，被引向错误的排查方向（第 48 轮 `loanErrorText('method')`
+  // 就是这个形状）。现在兜底改成中性的「未知错误」，不再冒充某一个具体原因。
+  if (code === 'syntax') {
+    return english ? 'Cannot parse the expression' : '表达式无法解析，请检查括号与运算符';
+  }
+  return english ? 'Calculation failed' : '计算失败';
 }
 
 /** 输入提示（界面占位符与说明共用一份文案）。 */

@@ -8,6 +8,8 @@
  * 本文件不导入 `@kit.*`、不使用 UI 装饰器。
  */
 
+import { utf8Bytes } from './EncodingTools';
+
 /** 骰子颗数选项（界面下拉框直接用它）。 */
 export const DICE_COUNTS: number[] = [1, 2, 3, 4, 5];
 /** 骰子面数选项（D4–D20，跑团常用；默认 6 面）。 */
@@ -21,12 +23,65 @@ export const GROUP_COUNTS: number[] = [2, 3, 4, 5, 6, 8, 10];
 /** 每组人数选项（「按每组人数分组」用；最后一组可能少于设定人数）。 */
 export const GROUP_SIZES: number[] = [2, 3, 4, 5, 6, 8, 10];
 
+/**
+ * 当前候选数下**真正可选**的分组组数：不超过候选数（2 个候选最多分 2 组）。
+ *
+ * 界面此前把 `GROUP_COUNTS` 整张表都列出来，用户能从 3 个候选里选「10 组」、点下去才报错
+ * （2026-10-20 审计 §3.24⑥）。候选不足 2 个时返回空数组（此时根本没法分组）。
+ */
+export function groupCountChoices(candidateCount: number): number[] {
+  if (!Number.isFinite(candidateCount) || candidateCount < 2) { return []; }
+  return GROUP_COUNTS.filter((count: number): boolean => count <= candidateCount);
+}
+
+/** 当前候选数下真正可选的「每组人数」：2 ≤ 人数 ≤ 候选数。候选不足 2 个时返回空数组。 */
+export function groupSizeChoices(candidateCount: number): number[] {
+  if (!Number.isFinite(candidateCount) || candidateCount < 2) { return []; }
+  return GROUP_SIZES.filter((size: number): boolean => size <= candidateCount);
+}
+
+/** 从候选中挑一个仍可用的值；都不行时返回 `fallback`（避免选中的选项从下拉里消失）。 */
+export function nearestChoice(choices: number[], preferred: number, fallback: number): number {
+  if (choices.length === 0) { return fallback; }
+  if (choices.indexOf(preferred) >= 0) { return preferred; }
+  // 取不超过 preferred 的最大项，没有则取最小项。
+  let best: number = choices[0];
+  for (let index: number = 0; index < choices.length; index++) {
+    if (choices[index] <= preferred) { best = choices[index]; }
+  }
+  return best;
+}
+
 /** 函数守卫用的上限（与界面登记表的上限解耦：登记表可以更小）。 */
 export const MAX_DRAW_ITEMS: number = 100;
 /** 加权抽取的权重上限（超过按无权重处理）。 */
 export const MAX_WEIGHT: number = 1000;
 /** 骰子加值上限（绝对值）。 */
 export const MAX_DICE_MODIFIER: number = 100;
+/**
+ * 名单候选数上限。
+ *
+ * 名单每次动作都会整串 `split` + Set 去重（抽取/排序/分组各调一次，部分路径两次），
+ * 数万行的粘贴会在点击时明显卡顿且没有任何提示。超过上限就让页面拒绝这次动作并说清原因
+ * （2026-10-20 审计 P1「输入护栏各自为政」）。
+ */
+export const MAX_CANDIDATES: number = 5000;
+
+/**
+ * 候选数是否在上限内。只做 `split` + 非空计数（不建 Set），因此比 `candidates()` 便宜，
+ * 适合在动作入口做守卫；重复项由后续 `candidates()` 去重，不影响这里的判断。
+ */
+export function candidatesWithinLimit(value: string): boolean {
+  if (value.length === 0) { return true; }
+  const parts: string[] = value.split(CANDIDATE_SEPARATORS);
+  let count: number = 0;
+  for (let index: number = 0; index < parts.length; index++) {
+    if (parts[index].trim().length === 0) { continue; }
+    count++;
+    if (count > MAX_CANDIDATES) { return false; }
+  }
+  return true;
+}
 
 /** 随机页里「多个选项里选一项」的登记项（方式 / 分组方式 / 抽取方式共用）。 */
 export class RandomOption {
@@ -132,6 +187,49 @@ export function chooseCandidate(value: string, draw: number): string | undefined
   return index === undefined ? undefined : items[index];
 }
 
+/**
+ * 可复现的伪随机源（xorshift32）。
+ *
+ * **不是密码学安全的随机数**：它只用于「同一个种子 + 同一批输入 → 同一个结果」这种可复现场景
+ * （抽奖留证、教学演示、回归测试），界面必须如实说明，不要用它生成密码/令牌。
+ *
+ * 用法：每次动作**新建**一个源，因此同一个种子会给出同一串结果（这正是「可复现」的含义）；
+ * 需要一个动作内部连续多个随机数时，复用同一个源产生的闭包。
+ */
+export function seededDraws(seed: number): () => number {
+  // 0 是 xorshift 的不动点，映射到一个固定非零值；其余按 32 位无符号夹取。
+  let state: number = (Math.floor(Math.abs(seed)) >>> 0) || 0x9e3779b9;
+  return (): number => {
+    state ^= state << 13; state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5; state >>>= 0;
+    return state / 4294967296;
+  };
+}
+
+/**
+ * 任意文本 → 32 位种子（**标准 FNV-1a**：offset basis `0x811c9dc5`、prime `0x01000193`，逐**字节**异或再乘）。
+ *
+ * 允许用户直接输入「关键词」当种子（比记一串数字友好）。哈希对象是**文本的 UTF-8 字节**（复用 `utf8Bytes`），
+ * 与 `HashTools` 同一口径；**不能**只取 `charCodeAt & 0xff`——那会让只在高字节上不同的字符恒得同一种子
+ * （实测 `'中'` 与 `'-'` 曾给出同一个 671913016）。乘法必须用 `Math.imul` 做**精确 32 位**乘法：
+ * 32 位 hash × 24 位 prime ≈ 2^56 已超过 `2^53`，用普通 `*` 会**丢低位**，实测种子按 `% 16` 分桶严重不均
+ * （χ² ≈ 23199，期望每桶 625 却出现 219–3509）；改用 `Math.imul` 后分桶恢复均匀（16000 个关键词实测 χ² ≈ 3.96）。
+ *
+ * 空串（以及任何哈希结果恰好为 0 的输入）都是**确定的**：空串得到 offset basis `0x811c9dc5`，
+ * 结果为 0 时兜底成 1（xorshift 的 0 是不动点），因此空输入同样可复现。
+ */
+export function seedFromText(text: string): number {
+  let hash: number = 0x811c9dc5;
+  const bytes: number[] = utf8Bytes(text);
+  for (let index: number = 0; index < bytes.length; index++) {
+    hash ^= bytes[index];
+    hash = Math.imul(hash, 0x01000193);
+  }
+  const unsigned: number = hash >>> 0;
+  return unsigned === 0 ? 1 : unsigned;
+}
+
 /** 把 `Math.random()` 一类的 [0,1) 取值换成 0..bound-1 的下标；非法输入夹取到边界。 */
 export function indexFromDraw(draw: number, bound: number): number {
   if (!Number.isInteger(bound) || bound < 1) { return 0; }
@@ -231,6 +329,95 @@ export function parseDiceModifier(text: string): number | undefined {
   return value;
 }
 
+/** 骰子记法解析结果（颗数 / 面数 / 加值）。 */
+export class DiceSpec {
+  count: number = 1;
+  sides: number = 6;
+  modifier: number = 0;
+}
+
+/**
+ * 解析骰子记法 `2d6+3`（2026-10-20 审计 §3.24「骰子记法输入」）。
+ *
+ * 规则：`d`/`D` 均可、颗数可省略（`d6` = 1 颗）、加值可省略或带 `+`/`-`；
+ * **面数必须是登记表 `DICE_SIDES` 里的一项**（与掷骰函数同一口径，避免出现「能输入不能掷」），
+ * 颗数 1–5、加值绝对值 ≤ `MAX_DICE_MODIFIER`。任何不符合的输入返回 `undefined`（界面拒绝并给提示，
+ * 不猜、不静默取默认值）。
+ */
+export function parseDiceNotation(text: string): DiceSpec | undefined {
+  const trimmed: string = text.trim().toLowerCase();
+  const match: RegExpMatchArray | null = trimmed.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+  if (match === null) { return undefined; }
+  const count: number = match[1].length === 0 ? 1 : Number(match[1]);
+  const sides: number = Number(match[2]);
+  const modifier: number = match[3] === undefined ? 0 : Number(match[3]);
+  if (!Number.isInteger(count) || count < 1 || count > DICE_COUNTS[DICE_COUNTS.length - 1]) { return undefined; }
+  if (DICE_SIDES.indexOf(sides) < 0) { return undefined; }
+  if (!Number.isFinite(modifier) || Math.abs(modifier) > MAX_DICE_MODIFIER) { return undefined; }
+  const spec: DiceSpec = new DiceSpec();
+  spec.count = count;
+  spec.sides = sides;
+  spec.modifier = modifier;
+  return spec;
+}
+
+/**
+ * 多轮不重复抽奖（2026-10-20 审计 §3.24）：把「已经抽出来过的名字」记在外部集合里。
+ *
+ * 口径：按**名字**去重（不是下标）——同一份名单重新排序或改行数后，已抽过的名字仍然不会被再抽到；
+ * 名字不在当前名单里的历史记录不影响抽取（用户改了名单也不用重置）。
+ */
+export function remainingCandidates(candidates: string[], used: string[]): string[] {
+  if (used.length === 0) { return candidates.slice(); }
+  return candidates.filter((name: string): boolean => used.indexOf(name) < 0);
+}
+
+/** 把本轮抽中的名字并入已抽集合（去重、保持先后顺序）。 */
+export function mergeDrawn(used: string[], drawn: string[]): string[] {
+  const merged: string[] = used.slice();
+  for (const name of drawn) {
+    if (merged.indexOf(name) < 0) { merged.push(name); }
+  }
+  return merged;
+}
+
+/**
+ * 过滤掉「已抽过」的候选项，**保留原始 token 文本**。
+ *
+ * 加权模式的候选是 `名称*权重`，不能只用名字回填（会丢掉权重）；因此这里按名字判断、原样保留该 token，
+ * 再用与输入同一套分隔符（换行/逗号/分号）重新拼回文本，交给下游的 `chooseCandidate()` /
+ * `drawCandidates()` / `drawWeightedCandidates()`——它们本来就用同一个 `CANDIDATE_SEPARATORS` 解析，
+ * 所以拼接后语义不变（2026-10-20 审计 §3.24「多轮不重复抽奖」）。
+ */
+export function remainingCandidateTokens(value: string, used: string[]): string {
+  if (used.length === 0) { return value; }
+  const kept: string[] = [];
+  for (const token of value.split(CANDIDATE_SEPARATORS)) {
+    const trimmed: string = token.trim();
+    if (trimmed.length === 0) { continue; }
+    const star: number = trimmed.indexOf('*');
+    const name: string = star > 0 ? trimmed.substring(0, star).trim() : trimmed;
+    if (used.indexOf(name) < 0) { kept.push(trimmed); }
+  }
+  return kept.join('\n');
+}
+
+/** 多轮抽取的进度文案：`已抽 3 / 共 10，还剩 7`；没有候选时返回空串。 */
+export function poolProgressText(total: number, used: number, english: boolean): string {
+  if (total <= 0) { return ''; }
+  const remaining: number = total - used > 0 ? total - used : 0;
+  return english
+    ? 'Drawn ' + used.toString() + ' / ' + total.toString() + ', ' + remaining.toString() + ' left'
+    : '已抽 ' + used.toString() + ' / 共 ' + total.toString() + '，还剩 ' + remaining.toString();
+}
+
+/** 一轮抽完（剩余候选为 0）时的提示；未抽完返回空串。 */
+export function poolExhaustedText(remaining: number, english: boolean): string {
+  if (remaining > 0) { return ''; }
+  return english ? 'Everyone has been drawn — reset to start a new round'
+    : '所有人都抽过了——重置后可开始新一轮';
+}
+
 /** 骰子记法：`2d6+3` / `1d20` / `2d6-1` / `2d6`（加值为 0 时不带符号）。 */
 export function diceNotationText(count: number, sides: number, modifier: number): string {
   const base: string = count.toString() + 'd' + sides.toString();
@@ -295,9 +482,21 @@ export function parseWeightedCandidates(value: string): WeightedItem[] {
 }
 
 /**
+ * `draw()` 取值的上界夹取：`[0,1]` 之外的输入视为 `1 - Number.EPSILON`。
+ *
+ * 用 `Number.EPSILON`（相对误差 2.2e-16）而不是 `0.999999999`（相对误差 1e-9）：乘以任何有限的
+ * 权重总和都严格小于总和，因此**最后一个桶一定能被选中**，同时与 1 的差距小到不影响均匀性
+ * （2026-10-20 审计 §3.24④ 之前是一个没有出处、也没被复用的魔法常量）。
+ */
+export function clampDrawFraction(raw: number): number {
+  if (!Number.isFinite(raw) || raw < 0) { return 0; }
+  return raw >= 1 ? 1 - Number.EPSILON : raw;
+}
+
+/**
  * 按权重不重复抽取 `count` 名：每次在**剩余项**上按权重累计抽一个、抽中即移出池子。
  *
- * `draw()` 的结果夹取到 [0,1)（NaN 视作 0，与 `indexFromDraw` 同口径）。
+ * `draw()` 的结果经 `clampDrawFraction()` 夹取到 [0,1)（NaN/负数视作 0，与 `indexFromDraw` 同口径）。
  * 候选为空、`count` 不是 1..min(100, 候选数) 的整数时返回 `undefined`。
  */
 export function drawWeightedCandidates(value: string, count: number,
@@ -313,8 +512,7 @@ export function drawWeightedCandidates(value: string, count: number,
     let total: number = 0;
     pool.forEach((item: WeightedItem) => { total += item.weight; });
     if (total <= 0) { return undefined; }
-    const raw: number = draw();
-    const fraction: number = !Number.isFinite(raw) ? 0 : (raw < 0 ? 0 : (raw >= 1 ? 0.999999999 : raw));
+    const fraction: number = clampDrawFraction(draw());
     let threshold: number = fraction * total;
     let chosen: number = pool.length - 1;
     for (let index: number = 0; index < pool.length; index++) {

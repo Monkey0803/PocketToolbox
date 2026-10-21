@@ -10,7 +10,7 @@ import { QrPayload, QrKindEntry, QR_KINDS, WifiSecurityEntry, WIFI_SECURITIES,
   mailPayload, geoPayload } from '../model/QrContent';
 import { makeQr, scanQr, saveQr, shareQr, decodeCodeFromImage } from '../services/SystemTools';
 import { QrLevelEntry, QR_LEVELS, QrColorEntry, QR_COLORS, DEFAULT_QR_LEVEL, DEFAULT_QR_COLOR,
-  qrLevelIndex, qrLevelLabel, qrColorIndex, qrColorLabel } from '../model/QrStyle';
+  qrLevelIndex, qrLevelLabel, qrColorIndex, qrColorLabel, qrCapacityErrorText } from '../model/QrStyle';
 
 /** 输入字段的双语文案与占位符（常量登记表，界面按字段 id 现取）。 */
 class QrFieldSpec {
@@ -193,6 +193,15 @@ export struct QrPage {
       this.onStatus(errorText(payload.error, this.english));
       return;
     }
+    // 容量预校验：超长内容交给生成器只会得到「生成失败，请在真机重试」，用户不知道是内容太长
+    // （2026-10-20 审计 §3.1 新增项）。这里先说清字节数与上限，并且**不再调用生成器**。
+    const tooLong: string = qrCapacityErrorText(payload.text, this.qrLevel, this.english);
+    if (tooLong.length > 0) {
+      this.qrPixel = undefined;
+      this.qrResult = '';
+      this.onStatus(tooLong);
+      return;
+    }
     try {
       this.qrPixel = await makeQr(payload.text, this.qrLevel, this.qrColor);
       this.qrResult = payload.text;
@@ -303,7 +312,14 @@ export struct QrPage {
         selectedIndex: this.kindIndex,
         selectedText: this.english ? this.currentKind().en : this.currentKind().zh,
         a11yText: this.tr('二维码内容类型', 'QR content type'),
-        onSelected: (index: number): void => { this.kindIndex = index; }
+        // 换内容类型必须**清掉上一次的结果**：否则选「电话」后仍显示上一个网址的码图与文本，
+        // 用户可能照着旧码分享（2026-10-20 审计 §3.1①）。条码页早就是正确口径。
+        onSelected: (index: number): void => {
+          if (index === this.kindIndex) { return; }
+          this.kindIndex = index;
+          this.qrPixel = undefined;
+          this.qrResult = '';
+        }
       })
       this.kindFields()
       // 生成选项：容错等级越高越抗污损（也适合以后加 Logo），等级与码色都来自纯逻辑登记表。

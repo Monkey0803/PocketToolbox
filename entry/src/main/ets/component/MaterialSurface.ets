@@ -1,5 +1,6 @@
 import { uiMaterial } from '@kit.ArkUI';
 import { buildImmersiveMaterial } from '../model/Materials';
+import { ToolPalette } from '../model/ToolPalette';
 
 /**
  * 带退化底色的沉浸式材质容器。
@@ -17,8 +18,9 @@ import { buildImmersiveMaterial } from '../model/Materials';
 export struct MaterialSurface {
   @Param supported: boolean = false;
   @Param level: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
-  // 退化底色：接受颜色资源（浅色/深色各一份），因此深色模式下无需调用方改动。
-  @Param fallback: ResourceColor = '#FFFFFF';
+  // 退化底色：默认取色板里的表面色（浅色/深色各一份资源），**不要写死 `'#FFFFFF'`**——
+  // 材质不可用时深色模式会露出纯白底（2026-10-20 审计 §3.27）。调用方仍可显式传其它色。
+  @Param fallback: ResourceColor = ToolPalette.surface;
   @Param corner: number = 16;
   @Param interactive: boolean = false;
   @Param lightEffect: boolean = false;

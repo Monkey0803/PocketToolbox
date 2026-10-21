@@ -2,11 +2,11 @@ import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { TextStats, textStats, trimLines, collapseSpaces, removeBlankLines, joinLines,
-  uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase } from '../model/TextTools';
+import { TextStats, TEXT_INPUT_MAX, textInputTooLong, textStats, trimLines, collapseSpaces, removeBlankLines,
+  joinLines, uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase } from '../model/TextTools';
 import { CodecResult, base64Encode, base64Decode, urlEncode, urlDecode, codecErrorText } from '../model/EncodingTools';
 import { md5, sha1, sha256 } from '../model/HashTools';
-import { MorseDecodeResult, morseEncodeText, morseDecodeText } from '../model/TorchSignal';
+import { MORSE_TEXT_MAX, MorseDecodeResult, morseEncodeText, morseDecodeText } from '../model/TorchSignal';
 
 /**
  * 文本统计与整理页。
@@ -163,6 +163,11 @@ export struct TextPage {
   /** 摩尔斯编码：输入里一个 A–Z/0–9 都没有时不写结果卡，给一次性提示。 */
   private runMorseEncode(): void {
     if (this.textInput.length === 0) { return; }
+    // 编码侧只取前 `MORSE_TEXT_MAX` 个字符；超长时先说清「是截断」而不是「没有可编码字符」（审计 P1）。
+    if (this.textInput.length > MORSE_TEXT_MAX) {
+      this.onStatus(this.tr('输入过长，只编码前 ' + MORSE_TEXT_MAX + ' 个字符',
+        'Input truncated to the first ' + MORSE_TEXT_MAX + ' characters'));
+    }
     const encoded: string = morseEncodeText(this.textInput);
     if (encoded.length === 0) {
       this.onStatus(this.tr('没有可编码的字符（摩尔斯只支持 A–Z 与 0–9）',
@@ -181,19 +186,39 @@ export struct TextPage {
       return;
     }
     this.textOutput = result.text;
-    if (result.unknown > 0) {
+    if (result.truncated) {
+      this.onStatus(this.tr('输入过长，只解码前 ' + MORSE_TEXT_MAX + ' 个字符',
+        'Input truncated to the first ' + MORSE_TEXT_MAX + ' characters'));
+    } else if (result.unknown > 0) {
       this.onStatus(this.tr('已忽略 ' + result.unknown + ' 个无法识别的记号，其余已解码',
         'Ignored ' + result.unknown + ' unrecognized tokens; the rest was decoded'));
     }
   }
 
+  /**
+   * 超过 `TEXT_INPUT_MAX` 时**拒绝本次动作并说明上限**，不静默处理。
+   *
+   * 此前 `textInputTooLong()` 被 import 却从未调用（第 25 轮自查发现），等于上限形同虚设：
+   * 粘进十几万字会照样跑完全部整理/编码（大文本上明显卡顿），用户也得不到任何解释。
+   */
+  private rejectIfTooLong(): boolean {
+    if (!textInputTooLong(this.textInput)) { return false; }
+    this.onStatus(this.tr('输入过长：最多处理 ' + TEXT_INPUT_MAX + ' 个字符（当前 ' +
+      this.textInput.length + ' 个），请先裁剪或分批处理',
+      'Input too long: up to ' + TEXT_INPUT_MAX + ' characters (currently ' + this.textInput.length +
+        '); trim it or split it up'));
+    return true;
+  }
+
   private runAction(apply: (value: string) => string): void {
     if (this.textInput.length === 0) { return; }
+    if (this.rejectIfTooLong()) { return; }
     this.textOutput = apply(this.textInput);
   }
 
   private runCodec(decode: (value: string) => CodecResult): void {
     if (this.textInput.length === 0) { return; }
+    if (this.rejectIfTooLong()) { return; }
     const result: CodecResult = decode(this.textInput);
     if (!result.ok) {
       this.onStatus(codecErrorText(result.error, this.english));

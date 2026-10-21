@@ -13,7 +13,7 @@
  *
  * 用法：
  *   node tools/build-hap.mjs                   # assembleHap --mode module -p product=default
- *   node tools/build-hap.mjs --tests           # 构建后顺带跑纯逻辑单测
+ *   node tools/build-hap.mjs --tests           # 构建后顺带跑一致性检查 + 纯逻辑单测
  *   node tools/build-hap.mjs --xmx 512         # 放宽堆上限（内存充裕时）
  *   node tools/build-hap.mjs clean             # 其余参数原样透传给 hvigor
  *
@@ -126,8 +126,34 @@ if ((build.status ?? 1) !== 0) {
 }
 
 if (WITH_TESTS) {
+  // 先跑静态一致性检查（色板/包名/权限/卡片尺寸等配置漂移），再跑纯逻辑单测。
+  const consistency = spawnSync(process.execPath, ['tests/check-consistency.mjs'],
+    { cwd: ROOT, env, stdio: 'inherit' });
+  if ((consistency.status ?? 1) !== 0) {
+    console.error('\n一致性检查未通过，跳过单测。');
+    process.exit(consistency.status ?? 1);
+  }
   const tests = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'tests/run-unit-tests.mjs'],
     { cwd: ROOT, env, stdio: 'inherit' });
-  process.exit(tests.status ?? 1);
+  if ((tests.status ?? 1) !== 0) { process.exit(tests.status ?? 1); }
+  // 逐函数覆盖检查（第 39 轮新增）：模块级覆盖会骗人——444 个导出函数里曾有 13 个从未被测试提过。
+  // 它刻意宽松（只看名字是否出现），因此噪音低、新增导出函数漏测时会立刻红。
+  const coverage = spawnSync(process.execPath,
+    ['--disable-warning=ExperimentalWarning', 'tests/check-test-coverage.mjs'],
+    { cwd: ROOT, env, stdio: 'inherit' });
+  if ((coverage.status ?? 1) !== 0) { process.exit(coverage.status ?? 1); }
+  // HMSymbol 图标名校验（第 45 轮新增）：图标名写错**不会编译失败、只会静默不显示**，
+  // 因此拿 SDK 的 `id_defined.json`（7840 个名字）逐个核对源码里的 `sys.symbol.*`。
+  // 找不到 SDK 时它只提示跳过（不阻塞没有 DevEco 的机器）。
+  const symbols = spawnSync(process.execPath,
+    ['--disable-warning=ExperimentalWarning', 'tests/check-symbol-names.mjs'],
+    { cwd: ROOT, env, stdio: 'inherit' });
+  if ((symbols.status ?? 1) !== 0) { process.exit(symbols.status ?? 1); }
+  // 探针装载器（`tests/probe.mjs`）自己的自检：它只在排查时用，但坏掉会让后续探针得出错误结论，
+  // 因此跟单测一起跑（第 28 轮新增，代价只有几百毫秒）。
+  const probeHarness = spawnSync(process.execPath,
+    ['--disable-warning=ExperimentalWarning', 'tests/check-probe-harness.mjs'],
+    { cwd: ROOT, env, stdio: 'inherit' });
+  process.exit(probeHarness.status ?? 1);
 }
 console.log('\n产物：entry/build/default/outputs/default/entry-default-signed.hap');

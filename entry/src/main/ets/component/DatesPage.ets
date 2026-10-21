@@ -4,16 +4,19 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+import { parseIntegerInput } from '../model/Units';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt, calendarInfo,
   workingDaysBetweenWithHolidays, shiftDate, countdownAt, constellationAt, constellationRangeText,
+  workingDaysSpanErrorText,
   timeTextOf, timeSpanBetween, timeSpanText,
   CalendarSpan, AgeResult, CalendarInfo, CountdownInfo, TimeSpan,
   Constellation, DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
 import { LunarDate, lunarDateText } from '../model/LunarTools';
-import { HolidayTable } from '../model/HolidayIcs';
+import { HolidayTable, holidayTruncationNote } from '../model/HolidayIcs';
 import { lunarOf } from '../services/LunarCalendar';
-import { loadHolidayTable } from '../services/HolidayData';
+import { loadHolidayTable, holidayDataDownloaded } from '../services/HolidayData';
+import { holidayCoverageText } from '../model/HolidayIcs';
 
 const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -46,12 +49,22 @@ export struct DatesPage {
   @Local lunarDate: LunarDate | undefined = undefined;
   @Local holidayTable: HolidayTable = new HolidayTable();
   @Local holidayUpdatedAt: string = '';
+  /** 数据是否来自在线更新（决定「随应用内置 / 已在线更新」的标注）。 */
+  @Local holidayDownloaded: boolean = false;
+  /** 数据是否已载入完成（载入前不宣称「仅排除周末」，避免短暂显示错误的结论）。 */
+  @Local holidayLoaded: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
   // 只给日期选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
+  /**
+   * 系统选择器对话框的材质：**只读光感，不要触控形变**。
+   *
+   * `interactive` 是给应用内的输入/可点表面用的（触控时形变），对话框的交互由系统负责，
+   * 传 `interactive: true` 属于把两种语义混用（2026-10-20 审计 §3.27）。因此固定传 `(false, true)`。
+   */
+  private dialogMaterial(): uiMaterial.Material | undefined {
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, false, true);
   }
 
   aboutToAppear(): void {
@@ -73,6 +86,14 @@ export struct DatesPage {
       this.holidayTable = new HolidayTable();
     }
     this.holidayUpdatedAt = this.holidayTable.dataDate;
+    // 数据来源要如实：点过「检查更新」之后沙箱里就是下载来的数据，不能再写「随应用内置」
+    // （2026-10-20 审计 §3.13①）。
+    try {
+      this.holidayDownloaded = holidayDataDownloaded(this.ctx());
+    } catch (_) {
+      this.holidayDownloaded = false;
+    }
+    this.holidayLoaded = true;
   }
 
   private lunarText(): string {
@@ -118,8 +139,9 @@ export struct DatesPage {
   }
 
   private shiftedDate(): string {
-    const raw: string = this.dayOffset.trim();
-    const result: string | undefined = raw ? this.shiftResult(Number(raw)) : undefined;
+    // 只收十进制整数：`Number('0x10')` 会静默变成 16 天，而文案承诺的是「整数数量」
+    const amount: number | undefined = parseIntegerInput(this.dayOffset);
+    const result: string | undefined = amount === undefined ? undefined : this.shiftResult(amount);
     return result ?? this.tr('请输入有效日期和该单位允许范围内的整数数量',
       'Enter a valid date and a whole count within the range of this unit');
   }
@@ -129,8 +151,8 @@ export struct DatesPage {
   }
 
   private shiftPossible(): boolean {
-    const raw: string = this.dayOffset.trim();
-    return raw.length > 0 && this.shiftResult(Number(raw)) !== undefined;
+    const amount: number | undefined = parseIntegerInput(this.dayOffset);
+    return amount !== undefined && this.shiftResult(amount) !== undefined;
   }
 
   private shiftUnitOptions(): SelectOption[] {
@@ -223,7 +245,16 @@ export struct DatesPage {
       'Day ' + info.dayOfYear + ' of the year · ISO week ' + info.isoWeek + ' of ' + info.isoWeekYear);
   }
 
+  /** 数据覆盖的年份文案（「覆盖年份：2022–2026」）；无数据为空串。 */
+  private holidayCoverage(): string {
+    return holidayCoverageText(this.holidayTable, this.english);
+  }
+
   private workdaysText(): string {
+    // 「区间过长」与「日期非法」要分开说：前者是护栏（逐日循环的上限），后者是输入问题（§3.13③）。
+    const spanError: string =
+      workingDaysSpanErrorText(this.firstDate.trim(), this.secondDate.trim(), this.english);
+    if (spanError.length > 0) { return spanError; }
     const days: number | undefined = workingDaysBetweenWithHolidays(this.firstDate.trim(), this.secondDate.trim(),
       this.dateIncludeFirst, this.holidayTable.holidays, this.holidayTable.workdays);
     if (days === undefined) { return this.tr('请输入有效日期', 'Enter a valid date'); }
@@ -248,7 +279,7 @@ export struct DatesPage {
     try {
       this.getUIContext().showDatePickerDialog({
         selected: selected === undefined ? new Date() : selected,
-        systemMaterial: this.immersiveMaterial(true),
+        systemMaterial: this.dialogMaterial(),
         onDateAccept: (value: Date) => {
           const text: string = pickerDateText(value);
           if (kind === 'first') { this.firstDate = text; this.refreshLunar(); } else { this.secondDate = text; }
@@ -273,7 +304,7 @@ export struct DatesPage {
         format: TimePickerFormat.HOUR_MINUTE_SECOND,
         useMilitaryTime: true,
         enableCascade: false,
-        systemMaterial: this.immersiveMaterial(true),
+        systemMaterial: this.dialogMaterial(),
         onAccept: (value: TimePickerResult) => {
           const text: string = timeTextOf(value.hour, value.minute, value.second);
           if (kind === 'first') { this.firstTime = text; } else { this.secondTime = text; }
@@ -411,14 +442,32 @@ export struct DatesPage {
     })
   }
 
-  // 节假日数据随包内置（构建期生成，见 tools/fetch-holidays.mjs），运行时不再联网，
-  // 因此这里只如实标注数据日期与口径，没有更新入口。
+  // 节假日数据来源如实标注：随包内置 / 用户在线更新（§3.13①）；载入完成前不宣称「仅排除周末」（§3.13②）。
   @Builder private holidayInfo() {
-    Text(this.holidayTable.loaded && this.holidayUpdatedAt !== '' ?
-      this.tr('节假日数据 ' + this.holidayUpdatedAt + ' · 随应用内置',
-        'Holiday data ' + this.holidayUpdatedAt + ' · bundled with the app') :
-      this.tr('暂无节假日数据，工作日仅排除周末', 'No holiday data; only weekends excluded'))
-      .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+    Column({ space: 4 }) {
+      if (!this.holidayLoaded) {
+        Text(this.tr('正在载入节假日数据…', 'Loading holiday data…'))
+          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      } else if (this.holidayTable.loaded && this.holidayUpdatedAt !== '') {
+        Text(this.holidayDownloaded ?
+          this.tr('节假日数据 ' + this.holidayUpdatedAt + ' · 已在线更新',
+            'Holiday data ' + this.holidayUpdatedAt + ' · updated online') :
+          this.tr('节假日数据 ' + this.holidayUpdatedAt + ' · 随应用内置',
+            'Holiday data ' + this.holidayUpdatedAt + ' · bundled with the app'))
+          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      } else {
+        Text(this.tr('暂无节假日数据，工作日仅排除周末', 'No holiday data; only weekends excluded'))
+          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      }
+      // 覆盖年份要说出来：查的年份不在范围内时只排除周末，不说明会让人以为算错了（§3.13 新增项）。
+      if (this.holidayCoverage().length > 0) {
+        Text(this.holidayCoverage()).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      }
+      if (holidayTruncationNote(this.holidayTable, this.english).length > 0) {
+        Text(holidayTruncationNote(this.holidayTable, this.english))
+          .fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      }
+    }.width('100%')
   }
 
   @Builder private includeFirstToggle() {

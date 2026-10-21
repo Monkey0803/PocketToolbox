@@ -3,6 +3,13 @@
 // https://fgk.chinatax.gov.cn/zcfgk/c100015/c5200946/content.html
 // https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202364/content.html
 // 年终奖单独计税口径与政策有效期复核日期：2026-10-20
+/**
+ * 政策复核日期（`YYYY-MM-DD`）。
+ *
+ * 界面上必须显示这个日期：个税规则会随政策变，用户有权知道本工具是按哪天的规则算的
+ * （2026-10-20 审计 §3.8）。改规则时**同步改这里**，不要只写在注释里。
+ */
+export const TAX_RULES_REVIEWED: string = '2026-10-12';
 /** 计税类型登记表：界面选项行与计算分支都用它，新增类型只需加登记项。 */
 export class TaxKindEntry {
   readonly id: string;
@@ -112,6 +119,19 @@ function annualRate(taxableCents: number): number {
   return ANNUAL_RATES[bracket(taxableCents, ANNUAL_LIMITS)];
 }
 
+/**
+ * 「适用税率」：**应税额为 0 时返回 0**，不再返回所在档的 3%。
+ *
+ * 2026-10-20 第 40 轮发现：`annualRate(0)` 会返回最低档的 3%，于是「累计应税额 0.00 / 适用税率 3% /
+ * 个税 0.00」同屏出现——税率行是**无条件渲染**的，用户会以为自己按 3% 计税。0 应税额下没有任何
+ * 税率被适用，显示 0% 才与「个税 0.00」一致（按项目「如实标注」的口径）。
+ * 判据只留这一处，`wageTax`/`severanceTax`/`oneOffTax`/`bonusTax` 都走它。
+ */
+function applicableRate(taxableCents: number, rates: number[], limits: number[]): number {
+  if (taxableCents <= 0) { return 0; }
+  return rates[bracket(taxableCents, limits)];
+}
+
 export function wageTax(input: WageInput): TaxResult | undefined {
   const amounts: number[] = [input.grossCents, input.previousGrossCents, input.previousContributionCents,
     input.previousSpecialCents, input.previousPensionCents, input.previousOtherCents, input.previousTaxCents,
@@ -133,7 +153,7 @@ export function wageTax(input: WageInput): TaxResult | undefined {
     result.specialCents - input.previousPensionCents - input.pensionCents -
     input.previousOtherCents - input.otherCents;
   result.taxableCents = Math.max(0, cumulativeTaxable);
-  result.ratePercent = annualRate(result.taxableCents);
+  result.ratePercent = applicableRate(result.taxableCents, ANNUAL_RATES, ANNUAL_LIMITS);
   result.taxCents = Math.max(0, annualTax(result.taxableCents) - input.previousTaxCents);
   result.netCents = input.grossCents - result.contributionCents - result.taxCents;
   return result;
@@ -152,10 +172,11 @@ export function oneOffTax(kind: string, grossCents: number): TaxResult | undefin
   result.taxableCents = kind === 'manuscript' ? Math.round(incomeCents * 0.7) : incomeCents;
   if (kind === 'labor') {
     const index: number = bracket(result.taxableCents, LABOR_LIMITS);
-    result.ratePercent = LABOR_RATES[index];
+    result.ratePercent = applicableRate(result.taxableCents, LABOR_RATES, LABOR_LIMITS);
     result.taxCents = Math.max(0, Math.round(result.taxableCents * result.ratePercent / 100) - LABOR_QUICK[index]);
   } else {
-    result.ratePercent = 20;
+    // 稿酬/特许权：固定 20% 的「收入额」口径，应税额为 0 时不适用（与其它分支同一口径）
+    result.ratePercent = result.taxableCents > 0 ? 20 : 0;
     result.taxCents = Math.round(result.taxableCents * 0.2);
   }
   result.netCents = grossCents - result.taxCents;
@@ -170,7 +191,7 @@ export function severanceTax(grossCents: number, localMonthlyAverageCents: numbe
   result.grossCents = grossCents;
   result.otherCents = Math.min(grossCents, localMonthlyAverageCents * 36);
   result.taxableCents = grossCents - result.otherCents;
-  result.ratePercent = annualRate(result.taxableCents);
+  result.ratePercent = applicableRate(result.taxableCents, ANNUAL_RATES, ANNUAL_LIMITS);
   result.taxCents = annualTax(result.taxableCents);
   result.netCents = grossCents - result.taxCents;
   return result;
@@ -213,6 +234,18 @@ export const BONUS_LIMITS: number[] = [300000, 1200000, 2500000, 3500000, 550000
 export const BONUS_RATES: number[] = [3, 10, 20, 25, 30, 35, 45];
 export const BONUS_QUICK: number[] = [0, 21000, 141000, 266000, 441000, 716000, 1516000];
 
+/**
+ * 年终奖按「奖金 ÷ 12」定档后的速算扣除数（单位：分）。
+ *
+ * 与 `bonusTax()` 共用 `bracket()` 与 `BONUS_QUICK`，因此**定档只有一处实现**：此前页面又自己写了一遍
+ * 定档循环，一旦税率表调整，界面显示的速算扣除数会与实际算税用的不一致（2026-10-20 审计 §3.8）。
+ * 非法或非正数返回 0。
+ */
+export function bonusQuickDeductionCents(grossCents: number): number {
+  if (!validMoney(grossCents) || grossCents <= 0) { return 0; }
+  return BONUS_QUICK[bracket(grossCents / 12, BONUS_LIMITS)];
+}
+
 /** 全年一次性奖金单独计税：先用奖金 ÷ 12 找到月度税率档，再按奖金全额算税。 */
 export function bonusTax(grossCents: number): TaxResult | undefined {
   if (!validMoney(grossCents) || grossCents <= 0) { return undefined; }
@@ -248,4 +281,22 @@ export function bonusNoteText(english: boolean): string {
   return english
     ? 'Separate taxation: bonus ÷ 12 sets the rate; the policy runs through 2027-12-31; this estimate is not a filed result.'
     : '单独计税：奖金 ÷ 12 定税率；政策执行至 2027-12-31；估算结果不是申报结果。';
+}
+
+/**
+ * 「税后反推」对某类一次性所得不可用时的**专属**说明；可用时返回空串（调用方自行回退到通用提示）。
+ *
+ * 2026-10-20 第 94 轮：`reverseOneOff()` **有意只支持劳务报酬与特许权使用费**（稿酬不在反推范围内，
+ * 单测里对接口范围有钉桩）。但页面上的「计算方向」选项行是按类型**无条件**渲染的，用户选「稿酬 +
+ * 税后反推」后只拿到 `undefined`，界面于是回退到那句**面向工资薪金**的提示（「请检查期数、各项金额和
+ * 比例；房贷与租金不可同时扣除，养老金全年不超过 12000 元」）——**指向了根本不存在的原因**。
+ * 这里把真实原因写成一句可执行的文案：不支持就改用「税前算税后」。
+ */
+export function reverseUnsupportedNoteText(kind: string, english: boolean): string {
+  if (kind === 'manuscript') {
+    return english
+      ? 'Net-to-gross is not available for manuscript income; use Gross to net instead.'
+      : '稿酬所得暂不支持「税后反推」，请改用「税前算税后」。';
+  }
+  return '';
 }

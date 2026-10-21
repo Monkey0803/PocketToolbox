@@ -39,22 +39,26 @@ export class HttpRequestSpec {
   maxRedirects: number = 0;
   /** 连接与读取超时（毫秒），默认 `DEFAULT_TIMEOUT_MS`。 */
   timeoutMs: number = DEFAULT_TIMEOUT_MS;
+  /** 截断提示行是否用英文（跟随界面语言；默认中文，与 `truncateLines` 的默认值一致）。 */
+  english: boolean = false;
 }
 
 /**
  * `GET` 请求的便捷构造：`HttpRequestSpec` 是**类**，调用点用 `new` 再逐字段赋值最稳妥
  * （ArkTS 对「类 + 对象字面量」的容忍度随版本变化，不要依赖它）。
  */
-export function httpGetSpec(url: string, timeoutMs: number, maxRedirects: number): HttpRequestSpec {
+export function httpGetSpec(url: string, timeoutMs: number, maxRedirects: number,
+  english: boolean = false): HttpRequestSpec {
   const spec: HttpRequestSpec = new HttpRequestSpec();
   spec.url = url;
   spec.method = 'GET';
   spec.timeoutMs = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
   spec.maxRedirects = maxRedirects > 0 ? Math.floor(maxRedirects) : 0;
+  spec.english = english;
   return spec;
 }
 
-/** 一次 HTTP 请求的结果。`error` 取值只可能是 `''`/`offline`/`timeout`/`http`/`invalid`/`parse`。 */
+/** 一次 HTTP 请求的结果。`error` 取值只可能是 `''`/`offline`/`timeout`/`http`/`invalid`/`https`/`parse`。 */
 export class HttpOutcome {
   /** 是否拿到响应；为 true 时 `error` 一定为空串。 */
   ok: boolean = false;
@@ -94,7 +98,7 @@ function requestHeaders(): Object {
 }
 
 /** 响应头（`Object`）→ `'Key: value'` 行数组；无法识别的值一律跳过，绝不抛异常。 */
-function headerLinesOf(header: Object | undefined): string[] {
+function headerLinesOf(header: Object | undefined, english: boolean): string[] {
   if (header === undefined || header === null) { return []; }
   const source: Record<string, Object> = header as Record<string, Object>;
   const keys: string[] = Object.keys(source);
@@ -108,7 +112,7 @@ function headerLinesOf(header: Object | undefined): string[] {
       lines.push(key + ': ' + value.toString());
     }
   }
-  return truncateLines(sortHeaderLines(lines), HEADER_MAX);
+  return truncateLines(sortHeaderLines(lines), HEADER_MAX, english);
 }
 
 /** 错误码 → 统一失败原因码（映射表见文件头注释）。 */
@@ -202,7 +206,9 @@ export async function httpRequest(spec: HttpRequestSpec): Promise<HttpOutcome> {
     return outcome;
   }
   if (target.toLowerCase().indexOf('https://') !== 0) {
-    outcome.error = 'invalid';
+    // 单独的 `https` 错误码：`http://`（或其它 scheme）被拒是**有意为之**，不是「输入无效」
+    // 那么笼统——界面要能说明「只支持 HTTPS、明文会被拒绝」（2026-10-20 审计 §3.22）。
+    outcome.error = target.toLowerCase().indexOf('http://') === 0 ? 'https' : 'invalid';
     return outcome;
   }
 
@@ -243,7 +249,7 @@ export async function httpRequest(spec: HttpRequestSpec): Promise<HttpOutcome> {
     outcome.status = response.responseCode;
     outcome.ok = true;
     outcome.error = '';
-    outcome.headerLines = headerLinesOf(response.header);
+    outcome.headerLines = headerLinesOf(response.header, spec.english);
     const raw: string | Object | ArrayBuffer = response.result;
     const text: string = typeof raw === 'string' ? raw : '';
     if (utf8ByteLength(text) > MAX_BODY_BYTES) {

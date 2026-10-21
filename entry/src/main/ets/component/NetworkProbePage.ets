@@ -5,14 +5,17 @@ import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { HostCheck, PortCheck, UrlParts, NetworkMode, NETWORK_MODES, networkModeIndex, normalizeHost,
   parsePort, parseUrlParts, urlPartLines, addressLines, netErrorText, HEADER_MAX,
-  DEFAULT_HTTPS_PORT } from '../model/NetworkTools';
+  DEFAULT_HTTPS_PORT, DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES } from '../model/NetworkTools';
 import { HttpOutcome, HttpRequestSpec, httpGetSpec, httpRequest } from '../services/HttpClient';
 import { DnsOutcome, PortOutcome, probeDns, probePort } from '../services/NetworkProbe';
 
 /** 响应体预览的字符上限（超出部分不展示，界面另行注明已截断）。 */
 const PREVIEW_CHARS: number = 500;
-/** 联网探测的统一超时（毫秒）：DNS / 端口 / HTTP 三种方式都取 5 秒（`DEFAULT_TIMEOUT_MS` 同值）。 */
-const PROBE_TIMEOUT_MS: number = 5000;
+/**
+ * 联网探测的统一超时（毫秒）**直接取模型里的默认值**：此前这里又写了一份 `5000`，
+ * 与 `NetworkTools.DEFAULT_TIMEOUT_MS` 重复定义，改一处另一处会漂移（2026-10-20 审计 §3.22）。
+ */
+const PROBE_TIMEOUT_MS: number = DEFAULT_TIMEOUT_MS;
 
 /**
  * 联网工具页（域名解析 / 端口连通 / 状态与响应头 / 网址分解）。
@@ -125,7 +128,14 @@ export struct NetworkProbePage {
     return this.dnsOutcome.elapsedMs;
   }
 
+  /**
+   * 耗时文案。
+   *
+   * **一次请求都没发出时不要显示「0 毫秒」**：能力缺失 / 参数为空这一类早退发生在计时之前，
+   * 显示 0 会让人以为「探测过了、只是很快」（2026-10-20 审计 §3.22）。只有真的跑过（>0）才显示。
+   */
   private elapsedText(millis: number): string {
+    if (!Number.isFinite(millis) || millis <= 0) { return this.tr('未执行', 'Not run'); }
     return millis.toString() + this.tr(' 毫秒', ' ms');
   }
 
@@ -209,7 +219,10 @@ export struct NetworkProbePage {
       const target: string = checked.host;
       const result: DnsOutcome = await probeDns(target);
       // 结果回来时输入可能已经改了：只有目标没变才落结果（否则界面会张冠李戴）。
-      if (this.dnsHost.trim() !== target) { return; }
+      // **必须比较「规范化后」的输入**：`normalizeHost()` 会转小写并去掉尾部的点，直接拿原始输入
+      // 与 `checked.host` 比会让 `EXAMPLE.COM` / `Example.com.` 永远不相等，探测发出后结果被
+      // 静默丢弃（2026-10-20 审计 P0）。
+      if (normalizeHost(this.dnsHost).host !== target) { return; }
       const fresh: DnsOutcome = new DnsOutcome();
       fresh.ok = result.ok;
       fresh.error = result.error;
@@ -243,7 +256,11 @@ export struct NetworkProbePage {
     try {
       const target: string = checked.host;
       const result: PortOutcome = await probePort(target, parsed.port, PROBE_TIMEOUT_MS);
-      if (this.portHost.trim() !== target || this.portText.trim() !== parsed.port.toString()) { return; }
+      // 同上：主机按规范化比较；端口按**解析后的数字**比较，否则输入 `0443` 这类前导零写法
+      // 会永远与 `parsed.port.toString()` 不等，结果同样被静默丢弃（2026-10-20 审计 P0）。
+      if (normalizeHost(this.portHost).host !== target || parsePort(this.portText).port !== parsed.port) {
+        return;
+      }
       const fresh: PortOutcome = new PortOutcome();
       fresh.ok = result.ok;
       fresh.error = result.error;
@@ -286,7 +303,7 @@ export struct NetworkProbePage {
     this.httpTruncated = false;
     this.httpError = '';
     try {
-      const spec: HttpRequestSpec = httpGetSpec(target, PROBE_TIMEOUT_MS, maxRedirects);
+      const spec: HttpRequestSpec = httpGetSpec(target, PROBE_TIMEOUT_MS, maxRedirects, this.english);
       const outcome: HttpOutcome = await httpRequest(spec);
       if (this.httpUrl.trim() !== target) { return; }
       this.httpStatus = outcome.status;
@@ -565,8 +582,10 @@ export struct NetworkProbePage {
         })
       }.width('100%').justifyContent(this.actionAlign)
     }
-    Text(this.tr('响应头按名称排序，最多 ' + HEADER_MAX.toString() + ' 行；响应体最多读取 256 KiB。',
-      'Headers are sorted by name, up to ' + HEADER_MAX.toString() + ' lines; the body is read up to 256 KiB.'))
+    Text(this.tr('响应头按名称排序，最多 ' + HEADER_MAX.toString() + ' 行；响应体最多读取 ' +
+      Math.floor(MAX_BODY_BYTES / 1024).toString() + ' KiB。',
+      'Headers are sorted by name, up to ' + HEADER_MAX.toString() + ' lines; the body is read up to ' +
+      Math.floor(MAX_BODY_BYTES / 1024).toString() + ' KiB.'))
       .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
   }
 

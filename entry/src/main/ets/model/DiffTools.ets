@@ -13,6 +13,13 @@
 /** 单侧最大行数：超过即拒绝对比（对应错误码 `toolarge`）。 */
 export const DIFF_MAX_LINES: number = 600;
 
+/**
+ * 「长行」的字符数阈值：超过它的差异行默认折到 2 行、可点击展开。
+ *
+ * 短行点开也不会多显示一个字，因此**只有超过阈值才让该行可点**（2026-10-20 审计 §3.4②）。
+ */
+export const DIFF_LONG_LINE_LENGTH: number = 60;
+
 /** 一行差异；`kind` 取 `same`/`added`/`removed`，没有对应行号时行号为 `0`。 */
 export class DiffLine {
   readonly kind: string;

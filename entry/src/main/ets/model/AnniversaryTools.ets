@@ -22,6 +22,14 @@ export class Anniversary {
 export const ANNIVERSARY_MAX: number = 20;
 
 /**
+ * **存储**上限：远大于界面上限，只用于防止文件无限增长。
+ *
+ * 必须比 `ANNIVERSARY_MAX` 大，否则「界面上不显示但仍保留在本机」的条目会在下一次保存时被截掉
+ * （2026-10-20 第 24 轮自查：第一版把落盘也按 20 截断，溢出条目实际并没有保住）。
+ */
+export const ANNIVERSARY_STORE_MAX: number = 200;
+
+/**
  * 新建一条纪念日。
  *
  * id 只由「创建时间 + 序号」拼成（不用随机数）：同一毫秒内连续添加两条也不会撞 id，
@@ -52,38 +60,81 @@ function normalizeAnniversary(entry: Anniversary, index: number): Anniversary {
 }
 
 /**
- * 解析持久化内容。
+ * 解析结果：条目 + 被丢弃的原因计数。
  *
- * 坏 JSON、非数组一律返回空数组；单条不合法只丢那一条（不整表清空）：
- * 空 title、无法解析的 date、非有限 createdAt 都丢弃；最后按 id 去重（保序）并截断到上限。
+ * 此前 `parseAnniversaries()` 超上限直接 `return`，用户既看不到提示、也不知道**保存时会被截断**
+ * （2026-10-20 审计 §3.16③）。现在把两种丢弃分开计数，界面可以如实说明并保住数据。
  */
-export function parseAnniversaries(json: string): Anniversary[] {
+export class AnniversaryParseResult {
+  /** 上限内的条目（界面渲染用，保证列表有界） */
+  items: Anniversary[] = [];
+  /** 超出 `ANNIVERSARY_MAX` 而没进 `items` 的条目（**仍应原样保存回去**，不能丢） */
+  overflow: Anniversary[] = [];
+  /** 结构不合法被丢弃的条数（空标题 / 日期非法 / createdAt 非有限 / id 重复） */
+  droppedInvalid: number = 0;
+}
+
+/**
+ * 解析持久化内容（详细版）。
+ *
+ * 坏 JSON、非数组一律返回空结果；单条不合法只丢那一条（不整表清空）；按 id 去重（保序）。
+ * **超过上限的条目进 `overflow` 而不是被丢掉**：调用方渲染 `items`、保存时把两者拼回去。
+ */
+export function parseAnniversariesDetailed(json: string): AnniversaryParseResult {
+  const outcome: AnniversaryParseResult = new AnniversaryParseResult();
   let raw: Anniversary[] = [];
   try {
     const parsed: Anniversary[] = JSON.parse(json) as Anniversary[];
-    if (!Array.isArray(parsed)) { return []; }
+    if (!Array.isArray(parsed)) { return outcome; }
     raw = parsed;
   } catch (_) {
-    return [];
+    return outcome;
   }
-  const result: Anniversary[] = [];
   const seen: Set<string> = new Set<string>();
   raw.forEach((entry: Anniversary, index: number) => {
-    if (result.length >= ANNIVERSARY_MAX) { return; }
     const item: Anniversary = normalizeAnniversary(entry, index);
     if (item.title.length === 0 || parseDate(item.date) === undefined || !Number.isFinite(item.createdAt)) {
+      outcome.droppedInvalid += 1;
       return;
     }
-    if (seen.has(item.id)) { return; }
+    if (seen.has(item.id)) {
+      outcome.droppedInvalid += 1;
+      return;
+    }
     seen.add(item.id);
-    result.push(item);
+    if (outcome.items.length >= ANNIVERSARY_MAX) {
+      outcome.overflow.push(item);
+      return;
+    }
+    outcome.items.push(item);
   });
-  return result;
+  return outcome;
 }
 
-/** 落盘内容：仍然截断到上限，避免外部传入超长列表时写出越界数据。 */
+/** 超上限时的双语提示（说明多少条没显示、以及它们不会丢）。未超限返回空串。 */
+export function anniversaryOverflowNoteText(overflowCount: number, english: boolean): string {
+  if (overflowCount <= 0) { return ''; }
+  return english
+    ? overflowCount.toString() + ' anniversaries are beyond the ' + ANNIVERSARY_MAX.toString() +
+      '-entry limit and are not shown; they are kept on this device.'
+    : '有 ' + overflowCount.toString() + ' 条超出 ' + ANNIVERSARY_MAX.toString() +
+      ' 条上限、未在列表中显示；它们仍保留在本机。';
+}
+
+export function parseAnniversaries(json: string): Anniversary[] {
+  return parseAnniversariesDetailed(json).items;
+}
+
+/**
+ * 落盘内容。
+ *
+ * 截断用**存储上限** `ANNIVERSARY_STORE_MAX`，不是界面上限 `ANNIVERSARY_MAX`：
+ * 页面的写入路径是「可见条目 + 未显示的溢出条目」，若这里按 20 截断，溢出条目会被**再次丢掉**——
+ * 2026-10-20 第 20 轮第一版就是这么错的（探针实测：20 + 3 条写入后读回只剩 20 条）。
+ * 界面上限只约束渲染，存储上限只用来防止无限增长。
+ */
 export function serializeAnniversaries(items: Anniversary[]): string {
-  return JSON.stringify(items.slice(0, ANNIVERSARY_MAX));
+  return JSON.stringify(items.slice(0, ANNIVERSARY_STORE_MAX));
 }
 
 // 指定年份内的同一个「月-日」。2 月 29 日在平年按 2 月 28 日算——用 `parseDate()` 回读判定闰年，
@@ -179,6 +230,25 @@ export function sortAnniversaries(items: Anniversary[], today: string): Annivers
   });
   entries.sort((a: AnniversarySortEntry, b: AnniversarySortEntry): number => compareSortEntries(a, b));
   return entries.map((entry: AnniversarySortEntry): Anniversary => entry.item);
+}
+
+/**
+ * 「第 N 周年」文案。
+ *
+ * 口径：`yearly` 条目按**下一次发生的那一年**与起始年的差算 N（结婚 2020-05-01：2026-05-01 是
+ * 第 6 周年、2026-10-20 的下一次 2027-05-01 是第 7 周年）。起始年及其之前（还没满一年）返回空串——
+ * 那种情况显示「第 0 周年」比不显示更糟，而 `anniversaryText()` 已经给出「就是今天 / 还有 N 天」。
+ * 非 `yearly`（一次性）条目也返回空串，不做「第 N 年」的臆测。
+ */
+export function anniversaryCountText(item: Anniversary, today: string, english: boolean): string {
+  if (!item.yearly) { return ''; }
+  const target: Date | undefined = parseDate(item.date);
+  const occurrence: string = nextOccurrence(item.date, today, item.yearly);
+  const next: Date | undefined = parseDate(occurrence);
+  if (target === undefined || next === undefined) { return ''; }
+  const years: number = next.getUTCFullYear() - target.getUTCFullYear();
+  if (years <= 0) { return ''; }
+  return english ? 'Anniversary #' + years.toString() : '第 ' + years.toString() + ' 周年';
 }
 
 /** 同 id 替换（保持原位置），否则追加；最后截断到上限。 */

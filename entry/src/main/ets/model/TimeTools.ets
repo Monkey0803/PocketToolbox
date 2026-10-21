@@ -56,7 +56,8 @@ export function stampModeLabel(id: string, english: boolean): string {
 
 export class StampResult {
   ok: boolean = false;
-  // 失败原因码：'empty' | 'format' | 'date' | 'dst' | 'range'；界面负责翻译成中英文
+  // 失败原因码：'empty' | 'format' | 'date' | 'dst' | 'range' | 'mode'；界面负责翻译成中英文
+  // （'mode' = 解释方式不是 `STAMP_MODES` 里的 id，见 `parseStampInput()`）
   error: string = 'format';
   // 是否由时间戳解析而来（用于决定界面提示侧重点）
   fromTimestamp: boolean = false;
@@ -220,9 +221,11 @@ function fromText(match: RegExpMatchArray): StampResult {
       const minutesText: string = colon < 0 ? body.substring(2, 4) : body.substring(colon + 1);
       const offsetHours: number = Number(hoursText);
       const offsetMinutesPart: number = Number(minutesText);
-      // 真实时区偏移不会超过 ±14:00；形状对但数值离谱仍算「无法识别」。
+      // 真实时区偏移不会超过 ±14:00，且**只有 ±14:00 本身**是合法的 14 小时偏移——
+      // `+14:30` 这种「小时数没超但整条不存在」的写法必须拒绝（2026-10-20 审计 §3.14①）。
       if (!Number.isFinite(offsetHours) || !Number.isFinite(offsetMinutesPart) ||
-        offsetHours > 14 || offsetMinutesPart > 59) {
+        offsetHours > 14 || offsetMinutesPart > 59 ||
+        (offsetHours === 14 && offsetMinutesPart !== 0)) {
         return failure('format');
       }
       offsetMinutes = (zone.charAt(0) === '-' ? -1 : 1) * (offsetHours * 60 + offsetMinutesPart);
@@ -252,6 +255,11 @@ function fromText(match: RegExpMatchArray): StampResult {
 export function parseStampInput(value: string, mode: string = 'auto'): StampResult {
   const text: string = value.trim();
   if (text.length === 0) { return failure('empty'); }
+  // 解释方式必须是登记表里的 id（第 50 轮自查修复）：此前未知 mode 会**落到 auto 的猜测分支**
+  // （`fromTimestamp` 里 `if (mode === 's') … if (mode === 'ms') …` 之后就是按位数猜），
+  // 于是 mode 写错时 11 位输入会被静默当成毫秒（**差约 50 年**）而界面毫无提示——
+  // 与第 48/49 轮「未知 id 静默兜底」同一类。登记表见 `STAMP_MODES`（auto/s/ms）。
+  if (stampModeIndex(mode) < 0) { return failure('mode'); }
   if (STAMP_PATTERN.test(text)) { return fromTimestamp(text, mode); }
   const match: RegExpMatchArray | null = text.match(TEXT_PATTERN);
   if (match === null) { return failure('format'); }
@@ -261,6 +269,48 @@ export function parseStampInput(value: string, mode: string = 'auto'): StampResu
 // 当前时刻的秒级 / 毫秒级时间戳，供「现在」按钮按解释方式预填。
 export function currentSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+/** 批量转换的一行：原始输入 + 单行解析结果（失败时 `result.ok` 为假并带错误码）。 */
+export class StampLine {
+  readonly input: string;
+  readonly result: StampResult;
+
+  constructor(input: string, result: StampResult) {
+    this.input = input;
+    this.result = result;
+  }
+}
+
+/** 批量转换的单行上限：核对日志量级够用，同时避免粘贴几万行把界面拖住（与其它工具的输入上限同口径）。 */
+export const STAMP_BATCH_MAX: number = 200;
+
+/**
+ * 多行批量转换：按行解析，空行忽略。
+ *
+ * 只有**非空行**才出现在结果里（保留原行序）。超过 `STAMP_BATCH_MAX` 只解析前 N 行——
+ * 界面据此提示「只转换了前 N 行」，不做静默丢弃（2026-10-20 审计 P1「批量转换」）。
+ */
+export function parseStampLines(value: string, mode: string = 'auto'): StampLine[] {
+  const lines: StampLine[] = [];
+  const raw: string[] = value.split(new RegExp('\\r\\n|\\r|\\n'));
+  for (let index: number = 0; index < raw.length; index++) {
+    if (lines.length >= STAMP_BATCH_MAX) { break; }
+    const line: string = raw[index].trim();
+    if (line.length === 0) { continue; }
+    lines.push(new StampLine(line, parseStampInput(line, mode)));
+  }
+  return lines;
+}
+
+/** 输入里非空行的总数（用于判断「是否超限」并给出如实提示）。 */
+export function stampLineCount(value: string): number {
+  const raw: string[] = value.split(new RegExp('\\r\\n|\\r|\\n'));
+  let count: number = 0;
+  for (let index: number = 0; index < raw.length; index++) {
+    if (raw[index].trim().length > 0) { count++; }
+  }
+  return count;
 }
 
 export function currentMillis(): number {

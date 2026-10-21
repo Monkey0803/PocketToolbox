@@ -1,14 +1,17 @@
 import { common } from '@kit.AbilityKit';
 import { sensor } from '@kit.SensorServiceKit';
+import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData } from '../model/LocalData';
 import { setKeepScreenOn } from '../services/ScreenLight';
 import {
   BearingDeviation, DEFAULT_SMOOTHING, HEADING_UNITS, HeadingUnit, bearingDeviation, bearingStatusText,
-  compassCalibrationHint, compassCopyText, compassTiltHint, directionLabel, headingErrorText,
-  headingTextInUnit, headingUnitIndex, headingUnitLabel, isCompassFlat, smoothHeading
+  compassCalibrationHint, compassCopyText, compassTiltHint, declinationText, directionLabel, headingErrorText,
+  headingTextInUnit, headingUnitIndex, headingUnitLabel, isCompassFlat, parseDeclination, smoothHeading,
+  trueHeading, DECLINATION_LIMIT_DEGREES
 } from '../model/CompassMath';
 import { sensorAccuracyHint } from '../model/SensorAccuracy';
 
@@ -45,6 +48,9 @@ const TICK_ANGLES: number[] = tickAngles();
 export struct CompassPage {
   @Param english: boolean = false;
   @Param active: boolean = true;
+  // 磁偏角输入框需要与其它页面同一套材质外壳（本页此前没有输入框，因此没这两个参数）。
+  @Param immersiveSupported: boolean = false;
+  @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param data: LocalData | undefined = undefined;
   @Event onCopy: (value: string) => void = () => {};
 
@@ -54,6 +60,8 @@ export struct CompassPage {
   // 用布尔而不是现成文案：传感器不可用的说明要跟随语言切换，文案在构建函数体内现取。
   @Local unavailable: boolean = false;
   @Local headingUnit: string = 'degree';
+  // 手动磁偏角（文本原样保存，解析在纯逻辑里；空/非法 = 未校正，界面显示磁北）。
+  @Local declinationInput: string = '';
   // 锁定的目标方位角；NaN 表示未锁定（锁定态本身就是它）。
   @Local targetHeading: number = Number.NaN;
   // 系统给出的数据可信度（`Response.accuracy`），异常值在纯逻辑里按可信处理。
@@ -94,7 +102,8 @@ export struct CompassPage {
   /** 锁定后的最短弧偏差（未锁定时 `delta` 为 NaN，界面不渲染这一行）。 */
   @Computed
   get deviation(): BearingDeviation {
-    return bearingDeviation(this.targetHeading, this.heading);
+    // 锁定与偏差都用**校正后**的显示方位，否则一改磁偏角就「锁定的目标突然偏了」。
+    return bearingDeviation(this.targetHeading, this.shownHeading());
   }
 
   @Computed
@@ -107,6 +116,13 @@ export struct CompassPage {
     this.ready = false;
     this.unavailable = false;
     this.heading = Number.NaN;
+    // 先做能力门控（与 VisionKit / NetStack 同一口径）：`getSingleSensorSync` 抛错只是兜底，
+    // 个别设备可能不抛错而给出无效值，那会让界面显示 0°（会被误读成正北，AGENTS 明令禁止）。
+    if (!canIUse('SystemCapability.Sensors.Sensor')) {
+      this.unavailable = true;
+      this.applyKeepScreenOn(false);
+      return;
+    }
     try {
       // getSingleSensorSync 会在没有该传感器的设备上抛错，正好作为能力探测；
       // 100 ms 与水平仪一致，足够跟手又不会太耗电。
@@ -143,9 +159,11 @@ export struct CompassPage {
     if (!this.data) { return; }
     try {
       const raw: string = await this.data.getString('compass_unit', '');
-      if (raw.length === 0) { return; }
       // 只接受登记过的单位 id，旧数据或手工写入的非法值一律回退默认。
-      if (headingUnitIndex(raw) >= 0) { this.headingUnit = raw; }
+      if (raw.length > 0 && headingUnitIndex(raw) >= 0) { this.headingUnit = raw; }
+      // 磁偏角同样是「上次选择」级的偏好，与单位一起读取。
+      const declination: string = await this.data.getString('compass_declination', '');
+      if (declination.length > 0) { this.declinationInput = declination; }
     } catch (_) {
       // 读取失败保持默认单位，不影响读数。
     }
@@ -155,9 +173,23 @@ export struct CompassPage {
     if (!this.data) { return; }
     try {
       await this.data.putString('compass_unit', this.headingUnit);
+      await this.data.putString('compass_declination', this.declinationInput);
     } catch (_) {
       // 保存失败只影响下次默认选择。
     }
+  }
+
+  /** 当前生效的磁偏角（未输入或非法时为 `undefined`，界面据此显示「未校正」）。 */
+  private declination(): number | undefined {
+    return parseDeclination(this.declinationInput);
+  }
+
+  /**
+   * 显示用的方位角：**已校正时显示真北，未校正时显示磁北**。
+   * 两者都走同一个 `heading` 状态，界面另外用 `declinationText()` 标明当前口径，不猜也不混。
+   */
+  private shownHeading(): number {
+    return trueHeading(this.heading, this.declination());
   }
 
   private unitOptions(): SelectOption[] {
@@ -203,7 +235,12 @@ export struct CompassPage {
     return sensorAccuracyHint(this.english, this.accuracy, true);
   }
 
-  /** 罗盘盘面：刻度与四个方位字随方位角反向旋转，使 N 始终指向真北。 */
+  /**
+   * 罗盘盘面：刻度与四个方位字随方位角反向旋转，使 N 始终指向真北。
+   *
+   * **方位字要反向自转**：盘面整体旋转 `-heading`，若文字跟着转，手机朝南时「N」就是倒的
+   * （2026-10-20 审计 §3.21①）。给每个字再转 `+heading` 抵消，文字就始终正立。
+   */
   @Builder private rose() {
     Stack({ alignContent: Alignment.Center }) {
       Circle().width(220).height(220).fill(ToolPalette.surface)
@@ -216,21 +253,41 @@ export struct CompassPage {
             .fill(angle % 90 === 0 ? ToolPalette.textSecondary : ToolPalette.textFaint)
         }.width(4).height(200).justifyContent(FlexAlign.Start).rotate({ angle: angle })
       }, (angle: number): string => angle.toString())
-      Text('N').fontSize(20).fontWeight(FontWeight.Bold).fontColor(ToolPalette.danger).offset({ y: -72 })
-      Text('E').fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary).offset({ x: 72 })
-      Text('S').fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary).offset({ y: 72 })
-      Text('W').fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary).offset({ x: -72 })
-    }.width(220).height(220).rotate({ angle: this.ready ? -this.heading : 0 })
+      Text('N').fontSize(20).fontWeight(FontWeight.Bold).fontColor(ToolPalette.danger)
+        .offset({ y: -72 }).rotate({ angle: this.counterRotation() })
+      Text('E').fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
+        .offset({ x: 72 }).rotate({ angle: this.counterRotation() })
+      Text('S').fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
+        .offset({ y: 72 }).rotate({ angle: this.counterRotation() })
+      Text('W').fontSize(18).fontWeight(FontWeight.Bold).fontColor(ToolPalette.textPrimary)
+        .offset({ x: -72 }).rotate({ angle: this.counterRotation() })
+    }.width(220).height(220).rotate({ angle: this.ready ? -this.shownHeading() : 0 })
   }
 
-  /** 锁定状态行：显示锁定时的目标方位与当前偏差（倾斜/失效时不显示偏差，只提示放平）。 */
+  /** 方位字的自转角度：与盘面旋转相反，保证文字始终正立。 */
+  private counterRotation(): number {
+    return this.ready ? this.shownHeading() : 0;
+  }
+
+  /**
+   * 提示行**只显示一条**，按优先级取最要紧的那条。
+   *
+   * 此前倾斜提示、精度提示与不可用说明可能同屏出现（最多三条黄字），用户不知道该看哪条
+   * （2026-10-20 审计 §3.21④）。优先级：不可用 > 倾斜（读数不可信） > 精度（可信度低）。
+   */
+  private activeHint(): string {
+    if (this.unavailable) { return headingErrorText(this.english); }
+    if (!this.ready) { return ''; }
+    if (!this.flat) { return compassTiltHint(this.english); }
+    return this.accuracyHint();
+  }
+
+  /** 锁定状态行：显示锁定时的目标方位与当前偏差（倾斜时偏差不显示，倾斜提示由下方的统一提示行负责）。 */
   @Builder private lockLine() {
     Column({ space: 4 }) {
       Text(this.tr('已锁定 ', 'Locked ') + headingTextInUnit(this.targetHeading, this.headingUnit))
         .fontSize(13).fontColor(ToolPalette.textMuted)
-      if (!this.flat) {
-        Text(compassTiltHint(this.english)).fontSize(14).fontColor(ToolPalette.warning).width('100%')
-      } else if (bearingStatusText(this.deviation, this.english).length > 0) {
+      if (this.flat && bearingStatusText(this.deviation, this.english).length > 0) {
         Text(bearingStatusText(this.deviation, this.english)).fontSize(18).fontWeight(FontWeight.Bold)
           .fontColor(this.deviation.aligned ? ToolPalette.success : ToolPalette.primaryDeep)
       }
@@ -252,17 +309,21 @@ export struct CompassPage {
           Polygon().points([[0, 0], [14, 0], [7, 12]]).fill(ToolPalette.primaryDeep)
             .width(14).height(12).offset({ y: -118 })
         }.width(240).height(240)
-        Text(headingTextInUnit(this.heading, this.headingUnit)).fontSize(40).fontWeight(FontWeight.Bold)
+        Text(headingTextInUnit(this.shownHeading(), this.headingUnit)).fontSize(40).fontWeight(FontWeight.Bold)
           .fontColor(ToolPalette.textPrimary)
-        Text(directionLabel(this.heading, this.english)).fontSize(22)
+        Text(directionLabel(this.shownHeading(), this.english)).fontSize(22)
           .fontColor(ToolPalette.primaryDeep)
+        // 校正口径必须写明：有磁偏角时显示真北，没有时显示磁北（不显示 0，避免被当成「已校正」）。
+        if (this.declination() !== undefined) {
+          Text(this.tr('真北', 'True north') + ' · ' + declinationText(this.declination(), this.english))
+            .fontSize(13).fontColor(ToolPalette.textMuted)
+        }
         if (this.locked) {
           this.lockLine()
-        } else if (!this.flat) {
-          Text(compassTiltHint(this.english)).fontSize(14).fontColor(ToolPalette.warning).width('100%')
         }
-        if (this.accuracyHint().length > 0) {
-          Text(this.accuracyHint()).fontSize(14).fontColor(ToolPalette.warning).width('100%')
+        // 提示只有一条（优先级见 `activeHint()`）：倾斜、精度、不可用不再同屏堆叠。
+        if (this.activeHint().length > 0) {
+          Text(this.activeHint()).fontSize(14).fontColor(ToolPalette.warning).width('100%')
         }
       }
       OptionSelect({
@@ -289,6 +350,33 @@ export struct CompassPage {
           onTap: (): void => { this.copyReading(); }
         })
       }.justifyContent(FlexAlign.Center).width('100%')
+      // 磁偏角手输：零权限的真北校正（不联网、不读定位），输入非法时如实提示而不是当 0 用。
+      Text(this.tr('磁偏角（可选，手输）', 'Declination (optional, manual)')).fontSize(15)
+        .fontColor(ToolPalette.textSecondary).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+        interactive: true
+      }) {
+        TextInput({
+          text: this.declinationInput,
+          placeholder: this.tr('如 7.5E / 7.5W / 东偏 7.5，留空表示用磁北', 'e.g. 7.5E, 7.5W or -7.5; empty = magnetic north')
+        })
+          .backgroundColor(Color.Transparent).height(48)
+          .onChange((value: string) => {
+            this.declinationInput = value;
+            this.saveUnit();
+          })
+      }
+      if (this.declinationInput.trim().length > 0 && this.declination() === undefined) {
+        Text(this.tr('磁偏角无法识别（请输入 -' + DECLINATION_LIMIT_DEGREES.toString() + ' 到 ' +
+          DECLINATION_LIMIT_DEGREES.toString() + ' 之间的度数，可带 E/W）',
+          'Unrecognized declination (enter degrees between -' + DECLINATION_LIMIT_DEGREES.toString() + ' and ' +
+          DECLINATION_LIMIT_DEGREES.toString() + ', optionally with E/W)'))
+          .fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      } else if (this.declination() !== undefined) {
+        Text(this.tr('已按真北显示。', 'Showing true north.'))
+          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      }
       Text(compassCalibrationHint(this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.alignItems(HorizontalAlign.Center).width('100%')
   }

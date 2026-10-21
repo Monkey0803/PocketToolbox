@@ -8,6 +8,8 @@ import { TorchController } from '../services/SystemTools';
 import { setKeepScreenOn, setWindowBrightness } from '../services/ScreenLight';
 import {
   AUTO_OFF_OPTIONS, BRIGHTNESS_OPTIONS, DEFAULT_BRIGHTNESS_PERCENT, DEFAULT_SCREEN_TONE,
+  DEFAULT_SCREEN_LIGHT_LEVEL, SCREEN_LIGHT_LEVELS, ScreenLightLevel, screenLightLevelIndex,
+  screenLightLevelLabel, screenLightRatio,
   DEFAULT_STROBE_HZ, DEFAULT_TORCH_MODE, DEFAULT_TORCH_SIGNAL, MORSE_MAX_CHARS, MorseChar,
   SCREEN_TONES, ScreenTone, STROBE_FREQUENCIES, TORCH_MODES, TORCH_SIGNALS, TorchMode, TorchSegment,
   TorchSignal, autoOffLabel, brightnessIndex,
@@ -53,6 +55,8 @@ export struct TorchPage {
   @Local keepScreenOn: boolean = false;
   @Local morseInput: string = '';
   @Local screenTone: string = DEFAULT_SCREEN_TONE;
+  // 屏幕补光的亮度档（`ring` 的时候也保留上次选择）。
+  @Local screenLightLevel: string = DEFAULT_SCREEN_LIGHT_LEVEL;
   // 屏幕补光的全屏 cover（`bindContentCover` 双向绑定）
   @Local fillLightShown: boolean = false;
   @Local running: boolean = false;
@@ -79,15 +83,39 @@ export struct TorchPage {
       this.levelSupported = false;
     }
     // 对账：运行中每 300ms 确认硬件会话还在（被 stopActive() 或其它应用抢走后要复位界面）。
-    this.syncTicker = setInterval(() => this.reconcile(), 300);
-    // 定时关闭倒计时：1 秒一次，只在需要时读系统时间。
-    this.tickTicker = setInterval(() => this.tick(), 1000);
+    // **只在有东西在跑时启动**：常驻 300ms/1s 定时器会在没开灯时也持续唤醒，
+    // 白耗电（2026-10-20 审计 §3.20①）。启动/停止统一走 `syncTickers()`。
+    this.syncTickers();
   }
 
   aboutToDisappear(): void {
-    if (this.syncTicker >= 0) { clearInterval(this.syncTicker); }
-    if (this.tickTicker >= 0) { clearInterval(this.tickTicker); }
+    if (this.syncTicker >= 0) { clearInterval(this.syncTicker); this.syncTicker = -1; }
+    if (this.tickTicker >= 0) { clearInterval(this.tickTicker); this.tickTicker = -1; }
     this.stopAll();
+  }
+
+  /**
+   * 按当前状态启停两个定时器（幂等，可反复调用）。
+   *
+   * - 对账定时器：只有**输出中**（`running` 且不是屏幕补光）才需要；
+   * - 定时关闭：只有设置了 `autoOffTarget` 才需要。
+   */
+  private syncTickers(): void {
+    const needSync: boolean = this.running && this.output !== '' && this.output !== 'screen' &&
+      this.torch !== undefined;
+    if (needSync && this.syncTicker < 0) {
+      this.syncTicker = setInterval(() => this.reconcile(), 300);
+    } else if (!needSync && this.syncTicker >= 0) {
+      clearInterval(this.syncTicker);
+      this.syncTicker = -1;
+    }
+    const needTick: boolean = this.autoOffTarget > 0;
+    if (needTick && this.tickTicker < 0) {
+      this.tickTicker = setInterval(() => this.tick(), 1000);
+    } else if (!needTick && this.tickTicker >= 0) {
+      clearInterval(this.tickTicker);
+      this.tickTicker = -1;
+    }
   }
 
   @Monitor('active')
@@ -166,6 +194,8 @@ export struct TorchPage {
       this.applyScreenBrightness();
       this.applyKeepScreenOn();
       this.armAutoOff();
+      // 屏幕补光只需要「定时关闭」那个定时器（不需要硬件对账）。
+      this.syncTickers();
       return;
     }
     if (this.torch === undefined || !this.torchSupported) {
@@ -196,6 +226,8 @@ export struct TorchPage {
     this.running = true;
     this.applyKeepScreenOn();
     this.armAutoOff();
+    // 开始输出（以及可能启动了定时关闭）之后才需要定时器（§3.20①）。
+    this.syncTickers();
   }
 
   /** 段播放中途出错（相机被占用等）：硬件会话已自行停止，这里复位界面与屏幕状态。 */
@@ -216,6 +248,8 @@ export struct TorchPage {
     this.autoOffTarget = 0;
     this.remainingSec = 0;
     this.restoreScreenEnhancements();
+    // 停下之后不再需要任何定时器（§3.20①）。
+    this.syncTickers();
   }
 
   /**
@@ -264,10 +298,16 @@ export struct TorchPage {
     setKeepScreenOn(this.ctx(), want);
   }
 
+  /**
+   * 屏幕补光的窗口亮度。
+   *
+   * 亮度按 `SCREEN_LIGHT_LEVELS` 档位设置（此前写死 1，夜里近距离补光会刺眼）；
+   * `applyScreenBrightness()` 在已生效时只改数值，不重复「点亮」。
+   */
   private applyScreenBrightness(): void {
-    if (this.brightnessApplied) { return; }
+    const ratio: number = screenLightRatio(this.screenLightLevel);
     this.brightnessApplied = true;
-    setWindowBrightness(this.ctx(), 1);
+    setWindowBrightness(this.ctx(), ratio);
   }
 
   private restoreScreenEnhancements(): void {
@@ -286,8 +326,14 @@ export struct TorchPage {
   // 选项
   // -------------------------------------------------------------------------
 
-  private modeOptions(): SelectOption[] {
-    return TORCH_MODES.map((entry: TorchMode): SelectOption => {
+  private screenLightOptions(): SelectOption[] {
+    return SCREEN_LIGHT_LEVELS.map((entry: ScreenLightLevel): SelectOption => {
+      const option: SelectOption = { value: screenLightLevelLabel(entry.id, this.english) };
+      return option;
+    });
+  }
+
+  private modeOptions(): SelectOption[] {    return TORCH_MODES.map((entry: TorchMode): SelectOption => {
       const option: SelectOption = { value: this.english ? entry.titleEn : entry.titleZh };
       return option;
     });
@@ -352,7 +398,10 @@ export struct TorchPage {
   }
 
   private heroColor(): Resource {
-    if (this.running) { return ToolPalette.accentAmber; }
+    // 「开灯中」必须用 warning（`#B45309`，对浅色底 4.68:1）。此处原为 `accentAmber`（`#F5AD2D`），
+    // 对浅色背景实测只有 1.80:1，远低于图形 3:1——与 AGENTS 里「橙色不要当图标色」同源问题
+    // （2026-10-20 审计 P0）。
+    if (this.running) { return ToolPalette.warning; }
     return this.mode === 'steady' ? ToolPalette.textMuted : ToolPalette.primary;
   }
 
@@ -468,7 +517,9 @@ export struct TorchPage {
           Text(this.tr('已忽略：', 'Ignored: ') + ignoredMorseChars(this.morseInput))
             .fontSize(13).fontColor(ToolPalette.warningText).width('100%')
         }
-        Text(morseTimingText(this.english) + ' ' + this.tr('最多 20 个字符。', 'Up to 20 characters.'))
+        Text(morseTimingText(this.english) + ' ' +
+          this.tr('最多 ' + MORSE_MAX_CHARS.toString() + ' 个字符。',
+            'Up to ' + MORSE_MAX_CHARS.toString() + ' characters.'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         Text(this.cycleText()).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
       }.width('100%').padding(14)
@@ -488,8 +539,22 @@ export struct TorchPage {
         this.screenTone = entry.id;
       }
     })
-    Text(this.tr('把整屏变成一块柔光板，适合近距离补光；进入时屏幕亮度会拉到最高。',
-      'Turns the whole screen into a soft light panel for close-up fill light; screen brightness is raised to maximum.'))
+    OptionSelect({
+      label: this.tr('补光亮度', 'Fill brightness'),
+      options: this.screenLightOptions(),
+      selectedIndex: screenLightLevelIndex(this.screenLightLevel),
+      selectedText: screenLightLevelLabel(this.screenLightLevel, this.english),
+      a11yText: this.tr('屏幕补光亮度', 'Screen light brightness'),
+      onSelected: (index: number): void => {
+        const entry: ScreenLightLevel | undefined = SCREEN_LIGHT_LEVELS[index];
+        if (entry === undefined) { return; }
+        this.screenLightLevel = entry.id;
+        // 补光进行中立即生效（没在补光时只记住选择，进入补光时按它设置）。
+        if (this.running && this.output === 'screen') { this.applyScreenBrightness(); }
+      }
+    })
+    Text(this.tr('把整屏变成一块柔光板，适合近距离补光；亮度分弱/中/强三档，夜里近距离用弱档不刺眼。',
+      'Turns the whole screen into a soft light panel for close-up fill light; brightness has dim/medium/bright levels, so dim is easier on the eyes up close.'))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
   }
 

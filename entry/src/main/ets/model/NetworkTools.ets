@@ -274,7 +274,14 @@ export function parseUrlParts(value: string): UrlParts | undefined {
   return parts;
 }
 
-/** 网址分解结果 → 「标签: 值」行。顺序固定 scheme/host/port/path/fragment，只输出非空项。 */
+/**
+ * 网址分解结果 → 「标签: 值」行。
+ * 顺序固定 **scheme → host → port → path → 每个查询参数 → fragment**，只输出非空项；
+ * 查询参数每项一行、写成 `查询 N: 键 = 值`（键或值都可以是空串——空键是**有意的**：
+ * `?a=1&&b=2` 这种空对会保留成一项，见 `parseUrlParts`）。
+ * （2026-10-20 第 104 轮更正：原注释只写了 scheme/host/port/path/fragment 五项，
+ *  漏掉了查询参数行，与实际输出不符。）
+ */
 export function urlPartLines(parts: UrlParts, english: boolean): string[] {
   const lines: string[] = [];
   const labels: string[] = english ?
@@ -315,16 +322,21 @@ export function sortHeaderLines(lines: string[]): string[] {
 }
 
 /**
- * 截取前 `max` 行；被截断时在末尾追加一行省略提示 `… (+N more)`（中英无关，N = 丢弃的行数）。
+ * 截取前 `max` 行；被截断时在末尾追加一行省略提示（N = 丢弃的行数）。
+ *
+ * 提示行**要跟随语言**：此前写死英文 `… (+N more)`，中文界面里会冒出英文（2026-10-20 审计 §3.22）。
+ * 默认 `english = false` 保持旧调用点的行为可预期。
  *
  * `max < 1` 返回空数组（**不返回提示行**，避免界面出现「只有一行省略号」的怪状态）。
  */
-export function truncateLines(lines: string[], max: number): string[] {
+export function truncateLines(lines: string[], max: number, english: boolean = false): string[] {
   if (!Number.isFinite(max) || max < 1) { return []; }
   const limit: number = Math.floor(max);
   if (lines.length <= limit) { return lines.slice(); }
   const kept: string[] = lines.slice(0, limit);
-  kept.push('… (+' + (lines.length - limit).toString() + ' more)');
+  const dropped: number = lines.length - limit;
+  kept.push(english ? '… (+' + dropped.toString() + ' more)'
+    : '… （另有 ' + dropped.toString() + ' 行）');
   return kept;
 }
 
@@ -360,6 +372,10 @@ export function netErrorText(code: string, english: boolean): string {
   }
   if (code === 'invalid') {
     return english ? 'Invalid input' : '输入无效';
+  }
+  if (code === 'https') {
+    return english ? 'Only HTTPS links are supported; plain http:// is rejected'
+      : '只支持 HTTPS 链接；明文 http:// 会被拒绝';
   }
   if (code === 'permission') {
     return english ? 'Missing network permission for this mode' : '缺少网络权限，无法执行本方式';

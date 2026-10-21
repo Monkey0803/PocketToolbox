@@ -70,8 +70,7 @@ export class KinStep {
   }
 }
 
-export const KIN_STEPS: KinStep[] = [
-  new KinStep('father', '爸爸', 'father', 'male', 1,
+export const KIN_STEPS: KinStep[] = [  new KinStep('father', '爸爸', 'father', 'male', 1,
     ['爸', '父亲', '父', '阿爸', 'father', 'dad', 'papa']),
   new KinStep('mother', '妈妈', 'mother', 'female', 1,
     ['妈', '母亲', '母', '娘', 'mother', 'mom', 'mum', 'mama']),
@@ -93,6 +92,41 @@ export const KIN_STEPS: KinStep[] = [
 
 /** 快捷拼接按钮用同一份登记表（页面按当前语言取 `zh`/`en`）。 */
 export const KIN_QUICK_STEPS: KinStep[] = KIN_STEPS;
+
+/** 查询方向：正向「他是我什么人」/ 反向「我是他什么人」。 */
+export class KinDirectionEntry {
+  readonly id: string;
+  readonly zh: string;
+  readonly en: string;
+
+  constructor(id: string, zh: string, en: string) {
+    this.id = id;
+    this.zh = zh;
+    this.en = en;
+  }
+}
+
+export const KIN_DIRECTIONS: KinDirectionEntry[] = [
+  new KinDirectionEntry('forward', '他是我什么人', 'Who is this person to me'),
+  new KinDirectionEntry('reverse', '我是他什么人', 'Who am I to this person')
+];
+
+export const DEFAULT_KIN_DIRECTION: string = 'forward';
+
+/** 方向登记表下标；未知 id 返回 -1（页面回退默认）。 */
+export function kinDirectionIndex(id: string): number {
+  for (let index: number = 0; index < KIN_DIRECTIONS.length; index++) {
+    if (KIN_DIRECTIONS[index].id === id) { return index; }
+  }
+  return -1;
+}
+
+/** 方向文案；未知 id 回退默认方向的文案。 */
+export function kinDirectionLabel(id: string, english: boolean): string {
+  const index: number = kinDirectionIndex(id);
+  const entry: KinDirectionEntry = KIN_DIRECTIONS[index < 0 ? kinDirectionIndex(DEFAULT_KIN_DIRECTION) : index];
+  return english ? entry.en : entry.zh;
+}
 
 /** 关系链最长步数：超过就拒绝，避免无意义的长链把归一化循环拖长。 */
 export const KIN_MAX_STEPS: number = 16;
@@ -309,10 +343,20 @@ export const KIN_TERMS: KinTerm[] = [
   term('father>father>youngerBrother', '叔祖父', "grandfather's younger brother"),
   term('father>father>olderSister', '姑奶奶', "grandfather's sister"),
   term('father>father>youngerSister', '姑奶奶', "grandfather's sister"),
-  term('mother>father>olderBrother', '舅公', "grandmother's brother"),
-  term('mother>father>olderSister', '姨婆', "grandmother's sister"),
-  term('mother>mother>olderBrother', '舅公', "grandmother's brother"),
-  term('mother>mother>olderSister', '姨婆', "grandmother's sister"),
+  // **外公的兄弟与外婆的兄弟是两条不同的关系**：此前 `mother>father>olderBrother` 与
+  // `mother>mother>olderBrother` 都写成「舅公」、英文也都写 "grandmother's brother"，
+  // 既与路径矛盾、也让两条不同关系共用同一称谓（2026-10-20 审计 §3.25①）。
+  // 父系祖辈用「伯祖父/叔祖父」，母系外公一侧按同一构词取「外伯公/外叔公」。
+  term('mother>father>olderBrother', '外伯公', "maternal grandfather's older brother"),
+  term('mother>father>youngerBrother', '外叔公', "maternal grandfather's younger brother"),
+  // 外公的姐妹：书面「外姑祖母」，口语各地或称姑婆/姨婆，口径待人工确认（审计 §3.25 待定项）。
+  term('mother>father>olderSister', '外姑祖母', "maternal grandfather's sister"),
+  term('mother>father>youngerSister', '外姑祖母', "maternal grandfather's sister"),
+  // 外婆的兄弟/姐妹才是「舅公」与「姨婆」。
+  term('mother>mother>olderBrother', '舅公', "maternal grandmother's brother"),
+  term('mother>mother>youngerBrother', '舅公', "maternal grandmother's brother"),
+  term('mother>mother>olderSister', '姨婆', "maternal grandmother's sister"),
+  term('mother>mother>youngerSister', '姨婆', "maternal grandmother's sister"),
   // 父母的兄弟姐妹
   term('father>olderBrother', '伯父', "father's older brother"),
   term('father>youngerBrother', '叔叔', "father's younger brother"),
@@ -456,8 +500,74 @@ export function computeKinship(input: string, egoGender: string): KinOutcome {
     '', '', path));
 }
 
-/** 关系链描述（箭头形式，界面上展示「怎么走到这个人」）。 */
-export function kinChainText(path: string[], english: boolean): string {
+/**
+ * 反向称呼：「他该怎么称呼我」。
+ *
+ * 做法是把正向链**逐步取逆再倒序**：正向链 `me →(s1) A1 →(s2) … → An`，
+ * 反向链就是 `An → inv(sn) … → inv(s1) → me`，其中每一步的逆关系取决于「被称呼者」的性别
+ * （`inv(爸爸)` = 那个人的孩子 → 男 `儿子` / 女 `女儿`；`inv(哥哥)` = 那个人的弟弟/妹妹……）。
+ *
+ * 逆关系只使用登记表里已有的步骤 id，因此结果仍然走 `KIN_TERMS` 查表：
+ * 命中给称谓（如 `爸爸的哥哥` → 男本人得「侄子」），未命中按未收录处理给关系链描述（远亲本无通称）。
+ * 空输入或无法识别的输入沿用 `computeKinship()` 的错误码口径。
+ */
+export function computeReverseKinship(input: string, egoGender: string): KinOutcome {
+  const chain: KinChain = parseKinChain(input);
+  if (chain.error.length > 0) { return new KinOutcome(chain.error, chain.token, undefined); }
+  const forward: string[] = normalizeKinPath(chain.steps, egoGender);
+  if (forward.length === 0) {
+    // 本人：反向仍是本人（`自己`）。
+    const self: KinTerm | undefined = TERM_BY_PATH.get('');
+    return new KinOutcome('', '', new KinResult(true, self === undefined ? '自己' : self.zh,
+      self === undefined ? 'self' : self.en, '', '', []));
+  }
+  const egoMale: boolean = egoGender !== 'female';
+  const relativeGender: string = stepGender(forward[forward.length - 1]);
+  const reverse: string[] = [];
+  for (let index: number = forward.length - 1; index >= 0; index--) {
+    // 被称呼者（即这一步的起点）的性别：第一步是本人，其余取上一步终点的性别。
+    const subjectGender: string = index === 0 ? (egoMale ? 'male' : 'female') : stepGender(forward[index - 1]);
+    const inverse: string = inverseKinStep(forward[index], subjectGender);
+    if (inverse.length === 0) {
+      // 理论上不会发生（步骤 id 都来自登记表）；真出现就给未收录描述，不猜。
+      return new KinOutcome('', '', new KinResult(false, kinChainPhrase(forward, false),
+        kinChainPhrase(forward, true), '', '', forward));
+    }
+    reverse.push(inverse);
+  }
+  // 从对方的视角重新归一（`reducePair()` 的配偶/亲子规则依赖「谁是本人」的性别）。
+  const path: string[] = normalizeKinPath(reverse, relativeGender);
+  const entry: KinTerm | undefined = TERM_BY_PATH.get(path.join('>'));
+  if (entry !== undefined) {
+    return new KinOutcome('', '', new KinResult(true, entry.zh, entry.en, entry.noteZh, entry.noteEn, path));
+  }
+  return new KinOutcome('', '', new KinResult(false, kinChainPhrase(path, false), kinChainPhrase(path, true),
+    '', '', path));
+}
+
+/** 步骤终点的性别；未知 id 按男性处理（调用方只在登记表命中时使用）。 */
+function stepGender(stepId: string): string {
+  const step: KinStep | undefined = STEP_BY_ID.get(stepId);
+  return step === undefined || step.gender === 'male' ? 'male' : 'female';
+}
+
+/** 单步的逆关系：`subjectGender` 是「被称呼者」的性别（即这一步的起点）。 */
+function inverseKinStep(stepId: string, subjectGender: string): string {
+  const male: boolean = subjectGender !== 'female';
+  if (stepId === 'father' || stepId === 'mother') { return male ? 'son' : 'daughter'; }
+  if (stepId === 'son' || stepId === 'daughter') { return male ? 'father' : 'mother'; }
+  if (stepId === 'olderBrother') { return male ? 'youngerBrother' : 'youngerSister'; }
+  if (stepId === 'youngerBrother') { return male ? 'olderBrother' : 'olderSister'; }
+  if (stepId === 'olderSister') { return male ? 'youngerBrother' : 'youngerSister'; }
+  if (stepId === 'youngerSister') { return male ? 'olderBrother' : 'olderSister'; }
+  // 配偶的逆关系同样**由本人性别决定**，不能写死成「对方性别的反面」：
+  // 「老公」配男性本人时，我是他的丈夫（丈夫/老公）而不是妻子——写死 `wife` 会让男性用户
+  // 看到「我是他老婆」（2026-10-20 第 27 轮探针发现）。与上面的父母/同胞规则同一口径。
+  if (stepId === 'husband' || stepId === 'wife') { return male ? 'husband' : 'wife'; }
+  return '';
+}
+
+/** 关系链描述（箭头形式，界面上展示「怎么走到这个人」）。 */export function kinChainText(path: string[], english: boolean): string {
   return path.map((id: string): string => kinStepLabel(id, english)).join(' \u2192 ');
 }
 
@@ -547,7 +657,15 @@ export function appendKinStep(current: string, label: string): string {
   return trimmed + (HAS_ASCII.test(trimmed) ? "'s " : '\u7684') + label;
 }
 
-/** 退格：去掉关系链里的最后一个词（`爸爸的哥哥` → `爸爸`；只剩一个词则清空）。 */
+/**
+ * 退格：去掉关系链里的最后一个词（`爸爸的哥哥` → `爸爸`；只剩一个词则清空）。
+ *
+ * 用户手输时**不一定带分隔符**（`爸爸哥哥`）。此前没有分隔符就直接返回空串，一次退格把整串清光
+ * （2026-10-20 审计记录的缺陷）。现在分三级：
+ * 1. 有分隔符（`的`/`,`/`'s`）→ 切掉最后一个分隔符之后的部分；
+ * 2. 没有分隔符 → 从尾部匹配已知称呼（含别名，**长词优先**，避免 `哥哥` 被 `哥` 抢先匹配成 `哥` + 残留 `哥`）；
+ * 3. 都匹配不上 → 退掉最后一个字符（连续按会逐步清空，而不是一次清光）。
+ */
 export function removeLastKinStep(current: string): string {
   const trimmed: string = current.trim();
   if (trimmed.length === 0) { return ''; }
@@ -560,5 +678,24 @@ export function removeLastKinStep(current: string): string {
   ];
   let cut: number = -1;
   cuts.forEach((value: number): void => { if (value > cut) { cut = value; } });
-  return cut <= 0 ? '' : trimmed.substring(0, cut);
+  if (cut > 0) { return trimmed.substring(0, cut).trim(); }
+  if (cut === 0) { return ''; }
+  const stripped: string = stripTrailingKinWord(trimmed);
+  if (stripped.length < trimmed.length) { return stripped.trim(); }
+  return trimmed.substring(0, trimmed.length - 1).trim();
+}
+
+/** 从尾部匹配已知称呼（`zh` + 别名，长的先试）；匹配不到返回原串。 */
+function stripTrailingKinWord(text: string): string {
+  let best: string = '';
+  for (const step of KIN_STEPS) {
+    const words: string[] = [step.zh].concat(step.aliases);
+    for (const word of words) {
+      // 只匹配 ASCII 词与中文字；英文按小写比较（输入可能大小写混写）。
+      const lower: string = text.toLowerCase();
+      if (!lower.endsWith(word.toLowerCase())) { continue; }
+      if (word.length > best.length) { best = word; }
+    }
+  }
+  return best.length === 0 ? text : text.substring(0, text.length - best.length);
 }

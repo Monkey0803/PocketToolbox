@@ -202,7 +202,10 @@ function twoDimensionalInput(value: string, maxLength: number): string | undefin
 // Scan Kit expects the data without its check digit and adds that digit to the image.
 export function barcodeInput(kind: BarcodeKind, raw: string): string | undefined {
   if (kind === 'code128') {
-    return raw.length > 0 && raw.length <= 80 && /^[\x20-\x7E]+$/.test(raw) ? raw : undefined;
+    // Code 128 也要 trim：末尾多一个换行或首尾空格以前会被判成「字符集不符」，其实是可用输入
+    // （2026-10-20 审计 §3.2②）。
+    const text: string = raw.trim();
+    return text.length > 0 && text.length <= 80 && /^[\x20-\x7E]+$/.test(text) ? text : undefined;
   }
   if (kind === 'code39' || kind === 'code93') { return alphanumericInput(raw); }
   if (kind === 'codabar') { return codabarValue(raw); }
@@ -218,7 +221,10 @@ export function barcodeInput(kind: BarcodeKind, raw: string): string | undefined
   if (kind === 'ean8') { return digitsInput(value, EAN8_DATA); }
   if (kind === 'upca') { return digitsInput(value, UPCA_DATA); }
   if (kind === 'upce') { return upceInput(value); }
-  return digitsInput(value, ITF14_DATA);
+  // **必须显式判 itf14**：此前这一行是兜底 `return digitsInput(value, ITF14_DATA)`，将来新增码制
+  // 忘了加分支会静默按 ITF-14 校验（2026-10-20 审计 §3.2①）。未知码制一律 `undefined`。
+  if (kind === 'itf14') { return digitsInput(value, ITF14_DATA); }
+  return undefined;
 }
 
 /** 供界面展示的完整码值（含校验位）；二维码没有校验位，原样返回。 */

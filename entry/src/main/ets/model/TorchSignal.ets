@@ -156,14 +156,16 @@ export function morseEncodeText(text: string): string {
   return morseText(morseChars(text, MORSE_TEXT_MAX));
 }
 
-/** 摩尔斯解码结果：`unknown` 是无法识别的记号数量（丢弃而**不猜**）。 */
+/** 摩尔斯解码结果：`unknown` 是无法识别的记号数量（丢弃而**不猜**）；`truncated` 表示输入超长只解了前 `MORSE_TEXT_MAX` 个字符。 */
 export class MorseDecodeResult {
   readonly text: string;
   readonly unknown: number;
+  readonly truncated: boolean;
 
-  constructor(text: string, unknown: number) {
+  constructor(text: string, unknown: number, truncated: boolean = false) {
     this.text = text;
     this.unknown = unknown;
+    this.truncated = truncated;
   }
 }
 
@@ -179,16 +181,20 @@ function morseCharOf(code: string): string {
  *
  * 无法识别的记号只计数并跳过——与手电筒的摩尔斯输入同一语义（不静默、不猜），
  * 由调用方决定怎么提示。
+ *
+ * **长度上限与编码侧同值**（`MORSE_TEXT_MAX`）：解码是逐字符扫描 + 逐记号线性查表，
+ * 粘贴超长点划串会卡住主线程；超出只解前 N 个字符并用 `truncated` 如实回报（2026-10-20 审计 P1）。
  */
 export function morseDecodeText(code: string): MorseDecodeResult {
   const letters: string[] = [];
   let unknown: number = 0;
   let token: string = '';
   let pendingWord: boolean = false;
-  for (let index: number = 0; index <= code.length; index++) {
+  const limit: number = Math.min(code.length, MORSE_TEXT_MAX);
+  for (let index: number = 0; index <= limit; index++) {
     // 末尾补一个空白当作哨兵，把最后一个记号也冲出来（不需要在循环外再写一遍收尾）。
-    const ch: string = index < code.length ? code.charAt(index) : ' ';
-    if (index === code.length || isMorseSpace(code, index)) {
+    const ch: string = index < limit ? code.charAt(index) : ' ';
+    if (index === limit || isMorseSpace(code, index)) {
       if (token.length > 0) {
         if (token === '/') {
           // 词间隔只在「前面已经有字符」时才有意义，开头/连续的 `/` 直接忽略。
@@ -211,7 +217,7 @@ export function morseDecodeText(code: string): MorseDecodeResult {
     }
     token += ch;
   }
-  return new MorseDecodeResult(letters.join(''), unknown);
+  return new MorseDecodeResult(letters.join(''), unknown, code.length > limit);
 }
 
 /** 摩尔斯字符序列 → 灯光段列表（ms）。 */
@@ -519,11 +525,58 @@ export function screenToneLabel(id: string, english: boolean): string {
   return english ? entry.titleEn : entry.titleZh;
 }
 
+/**
+ * 屏幕补光的亮度档位。
+ *
+ * 补光亮度与**硬件手电筒**的档位是两件事：`BRIGHTNESS_OPTIONS`（25/50/75/100）走
+ * `setTorchModeOnWithLevel()` 控制闪光灯，这里控制的是「把屏幕当补光灯」时的窗口亮度
+ * （`setWindowBrightness()`，0–1）。夜里拍近物 100% 会刺眼，因此给低/中/高三档（2026-10-20 审计 P1）。
+ */
+export class ScreenLightLevel {
+  readonly id: string;
+  readonly ratio: number;
+  readonly titleZh: string;
+  readonly titleEn: string;
+
+  constructor(id: string, ratio: number, titleZh: string, titleEn: string) {
+    this.id = id;
+    this.ratio = ratio;
+    this.titleZh = titleZh;
+    this.titleEn = titleEn;
+  }
+}
+
+export const SCREEN_LIGHT_LEVELS: ScreenLightLevel[] = [
+  new ScreenLightLevel('low', 0.35, '弱', 'Dim'),
+  new ScreenLightLevel('medium', 0.65, '中', 'Medium'),
+  new ScreenLightLevel('high', 1, '强', 'Bright')
+];
+
+export const DEFAULT_SCREEN_LIGHT_LEVEL: string = 'high';
+
+export function screenLightLevelIndex(id: string): number {
+  const index: number = SCREEN_LIGHT_LEVELS.findIndex((entry: ScreenLightLevel): boolean => entry.id === id);
+  return index < 0 ? screenLightLevelIndex(DEFAULT_SCREEN_LIGHT_LEVEL) : index;
+}
+
+export function screenLightLevelLabel(id: string, english: boolean): string {
+  const entry: ScreenLightLevel = SCREEN_LIGHT_LEVELS[screenLightLevelIndex(id)];
+  return english ? entry.titleEn : entry.titleZh;
+}
+
+/** 档位对应的窗口亮度（0–1）；未知 id 回退默认档，绝不返回 0（0 等于黑屏，不是「弱光」）。 */
+export function screenLightRatio(id: string): number {
+  const ratio: number = SCREEN_LIGHT_LEVELS[screenLightLevelIndex(id)].ratio;
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
 /** 灯光错误码 → 双语提示（错误码由 `TorchController` 回落，页面只转文案）。 */
 export function torchErrorText(code: string, english: boolean): string {
   if (code === 'busy') {
-    return english ? 'Flashlight unavailable; check camera usage'
-      : '手电筒不可用，请检查相机占用';
+    // 「占用」不只指相机：系统限流、其它应用持有闪光灯都会落到这里，因此文案要中性
+    // （2026-10-20 审计 §3.20③ 之前只写「请检查相机占用」，会让人去关相机）。
+    return english ? 'Flashlight is busy; close other apps using it and try again'
+      : '手电筒被占用，请关闭正在使用它的应用后重试';
   }
   return english ? 'This light mode is not supported on this device'
     : '当前设备不支持该灯光模式';

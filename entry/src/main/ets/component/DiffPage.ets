@@ -2,7 +2,8 @@ import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
-import { DiffLine, DiffResult, diffLines, diffCopyText, diffErrorText } from '../model/DiffTools';
+import { DiffLine, DiffResult, diffLines, diffCopyText, diffErrorText,
+  DIFF_LONG_LINE_LENGTH } from '../model/DiffTools';
 
 /**
  * 文本对比页（工具 id `diff`）。
@@ -24,6 +25,8 @@ export struct DiffPage {
   // 最近一次对比结果每次都是新实例、行数组也是新数组，靠替换引用触发刷新（不做原地修改）。
   @Local result: DiffResult = new DiffResult();
   @Local diffLines: DiffLine[] = [];
+  /** 已展开的长行下标（默认全部折到 2 行，点击展开）。 */
+  @Local expandedRows: Set<number> = new Set<number>();
   @Local addedCount: number = 0;
   @Local removedCount: number = 0;
   @Local unchangedCount: number = 0;
@@ -38,6 +41,8 @@ export struct DiffPage {
     const outcome: DiffResult = diffLines(this.leftText, this.rightText);
     this.result = outcome;
     this.diffLines = outcome.lines;
+    // 新一轮对比必须清掉上一次的展开状态：下标已经对应到别的行了（§3.4②）。
+    this.expandedRows = new Set<number>();
     this.addedCount = outcome.added;
     this.removedCount = outcome.removed;
     this.unchangedCount = outcome.unchanged;
@@ -97,19 +102,42 @@ export struct DiffPage {
   /**
    * 结果列表的一行。**只收下标**（常量级参数），文本与行号都在构建函数体内读 `this.diffLines[index]`——
    * `@Builder` 按值传参不随状态刷新，传字符串会让行内容停在旧的对比结果上。
+   *
+   * 长行默认折到 2 行，点击该行可展开/收起（此前固定 `maxLines(2)`，长行只看得到开头，
+   * 2026-10-20 审计 §3.4②）。
    */
   @Builder private diffRow(index: number) {
     Row({ space: 8 }) {
       Text(this.diffPrefix(this.diffLines[index].kind)).fontSize(15).fontWeight(FontWeight.Bold)
         .fontColor(this.diffPrefixColor(this.diffLines[index].kind))
       Text(this.diffLines[index].text).fontSize(15).fontColor(ToolPalette.textPrimary)
-        .maxLines(2).layoutWeight(1)
+        .maxLines(this.expandedRows.has(index) ? 100 : 2).layoutWeight(1)
       Row() {
         Text(this.diffLineLabel(index)).fontSize(12).fontColor(ToolPalette.textFaint)
       }.justifyContent(FlexAlign.End)
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 6, bottom: 6 })
+    // 只有「确实会被折行」的长行才可点，短行点了没反应反而让人以为卡了。
+    .onClick(() => { if (this.diffLines[index].text.length > DIFF_LONG_LINE_LENGTH) { this.toggleRow(index); } })
+    .accessibilityText(this.rowAccessibility(index))
+  }
+
+  /** 点击一行：在「展开」与「收起」之间切换（换新 Set 实例才会触发 ArkUI V2 刷新）。 */
+  private toggleRow(index: number): void {
+    const next: Set<number> = new Set<number>(this.expandedRows);
+    if (next.has(index)) { next.delete(index); } else { next.add(index); }
+    this.expandedRows = next;
+  }
+
+  private rowAccessibility(index: number): string {
+    const line: DiffLine = this.diffLines[index];
+    const expanded: boolean = this.expandedRows.has(index);
+    const long: boolean = line.text.length > DIFF_LONG_LINE_LENGTH;
+    const state: string = !long ? '' : (expanded ? this.tr('，已展开，点击收起', ', expanded, tap to collapse')
+      : this.tr('，点击展开全文', ', tap to expand'));
+    return this.tr('第 ' + this.diffLineLabel(index) + ' 行', 'Line ' + this.diffLineLabel(index)) +
+      state + '：' + line.text;
   }
 
   build() {
@@ -150,24 +178,28 @@ export struct DiffPage {
 
       Text(this.statisticsText()).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
 
-      MaterialSurface({
-        supported: this.immersiveSupported,
-        level: this.materialLevel,
-        fallback: ToolPalette.surface,
-        corner: 16,
-        lightEffect: true
-      }) {
-        List({ space: 4 }) {
-          ForEach(this.diffLines, (line: DiffLine, index: number) => {
-            ListItem() {
-              this.diffRow(index)
-            }
-          }, (line: DiffLine, index: number) => index + '-' + line.text)
+      // 只在**确实有差异行**时渲染结果卡：此前无论有没有差异都固定占 320 vp，无差异时白占大半屏
+      // （2026-10-20 审计 §3.4①）。行数少就按内容高度，多了封顶 320 并滚动。
+      if (this.diffLines.length > 0) {
+        MaterialSurface({
+          supported: this.immersiveSupported,
+          level: this.materialLevel,
+          fallback: ToolPalette.surface,
+          corner: 16,
+          lightEffect: true
+        }) {
+          List({ space: 4 }) {
+            ForEach(this.diffLines, (line: DiffLine, index: number) => {
+              ListItem() {
+                this.diffRow(index)
+              }
+            }, (line: DiffLine, index: number) => index + '-' + line.text)
+          }
+          .width('100%')
+          .height(this.diffLines.length <= 6 ? this.diffLines.length * 26 + 16 : 320)
+          .padding({ top: 8, bottom: 8 })
+          .scrollBar(BarState.Auto)
         }
-        .width('100%')
-        .height(320)
-        .padding({ top: 8, bottom: 8 })
-        .scrollBar(BarState.Auto)
       }
 
       if (this.diffLines.length === 0) {

@@ -3,9 +3,10 @@ import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
-import { RadixOption, BASE_RADIXES, radixIndex, radixOption, RadixParse, parseRadix, radixText, groupDigits,
+import { RadixOption, BASE_RADIXES, radixIndex, radixOption, radixBase, radixInputPrefix, RadixParse,
+  parseRadix, radixText, groupDigits,
   BitwiseOp, BITWISE_OPS, bitwiseOpIndex, bitwiseOpById, BitwiseResult, bitwiseOp,
-  baseErrorText } from '../model/BaseTools';
+  baseErrorText, bitwiseParseError } from '../model/BaseTools';
 
 /**
  * 进制与位运算页：一个输入框在 2/8/10/16 进制间互转，另有 32 位无符号的位运算。
@@ -27,6 +28,8 @@ export struct BasePage {
   @Local input: string = '';
   @Local radixId: string = 'dec';
   @Local operandA: string = '';
+  /** 位运算操作数的进制（与上半部分进制换算共用 `BASE_RADIXES`，默认十进制）。 */
+  @Local operandRadix: string = 'dec';
   @Local operandB: string = '';
   @Local opId: string = 'and';
 
@@ -148,15 +151,22 @@ export struct BasePage {
     return result;
   }
 
-  /** 操作数按十进制读入；空/非法/超界先在这里转成位运算的错误码，再交给 `bitwiseOp()` 判定。 */
-  private bitwiseResult(): BitwiseResult {
+  /**
+   * 位运算结果（**只算一次**，操作数/运算符变了才重算）。
+   *
+   * 此前每次渲染会被解析 2–4 次（结果行、三行进制显示、错误提示各调一次），每次都要跑
+   * `parseRadix()` + `bitwiseOp()`（2026-10-20 审计 §3.5①）。改成 `@Computed` 后同一次渲染只算一次。
+   */
+  @Computed
+  get bitwise(): BitwiseResult {
     const op: BitwiseOp | undefined = bitwiseOpById(this.opId);
     const unary: boolean = op !== undefined && op.unary;
-    const first: RadixParse = parseRadix(this.operandA, 10);
+    const base: number = radixBase(this.operandRadix);
+    const first: RadixParse = parseRadix(this.operandA, base);
     if (!first.ok) { return this.bitwiseFailure(first.error); }
     let second: number = 0;
     if (!unary) {
-      const parsed: RadixParse = parseRadix(this.operandB, 10);
+      const parsed: RadixParse = parseRadix(this.operandB, base);
       if (!parsed.ok) { return this.bitwiseFailure(parsed.error); }
       second = parsed.value;
     }
@@ -164,7 +174,7 @@ export struct BasePage {
   }
 
   private bitwiseValueText(kind: string): string {
-    const result: BitwiseResult = this.bitwiseResult();
+    const result: BitwiseResult = this.bitwise;
     if (!result.ok) { return ''; }
     if (kind === 'dec') { return result.value.toString(); }
     if (kind === 'hex') { return radixText(result.value, 16); }
@@ -178,8 +188,10 @@ export struct BasePage {
   }
 
   private bitwiseError(): string {
-    const result: BitwiseResult = this.bitwiseResult();
-    return result.ok ? '' : baseErrorText(result.error, this.english);
+    const result: BitwiseResult = this.bitwise;
+    // 位运算的错误文案与进制换算分开：位运算按 32 位无符号口径，报「包含不合法数字字符」会让用户
+    // 以为只是进制选错了（2026-10-20 审计 §3.5④）。
+    return result.ok ? '' : bitwiseParseError(result.error, this.english);
   }
 
   /** 位运算结果行：同样只收常量 `kind`，值在函数体内现取。 */
@@ -212,16 +224,28 @@ export struct BasePage {
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
         corner: 16, interactive: true
       }) {
-        TextInput({ text: kind === 'a' ? this.operandA : this.operandB, placeholder: '0' })
+        TextInput({ text: kind === 'a' ? this.operandA : this.operandB, placeholder: this.operandPlaceholder() })
           .backgroundColor(Color.Transparent)
-          .accessibilityText(kind === 'a' ? this.tr('第一个操作数（十进制）', 'First operand (decimal)') :
-            this.tr('第二个操作数（十进制）', 'Second operand (decimal)'))
+          .accessibilityText(this.operandAccessibility(kind))
           .onChange((value: string) => {
             if (kind === 'a') { this.operandA = value; } else { this.operandB = value; }
           })
           .height(52)
       }
     }.layoutWeight(1)
+  }
+
+  /** 操作数的占位提示跟随所选进制（十进制 0、十六进制 0x0 等），不再永远写「0」。 */
+  private operandPlaceholder(): string {
+    const prefix: string = radixInputPrefix(this.operandRadix);
+    return prefix.length > 0 ? prefix + '0' : '0';
+  }
+
+  private operandAccessibility(kind: string): string {
+    const base: number = radixBase(this.operandRadix);
+    const which: string = kind === 'a' ? this.tr('第一个操作数', 'First operand')
+      : this.tr('第二个操作数', 'Second operand');
+    return which + this.tr('，' + base.toString() + ' 进制', ', base ' + base.toString());
   }
 
   build() {
@@ -256,6 +280,18 @@ export struct BasePage {
 
       Text(this.tr('位运算（32 位无符号）', 'Bitwise (32-bit unsigned)'))
         .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      // 操作数进制：与上半部分的进制换算共用同一张 `BASE_RADIXES` 登记表（此前位运算只认十进制，
+      // 想算 `0xFF & 0x0F` 得先自己换算，2026-10-20 审计 §3.5②）。
+      OptionSelect({
+        label: this.tr('操作数进制', 'Operand base'),
+        options: this.radixOptions(),
+        selectedIndex: radixIndex(this.operandRadix),
+        selectedText: this.radixLabel(this.operandRadix),
+        a11yText: this.tr('位运算操作数的进制', 'Base of the bitwise operands'),
+        onSelected: (index: number): void => {
+          if (index >= 0 && index < BASE_RADIXES.length) { this.operandRadix = BASE_RADIXES[index].id; }
+        }
+      })
       Row({ space: 8 }) {
         this.operandInput('a')
         this.operandInput('b')
@@ -263,7 +299,7 @@ export struct BasePage {
       this.opSelect()
       if (this.bitwiseError().length > 0) {
         Text(this.bitwiseError()).fontSize(15)
-          .fontColor(this.bitwiseResult().error === 'empty' ? ToolPalette.textMuted : ToolPalette.warning)
+          .fontColor(this.bitwise.error === 'empty' ? ToolPalette.textMuted : ToolPalette.warning)
           .width('100%')
       } else {
         this.bitwiseValueRow('dec')

@@ -8,8 +8,10 @@ import { LocalData, CountdownItem, StopwatchData } from '../model/LocalData';
 import { buildImmersiveMaterial } from '../model/Materials';
 import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES,
   DURATION_COLUMNS, durationIndices,
-  lapDurations, fastestLapIndex, slowestLapIndex, TimerMode, TIMER_MODES } from '../model/TimerMath';
-import { scheduleReminder, cancelReminder } from '../services/SystemTools';
+  lapDurations, lapRecordable, appendLap, reminderGuidanceText, finishedAlertText, fastestLapIndex,
+  slowestLapIndex, timerDurationWithinLimits, timerLimitText, timerDurationLimitText, TIMER_MAX_COUNT,
+  TimerMode, TIMER_MODES } from '../model/TimerMath';
+import { scheduleReminder, cancelReminder, ReminderOutcome } from '../services/SystemTools';
 import { LiveViewHandle, startTimerLiveView, updateTimerLiveView, stopTimerLiveView } from '../services/LiveViewTools';
 
 /**
@@ -34,6 +36,14 @@ export struct TimersPage {
 
   @Local timerMode: string = 'countdown';
   @Local timerName: string = '';
+  // 正在编辑的计时 id（空串 = 新增）。`editTimer()` 只记 id、不删除原条目，`addTimer()` 据此 upsert。
+  @Local editingId: string = '';
+  // 最近一次排后台提醒的失败原因（`ReminderOutcome.error`）：用于给「通知未允许」这类可操作引导。
+  @Local reminderError: string = '';
+  // 到点提示（§3.15）：结束的计时名字、是否已提示、提示文案。
+  @Local finishedNames: string[] = [];
+  @Local finishedShown: boolean = false;
+  @Local finishedLabel: string = '';
   @Local hours: string = '0';
   @Local minutes: string = '5';
   @Local seconds: string = '0';
@@ -42,15 +52,19 @@ export struct TimersPage {
   @Local repeatTimer: boolean = false;
   @Local now: number = Date.now();
   private ticker: number = -1;
+  // 当前定时器周期（ms）：`ensureTicker()` 用它判断是否需要重建定时器。
+  private tickerIntervalMs: number = 0;
   private liveViewReason: string = '';
 
   aboutToAppear(): void {
     this.loadTimers();
-    this.ticker = setInterval(() => this.tick(), 250);
+    this.ensureTicker();
   }
 
   aboutToDisappear(): void {
     if (this.ticker >= 0) { clearInterval(this.ticker); }
+    this.ticker = -1;
+    this.tickerIntervalMs = 0;
   }
 
   @Monitor('data')
@@ -101,8 +115,12 @@ export struct TimersPage {
   }
 
   // 只给时间选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
-  private immersiveMaterial(interactive: boolean): uiMaterial.Material | undefined {
-    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, interactive, interactive);
+  /**
+   * 系统选择器对话框的材质：**只读光感，不要触控形变**（`interactive` 是给应用内输入表面用的，
+   * 对话框的交互由系统负责；2026-10-20 审计 §3.27）。
+   */
+  private dialogMaterial(): uiMaterial.Material | undefined {
+    return buildImmersiveMaterial(this.immersiveSupported, this.materialLevel, false, true);
   }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
@@ -119,19 +137,55 @@ export struct TimersPage {
           this.rescheduleRepeat(timer);
         } else {
           timer.state = 'done'; timer.remainingMs = 0;
+          // 到点提示（2026-10-20 审计 §3.15「计时结束的应用内提示」）：后台提醒可能被系统限流或
+          // 用户拒绝通知，应用在前台时必须有**看得见**的提示，否则计时悄悄结束。
+          this.finishedNames.push(timer.name);
         }
         changed = true;
       }
     });
+    if (this.finishedNames.length > 0 && !this.finishedShown) {
+      this.finishedShown = true;
+      this.finishedLabel = finishedAlertText(this.finishedNames, this.english);
+      this.onStatus(this.finishedLabel);
+    }
     if (changed) { this.timers = this.timers.slice(); this.persistTimers(); }
+    // 空闲时降到 1 秒一次：此前固定 250 ms 常驻，没在计时也每秒唤醒四次（2026-10-20 审计 P1）。
+    this.ensureTicker();
+  }
+
+  /** 关闭到点提示（横幅与提示条同时清掉，避免下轮计时一结束就又弹旧名字）。 */
+  private dismissFinished(): void {
+    this.finishedShown = false;
+    this.finishedNames = [];
+    this.finishedLabel = '';
+  }
+
+  /**
+   * 刷新频率按「有没有正在跑的东西」自适应：秒表或倒计时在跑时 250 ms（读数跟手），
+   * 否则 1 s（只用来推进 `now`，足够让「剩余时间」跳秒）。在 `tick()` 末尾调用，因此状态一变
+   * 最多一个周期内就会切过来，不需要在每个动作里手工重启定时器。
+   */
+  private ensureTicker(): void {
+    const running: boolean = this.watch.running ||
+      this.timers.some((item: CountdownItem): boolean => item.state === 'running');
+    const want: number = running ? 250 : 1000;
+    if (want === this.tickerIntervalMs && this.ticker >= 0) { return; }
+    if (this.ticker >= 0) { clearInterval(this.ticker); }
+    this.tickerIntervalMs = want;
+    this.ticker = setInterval(() => this.tick(), want);
   }
 
   // 重复计时的下一轮提醒：失败只影响后台提醒，不影响应用内计时（与 startTimer 的容错一致）。
   private async rescheduleRepeat(timer: CountdownItem): Promise<void> {
     try {
-      timer.reminderId = await scheduleReminder(this.ctx(), timer.name, timer.durationMs / 1000, this.english);
+      const outcome: ReminderOutcome =
+        await scheduleReminder(this.ctx(), timer.name, timer.durationMs / 1000, this.english);
+      timer.reminderId = outcome.id;
+      this.reminderError = outcome.error;
     } catch (_) {
       timer.reminderId = -1;
+      this.reminderError = 'other';
     }
   }
 
@@ -155,7 +209,7 @@ export struct TimersPage {
         selected: indices,
         value: [columns[0][indices[0]], columns[1][indices[1]], columns[2][indices[2]]],
         canLoop: true,
-        systemMaterial: this.immersiveMaterial(true),
+        systemMaterial: this.dialogMaterial(),
         onAccept: (result: TextPickerResult) => {
           const picked: number[] = result.index as number[];
           if (!Array.isArray(picked) || picked.length !== 3) { return; }
@@ -173,13 +227,35 @@ export struct TimersPage {
     // 与 durationLabel() 使用同一套 clamp，避免出现「卡片显示 23:00:00、提交的却是 24:00:00」这类显示与提交不一致。
     let duration: number = parseDuration(clampDurationPart(this.hours, 23).toString(),
       clampDurationPart(this.minutes, 59).toString(), clampDurationPart(this.seconds, 59).toString());
-    if (duration === 0 || this.timers.length >= 30) {
-      this.onStatus(this.tr('请输入 1 秒至 23 小时 59 分 59 秒的时长，最多 30 组',
-        'Enter 1 second to 23:59:59; maximum 30 timers')); return;
+    const editing: string = this.editingId;
+    const name: string = this.timerName.trim() || this.tr('倒计时', 'Countdown');
+    // 编辑态：按 id 覆盖原条目（保持原位置），不新增第二条。
+    if (editing.length > 0 && this.timers.some((item: CountdownItem): boolean => item.id === editing)) {
+      if (duration === 0) {
+        // 编辑态只涉及时长，不涉及条数——但仍走 `TimerMath` 的**同一个**时长上限文案，
+        // 不要再在这里手写「23 小时 59 分 59 秒」（第 87 轮：手写那份曾与新增路径的文案互相矛盾）。
+        this.onStatus(timerDurationLimitText(this.english)); return;
+      }
+      this.timers = this.timers.map((item: CountdownItem): CountdownItem => {
+        if (item.id !== editing) { return item; }
+        item.name = name;
+        item.durationMs = duration; item.remainingMs = duration;
+        item.state = 'ready'; item.deadlineMs = 0;
+        item.repeat = this.repeatTimer;
+        return item;
+      });
+      this.editingId = '';
+      await this.persistTimers();
+      this.timerName = ''; this.onStatus(this.tr('计时已更新', 'Timer updated'));
+      return;
+    }
+    // 上限与存储层共用 `TimerMath` 的常量与文案，不再各写一份数字（2026-10-20 审计 §3.15④）。
+    if (duration === 0 || !timerDurationWithinLimits(duration) || this.timers.length >= TIMER_MAX_COUNT) {
+      this.onStatus(timerLimitText(this.english)); return;
     }
     let timer: CountdownItem = new CountdownItem();
     timer.id = Date.now().toString() + Math.random().toString();
-    timer.name = this.timerName.trim() || this.tr('倒计时', 'Countdown');
+    timer.name = name;
     timer.durationMs = duration; timer.remainingMs = duration;
     timer.repeat = this.repeatTimer;
     this.timers = [timer].concat(this.timers); await this.persistTimers();
@@ -195,9 +271,16 @@ export struct TimersPage {
 
   private async startTimer(timer: CountdownItem): Promise<void> {
     let remaining: number = timer.state === 'paused' ? timer.remainingMs : timer.durationMs;
+    this.reminderError = '';
     try {
-      timer.reminderId = await scheduleReminder(this.ctx(), timer.name, remaining / 1000, this.english);
-    } catch (_) { timer.reminderId = -1; }
+      const outcome: ReminderOutcome = await scheduleReminder(this.ctx(), timer.name, remaining / 1000,
+        this.english);
+      timer.reminderId = outcome.id;
+      this.reminderError = outcome.error;
+    } catch (_) {
+      timer.reminderId = -1;
+      this.reminderError = 'other';
+    }
     this.liveViewReason = '';
     if (timer.liveViewId >= 0) {
       const resumed: boolean = await updateTimerLiveView(this.ctx(), timer.liveViewId, timer.name,
@@ -226,6 +309,9 @@ export struct TimersPage {
       return this.tr('当前设备未开通实况窗权益，已改用后台提醒', 'Live view entitlement unavailable; using background reminder');
     }
     if (timer.reminderId >= 0) { return this.tr('后台提醒已设置', 'Background reminder set'); }
+    // 失败原因有明确引导文案时优先给引导（例如「通知未允许」要给出去系统设置的下一步）。
+    const guidance: string = reminderGuidanceText(this.reminderError, this.english);
+    if (guidance.length > 0) { return guidance; }
     return this.tr('仅应用内计时：实况窗或后台提醒未启用', 'In-app only: live view and background alert unavailable');
   }
 
@@ -271,14 +357,16 @@ export struct TimersPage {
   private async editTimer(timer: CountdownItem): Promise<void> {
     if (!await this.cancelForChange(timer)) { return; }
     await stopTimerLiveView(timer.liveViewId, timer.name, this.english);
-    let total: number = Math.floor(timer.durationMs / 1000);
+    const total: number = Math.floor(timer.durationMs / 1000);
     this.timerName = timer.name;
     this.hours = Math.floor(total / 3600).toString();
     this.minutes = Math.floor((total % 3600) / 60).toString();
     this.seconds = (total % 60).toString();
-    this.timers = this.timers.filter((item: CountdownItem) => item.id !== timer.id);
-    await this.persistTimers();
-    this.onStatus(this.tr('已填入上方，修改后重新添加', 'Values moved above; edit and add again'));
+    this.repeatTimer = timer.repeat;
+    // **编辑不再删除原条目**：原实现先删除再填入上方，用户中途放弃就永久丢了这个计时。
+    // 现在只记下 id，`addTimer()` 按 id 覆盖（upsert），界面文案也跟着变（2026-10-20 审计 P1）。
+    this.editingId = timer.id;
+    this.onStatus(this.tr('已填入上方，保存将覆盖该计时', 'Loaded above; saving will update this timer'));
   }
 
   private formatTime(ms: number): string {
@@ -330,8 +418,15 @@ export struct TimersPage {
   /** 计次：把当前累计时间追加到记录里（暂停时也能记，方便整段计时后分段）。 */
   private async lapWatch(): Promise<void> {
     const elapsed: number = this.watchElapsedMs();
-    if (elapsed <= 0) { return; }
-    this.watch.laps = this.watch.laps.concat([elapsed]);
+    // 没有新时间可记（暂停后连点）会产生与前一次相同的累计值 → 差值 0 会污染最快/最慢，
+    // 因此严格递增才允许计次（2026-10-20 审计 P1）。上限见 `TimerMath.LAP_MAX`（保最近 N 次）。
+    if (!lapRecordable(this.watch.laps, elapsed)) {
+      if (elapsed > 0) {
+        this.onStatus(this.tr('没有新的时间可计次', 'No new time to record since the last lap'));
+      }
+      return;
+    }
+    this.watch.laps = appendLap(this.watch.laps, elapsed);
     this.syncWatch();
     if (this.data) { await this.data.saveStopwatch(this.watch); }
   }
@@ -351,6 +446,24 @@ export struct TimersPage {
 
   build() {
     Column({ space: 14 }) {
+      // 到点提示放在最上方且与「方式」无关：无论当前在看倒计时还是秒表，计时结束都要看得见。
+      if (this.finishedLabel.length > 0) {
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+          corner: 16, lightEffect: true
+        }) {
+          Row({ space: 12 }) {
+            SymbolGlyph($r('sys.symbol.alarm_fill')).fontSize(24).fontColor([ToolPalette.warning])
+            Text(this.finishedLabel).fontSize(16).fontWeight(FontWeight.Bold)
+              .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+            IconActionButton({
+              icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.textSecondary, boxSize: 44, iconSize: 22,
+              a11yText: this.tr('关闭到点提示', 'Dismiss the finish alert'),
+              onTap: () => this.dismissFinished()
+            })
+          }.padding(16).width('100%').alignItems(VerticalAlign.Center)
+        }
+      }
       this.modeSelect()
       if (this.timerMode === 'stopwatch') {
         this.stopwatchPanel()
@@ -419,11 +532,22 @@ export struct TimersPage {
           .accessibilityText(this.tr('重复计时', 'Repeat'))
           .onChange((isOn: boolean) => { this.repeatTimer = isOn; })
       }.width('100%')
-      Row() {
+      Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.plus'), tintColor: ToolPalette.warning,
-          a11yText: this.tr('添加计时器', 'Add timer'), onTap: () => this.addTimer()
+          icon: this.editingId.length > 0 ? $r('sys.symbol.checkmark') : $r('sys.symbol.plus'),
+          tintColor: this.editingId.length > 0 ? ToolPalette.success : ToolPalette.warning,
+          a11yText: this.editingId.length > 0 ? this.tr('保存该计时', 'Save this timer')
+            : this.tr('添加计时器', 'Add timer'),
+          onTap: () => this.addTimer()
         })
+        // 编辑态给一条显式退路：取消编辑不会动原条目（原实现是先删再填，弃改即丢）。
+        if (this.editingId.length > 0) {
+          IconActionButton({
+            icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.textMuted,
+            a11yText: this.tr('取消编辑', 'Cancel editing'),
+            onTap: () => { this.editingId = ''; this.onStatus(this.tr('已取消编辑', 'Editing cancelled')); }
+          })
+        }
       }.width('100%').justifyContent(this.actionAlign)
       ForEach(this.timers, (timer: CountdownItem) => {
         MaterialSurface({

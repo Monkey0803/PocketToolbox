@@ -15,6 +15,12 @@ export struct DocumentsPage {
   @Param documentPdf: boolean = false;
   @Param documentSaving: boolean = false;
   @Param actionAlign: FlexAlign = FlexAlign.Center;
+  /**
+   * 预览图宽度（vp）：由父组件按断点算好传进来（`LayoutAdaptive` 是唯一的宽度口径），
+   * 高度用固定长宽比跟随，避免「固定 180×240」在折叠屏/平板上比例失真
+   * （2026-10-20 审计 §3.23②）。
+   */
+  @Param previewWidth: number = 180;
   @Event onScan: () => void = () => {};
   @Event onExport: () => void = () => {};
 
@@ -44,7 +50,8 @@ export struct DocumentsPage {
           .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
         if (!this.documentPdf) {
           ForEach(this.documentUris, (uri: string, index: number) => {
-            Image(uri).width(180).height(240).objectFit(ImageFit.Contain)
+            // A4 竖版长宽比（宽 / 高 = 0.75）：宽度按断点走、高度按比例跟随，不再写死像素。
+            Image(uri).width(this.previewWidth).aspectRatio(0.75).objectFit(ImageFit.Contain)
               .backgroundColor(Color.White).borderRadius(12)
           }, (uri: string, index: number) => index.toString())
         }

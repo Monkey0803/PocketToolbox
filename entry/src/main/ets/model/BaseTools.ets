@@ -44,6 +44,35 @@ export function radixOption(id: string): RadixOption | undefined {
   return BASE_RADIXES.find((entry: RadixOption): boolean => entry.id === id);
 }
 
+/** 进制 id → 基数；未知 id 回退十进制（与页面下拉的默认口径一致）。 */
+export function radixBase(id: string): number {
+  const option: RadixOption | undefined = radixOption(id);
+  return option === undefined ? 10 : option.radix;
+}
+
+/** 进制 id → 该进制的输入前缀（`0x`/`0b`/`0o`；十进制为空串）。未知 id 按十进制处理。 */
+export function radixInputPrefix(id: string): string {
+  return radixPrefix(radixBase(id));
+}
+
+/**
+ * 位运算操作数的解析错误码：`empty` 没填、`invalid` 含不合法字符或超 32 位、`overflow` 超安全整数。
+ *
+ * 与 `radixParseError`（进制换算侧）分开：两侧的合法范围不同——位运算按 32 位无符号口径，
+ * 进制换算允许到安全整数上限（2026-10-20 审计 §3.5②/§3.5④）。
+ */
+export function bitwiseParseError(code: string, english: boolean): string {
+  if (code === 'empty') { return english ? 'Enter both operands' : '请填写操作数'; }
+  if (code === 'overflow') {
+    return english ? 'Operand exceeds 2^53-1' : '操作数超出 2^53-1 的安全整数范围';
+  }
+  if (code === 'invalid') {
+    return english ? 'Operands must be 32-bit unsigned integers (0 to 4294967295)'
+      : '操作数须为 32 位无符号整数（0–4294967295）';
+  }
+  return '';
+}
+
 export class RadixParse {
   ok: boolean = false;
   value: number = 0;

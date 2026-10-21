@@ -1,18 +1,22 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
-import { i18n } from '@kit.LocalizationKit';
-import { HolidayTable, parseHolidayIcs, isHolidayDate } from '../model/HolidayIcs';
+import { HolidayTable, parseHolidayIcs } from '../model/HolidayIcs';
 
 /**
  * 节假日数据（系统能力封装）。
  *
- * 职责：把随包的 `.ics` 落地到应用沙箱，并把法定节假日判断交给系统 `i18n.HolidayManager`；调休上班日由
- * 同一份 `.ics` 自行解析（`model/HolidayIcs.ets`）。
+ * 职责：把随包的 `.ics` 落地到应用沙箱、读取沙箱里的那一份、按数据日期标记决定是否用随包数据覆盖。
+ * 调休上班日与法定节假日都用同一份 `.ics` 解析出的表（`model/HolidayIcs.ets`）。
  *
- * 数据在**构建期**由 `tools/fetch-holidays.mjs` 从 NateScarlet/holiday-cn（MIT）抓取并生成，应用运行时
- * 不联网：原来的「更新节假日数据」入口与 `ohos.permission.INTERNET` 已一并移除。国务院每年 11–12 月
- * 公布次年安排后重跑该脚本并发版即可（详见 docs/THIRD_PARTY_NOTICES.md）。
+ * 数据在**构建期**由 `tools/fetch-holidays.mjs` 从 NateScarlet/holiday-cn（MIT）抓取并生成，运行时默认
+ * 不联网；设置页的「检查更新」是唯一的在线入口（`services/HolidayUpdate.ets`，只在用户点击时抓取一次）。
+ * 国务院每年 11–12 月公布次年安排后重跑该脚本并发版即可（详见 docs/THIRD_PARTY_NOTICES.md）。
+ *
+ * **单一数据源**：日期口径一律以这份 `.ics` 为准，不查系统 `i18n.HolidayManager`。系统镜像自带的
+ * 节假日库版本随设备而异、可能比随包数据旧，两个来源混用会让「工作日数」既不可复现、也和界面上标注的
+ * 数据日期对不上（原先那个「优先系统、异常再回退解析表」的 `isStatutoryHoliday()` 因无人调用已删除，
+ * 2026-10-20 审计 §3.15②）。
  */
 
 const ICS_FILE_NAME: string = 'holidays.ics';
@@ -50,6 +54,16 @@ function readDownloadMark(ctx: common.UIAbilityContext): string {
   }
 }
 
+/**
+ * 当前沙箱里的节假日数据是不是**用户在线更新**来的。
+ *
+ * 界面据此如实标注来源：以前无论数据从哪来都写「随应用内置」，用户点过「检查更新」之后这句就是假的
+ * （2026-10-20 审计 §3.13①）。
+ */
+export function holidayDataDownloaded(ctx: common.UIAbilityContext): boolean {
+  return readDownloadMark(ctx).length > 0;
+}
+
 function writeTextFile(path: string, text: string): void {
   const handle: fileIo.File = fileIo.openSync(path,
     fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
@@ -62,12 +76,6 @@ function writeTextFile(path: string, text: string): void {
 
 function writeText(ctx: common.UIAbilityContext, text: string): void {
   writeTextFile(icsPath(ctx), text);
-}
-
-function isoToLocalDate(iso: string): Date | undefined {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) { return undefined; }
-  return new Date(Number(iso.substring(0, 4)), Number(iso.substring(5, 7)) - 1,
-    Number(iso.substring(8, 10)), 12, 0, 0, 0);
 }
 
 /**
@@ -126,14 +134,4 @@ export async function loadHolidayTable(ctx: common.UIAbilityContext): Promise<Ho
   const text: string | undefined = readCachedIcs(ctx);
   if (text === undefined || text === '') { return new HolidayTable(); }
   return parseHolidayIcs(text);
-}
-
-// 法定节假日判断：优先系统 HolidayManager；异常或不可用时回退到解析表。
-export function isStatutoryHoliday(ctx: common.UIAbilityContext, iso: string, fallback: HolidayTable): boolean {
-  const date: Date | undefined = isoToLocalDate(iso);
-  const path: string = icsPath(ctx);
-  if (date !== undefined && fileIo.accessSync(path)) {
-    try { return new i18n.HolidayManager(path).isHoliday(date); } catch (_) { /* 回退到解析表 */ }
-  }
-  return isHolidayDate(fallback, iso);
 }
