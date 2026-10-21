@@ -55,6 +55,16 @@
 - **节假日数据改为随包内置（2026-10-16）**：`tools/fetch-holidays.mjs` 在构建期从 NateScarlet/holiday-cn（MIT）抓取并展开区间，写入 `resources/rawfile/holidays.ics`；「更新节假日数据」入口与 `ohos.permission.INTERNET` 一并移除，应用不再申请任何网络权限。模拟器复验：工作日分段显示「节假日数据 2026-10-16 · 随应用内置」与「已排除周末与法定节假日，并计入调休上班日」；取起始 2026-10-07（国庆假期最后一天）、目标 2026-10-10（补国庆节假期的调休上班日）→ **工作日 3 天 / 自然日 3 天**，人工核算为 10-07 被排除（否则 4 天）、10-10 被计入（否则 2 天），法定节假日与调休两条分支都生效，见 `screenshots/emulator/date-work-real-holidays-zh.jpeg`。单测新增 `DTEND` 区间展开、跨月跨年与异常区间断言。**口径已更新（2026-10-20）**：应用随后重新引入联网能力（网络工具 / 汇率更新 / 设置页检查更新），权限由 3 项增至 5 项，并在设置页恢复「检查更新」入口——本段描述的「不再申请任何网络权限」仅适用于当轮版本，现行口径见 [`PRIVACY.md`](PRIVACY.md) 与 `RELEASE_CHECKLIST.md` 的权限段。
 - **深色模式对比度核查（0.6 的最后一项）**：把系统切到深色（模拟器设置 → 显示和亮度 → 深色）后逐一截图核对工具网格、快捷计算（含百分数行内输入框）、日期计算（分段控件 + 日期卡片 + 结果卡）、时间戳结果卡、设置页，以及系统的日期选择器对话框。结论：应用只使用 `model/ToolPalette.ets` 的固定浅色板并显式设置背景与文字颜色，**深色模式下外观与浅色模式完全一致、文字与卡片底色对比度不变**；系统对话框与状态栏也照常可读。证据见 `screenshots/emulator/darkmode-tools-zh.jpeg`、`darkmode-quick-calculator-zh.jpeg`、`darkmode-timestamp-zh.jpeg`、`darkmode-date-picker-dialog.jpeg`。核查后已把模拟器系统改回浅色。**口径已更新（2026-10-19 深色主题落地 + 2026-10-20 审计修复）**：色板已资源化（`resources/{base,dark}/element/color.json`）并跟随系统，本段「固定浅色板 / 深色主题未实现」的描述仅适用于当轮版本；后续模拟器复验入口见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的深色项（真机仍待验）。
 
+## 追加回执（2026-10-21 第一百一十一轮：填入隐私政策地址（blob 形态）——应用侧行为实测全对，**但该地址实测会弹验证码**）
+
+- **填入**：`PRIVACY_POLICY_URL = https://gitee.com/monkey0803/pages/blob/master/PocketToolBox/PRIVACY.html`（发布方提供）。代码注释记全形态取舍与实测数据，并写明「换成同文件 `raw` 只需改这一行」。
+- **测试同步改**：从「必须是空占位」改成**形态校验**（能通过可用性判据、`https://` 开头、无空白、托管位置含 `gitee.com/monkey0803/pages`）；删掉按设计会失败的旧断言「空占位不算可用」——**这正是上轮注释里预言的「地址填好后断言要一起改」**。
+- **模拟器实测（应用侧，全部正确）**：进设置 →「关于」区渲染出**地址本体 + 「打不开时可复制下面的地址」+ 复制按钮**；点复制 → 弹「**已复制**」；点「隐私政策」行 → **成功拉起系统浏览器**（屏幕出现 `gitee.com`）→ `openLink` 与 `@Event` 接线都对。
+- **⚠️ 但浏览器拿到的是 Gitee 的「曲线滑块验证」页**（「校验失败，请再试一次 / 向右滑动完成曲线与背景匹配」），**不是政策正文**。如实记为**合规风险**：商店审校与自动链接检查器很可能撞上同一道验证；已写进 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) 的硬要求（必须「打开即正文、无验证码、免登录」），并给出替代（开启 Gitee Pages / 换 GitHub Pages 或对象存储静态站 / 试同文件 `raw`）。
+- **本环境可核的网络事实**：`https://monkey0803.gitee.io/`、`/pages/`、`/pages/PocketToolBox/PRIVACY.html` **全部 HTTP 404**（Gitee Pages 未部署）；`gitee.com` 在开发环境被网络策略拦截（`resolves to a non-public IP`），**本地无法核对 blob 页渲染的是正文还是 HTML 源码** —— 这一点只能由发布方在普通浏览器确认。
+- **验证**：`node tools/build-hap.mjs --tests` 全绿——一致性 **14 项**、单测全绿、**42 个模块 / 456 个导出函数**、HMSymbol **69/69**、`BUILD SUCCESSFUL`。
+- **待发布方确认**：① 用**无痕窗口**点一次该地址，确认**没有验证码**且直接显示政策正文；② 若弹验证码或显示 HTML 源码，则开启 Gitee Pages 或换静态托管，然后**只改 `PRIVACY_POLICY_URL` 一行**；③ 同步 [`PRIVACY.md`](PRIVACY.md)（运营主体/联系邮箱/生效日期/网址）与商店资料。
+
 ## 追加回执（2026-10-21 第一百一十轮：设置页「关于」+ 隐私政策入口（URL 待填）——**顺带查出并修复 1 处真缺陷**）
 
 - **【真缺陷·已修】设置页所有 toast 静默丢弃**：`Index.settingsContent()` 构造 `SettingsPage` 时只传了 6 个回调、**漏了 `onStatus`**；而 `@Event` 的默认值是**空函数**，于是页内所有提示（节假日「检查更新」的成功/失败/「远端更旧」、四个确认框打不开、以及本轮新加的隐私政策提示）**全部无声无息——不报错、也不显示**。已补 `onStatus`（转 `this.status`）与 `onCopy`（走 `Index.copy()` 的剪贴板入口）。

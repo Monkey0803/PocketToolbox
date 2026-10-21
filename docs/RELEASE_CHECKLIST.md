@@ -328,8 +328,12 @@
    - 用 DevEco Studio 的 CodeLinter 跑一次推荐规则（历史上为 0 错误 0 警告 1 建议：启动图标建议 ≤ 256×256）。
 5. **上传与商店资料**
    - AGC 上传 HAP → 填写应用信息（文案取自 [`STORE_LISTING.md`](STORE_LISTING.md)）→ 隐私政策需**可公网访问的网址**（`PRIVACY.md` 补运营主体、联系邮箱、生效日期与网址）。
-   - **隐私政策网址的落地位置（2026-10-21 细化）**：应用内入口已做好（设置 → 关于 → 隐私政策），地址只有**一处常量** `model/AboutInfo.ets` 的 `PRIVACY_POLICY_URL`（当前是空串占位，此时点入口会如实提示「尚未填写」）。上架前把它填成真实地址，并**同步三处**：① 该常量；② [`PRIVACY.md`](PRIVACY.md)（生效日期与网址）；③ 本文件与 [`STORE_LISTING.md`](STORE_LISTING.md) 的隐私政策链接字段。
-   - **地址的硬要求**：`https://` 开头、公开可访问、**不需要登录**、打开即政策正文、长期不改名不删除（`isUsablePolicyUrl()` 只认 `https://` + 有主机名，明文 http 与缺协议都不算）。**推荐静态页**（Gitee Pages / GitHub Pages / 对象存储静态站）→ `https://<用户>.gitee.io/<仓库>/privacy.html`；次选托管平台的 **raw 纯文本**链接；**不要**用仓库的 blob/文件浏览页（带仓库导航、正文靠脚本渲染，审校常判「不是独立政策页」）。面向海外渠道时建议「Gitee 主 + GitHub 备」两条都写进商店资料。
+   - **隐私政策网址的落地位置（2026-10-21 更新：地址已填入代码）**：应用内入口已做好（设置 → 关于 → 隐私政策），地址是**一处常量** `model/AboutInfo.ets` 的 `PRIVACY_POLICY_URL`，**当前值**为发布方提供的 `https://gitee.com/monkey0803/pages/blob/master/PocketToolBox/PRIVACY.html`（仓库文件浏览页 `blob` 形态）。上架前仍需**同步两处**：① [`PRIVACY.md`](PRIVACY.md)（补运营主体、联系邮箱、生效日期与同一网址）；② 本文件与 [`STORE_LISTING.md`](STORE_LISTING.md) 的隐私政策链接字段。
+   - **地址的硬要求（2026-10-21 实测补充）**：`https://` 开头、公开可访问、**不需要登录**、**打开即政策正文**、**不弹验证码**、长期不改名不删除（`isUsablePolicyUrl()` 只认 `https://` + 有主机名）。
+     - ⚠️ **实测风险**：`blob` 形态的地址在模拟器里拉起浏览器后，Gitee 返回的是**「曲线滑块验证」页**（「校验失败，请再试一次」）而**不是政策正文**——商店审校与自动链接检查器很可能撞上同一道验证（该会话是无 cookie 的全新会话）。**提交前必须用无痕窗口、未登录状态点一次，确认直接看到政策正文。**
+     - ⚠️ **Gitee Pages 当前不可用**：实测 `https://monkey0803.gitee.io/`、`/pages/`、`/pages/PocketToolBox/PRIVACY.html` **全部 404**（未部署）。要用静态页形态需先到 Gitee 仓库的「服务 → Gitee Pages」**开启并部署**，部署后的地址形如 `https://monkey0803.gitee.io/pages/PocketToolBox/PRIVACY.html`，再**只改 `PRIVACY_POLICY_URL` 这一行**。
+     - **替代方案（更稳）**：GitHub Pages 或任意对象存储静态站（都不经 Gitee 的 Web 应用与验证码）；同一文件的 `raw` 地址也值得试（`https://gitee.com/monkey0803/pages/raw/master/PocketToolBox/PRIVACY.html`），**同样要用无痕窗口确认没有验证码**。
+     - **推荐形态排序**：静态页（Pages / 对象存储）> 托管平台 raw 纯文本 > 仓库 blob 页。**不要**用需要登录或会弹验证码的地址。
    - 权限说明覆盖全部五项：`PUBLISH_AGENT_REMINDER`（倒计时到期提醒）、`DETECT_GESTURE`（握姿适配）、`ACCELEROMETER`（水平仪）、`INTERNET`（**只在用户点击时**发起：网络工具探测 / 更新汇率 / 检查更新）、`GET_NETWORK_INFO`（只用于 DNS 域名解析）。措辞须与 [`PRIVACY.md`](PRIVACY.md) 一致，**不能再写「不申请网络权限」**。
    - 截图：手机、平板、折叠屏（展开/折叠）分别提供，中文与英文各一套；不得用模拟图冒充设备截图。
    - 第三方数据声明随仓库分发：见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。

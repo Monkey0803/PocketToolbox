@@ -37,6 +37,8 @@
 - `entry/src/main/ets/model/` 放纯逻辑，`entry/src/main/ets/services/` 封装系统能力，`component/MaterialSurface.ets` 是沉浸材质外壳。
 - 双语统一用页面方法 `this.tr(zh, en)`（由 `@Local english` 驱动）；固定文案在 `entry/src/main/resources/{base,en_US}/element/string.json` 与 `AppScope/resources/...`。
 
+- **隐私政策地址：填完必须「点一次、拉到浏览器」才算验过（第 108–109 轮）**：地址与判据都在 `model/AboutInfo.ets`（改地址**只改 `PRIVACY_POLICY_URL` 一行**）。第 109 轮把发布方给的地址填进去后，页面渲染、复制按钮、「已复制」toast、拉起浏览器**全都正确**——**但浏览器里拿到的是 Gitee 的「曲线滑块验证」页，不是政策正文**。**所以「链接能打开」≠「链接能看到政策」**：商店审校与自动链接检查器会撞上同一道墙。**做法**：发布前用**无痕/未登录**状态复核「打开即正文、无验证码、免登录」；形态按推荐度 **静态页（Pages/对象存储）> 托管平台 raw > 仓库 blob 页**（本次用的是 blob，实测有验证码风险）。**Gitee Pages 要先在控制台开启并部署**，实测未部署时 `https://<用户>.gitee.io/`（连根路径）都是 **404**；`gitee.com` 在开发环境被网络策略拦截（`resolves to a non-public IP`），**本地核不了 blob 页渲染正文还是源码**，只能由人在普通浏览器确认。**测试口径**：地址填好后，当初那条「必须是空占位」的断言要一起改成**形态校验**（能通过可用性判据 / `https://` 开头 / 无空白 / 托管位置），否则它会按设计失败——第 109 轮就是这样被上一轮自己留下的注释命中的。
+
 ## 纯逻辑与测试
 
 - `model/*.ets` 中不依赖 `@kit.*` 的文件会被单元测试直接加载：`Units`、`TimerMath`、`DateTools`、`TextTools`、`RandomTools`、`PasswordTools`、`LevelMath`、`BarcodeTools`、`QuickCalculators`、`IncomeTax`、`TimeTools`、`LunarTools`、`HolidayIcs`、`ToolMeta`、`QrContent`、`EncodingTools`、`HashTools`、`HistoryKinds`、`TimeZoneTools`、`QrStyle`、`LoanMath`、`ColorTools`、`HealthMath`、`ScientificCalc`、`StartupIntent`、`CompassMath`、`SensorAccuracy`、`KinshipMath`、`BaseTools`、`DiffTools`、`AnniversaryTools`、`NetworkTools`、`FxTools`、`LanguagePreference`。给这些文件加逻辑时不要引入 `@kit.*` 或 UI 装饰器，否则测试加载失败。**纯逻辑文件之间可以互相 import**：`tests/run-unit-tests.mjs` 会把模块去类型后写到 `.cache/unit-tests/` 并保持相对目录结构，相对 import 能正常解析（`HashTools` 就复用了 `EncodingTools` 的 `utf8Bytes`／`hexText`）。`model/Materials.ets`、`model/LocalData.ets` 含 `@kit` 依赖，`model/ToolCatalog.ets` 含 `$r` 资源引用，三者不参与测试。

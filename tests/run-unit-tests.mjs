@@ -82,9 +82,16 @@ const { createHash } = await import('node:crypto');
 // --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
 // 为什么要有断言：地址是**发布身份**的一部分（商店要求公开、免登录、长期有效），而「地址是否可用」
 // 是一条纯判据——写错了不会崩，只会让入口静默失效或指向不合规的明文地址，因此必须钉住。
-assert.equal(aboutInfo.PRIVACY_POLICY_URL, '', '当前是待填占位：填好后这条断言要一起改成真实地址的形态校验');
-assert.equal(aboutInfo.isUsablePolicyUrl(aboutInfo.PRIVACY_POLICY_URL), false, '空占位不算可用');
-assert.equal(aboutInfo.isUsablePolicyUrl(''), false);
+// 2026-10-21：地址已由发布方填入（Gitee 仓库的文件浏览页）。断言从「必须是空占位」改成**形态校验**——
+// 内容会变（raw / Pages / 换仓库），但「必须是能用的 https 地址」这条不变。
+assert.equal(aboutInfo.isUsablePolicyUrl(aboutInfo.PRIVACY_POLICY_URL), true,
+  '填入的地址必须能通过可用性判据（https + 有主机名）');
+assert.equal(aboutInfo.PRIVACY_POLICY_URL.startsWith('https://'), true);
+assert.equal(aboutInfo.PRIVACY_POLICY_URL.trim(), aboutInfo.PRIVACY_POLICY_URL, '地址不该带首尾空白');
+assert.equal(/\s/.test(aboutInfo.PRIVACY_POLICY_URL), false, '地址里不该有空白字符');
+assert.equal(aboutInfo.PRIVACY_POLICY_URL.includes('gitee.com/monkey0803/pages'), true,
+  '发布方给的托管位置：换仓库/换平台时这条要一起改');
+assert.equal(aboutInfo.isUsablePolicyUrl(''), false, '空串不算可用（入口据此走「尚未填写」提示）');
 assert.equal(aboutInfo.isUsablePolicyUrl('   '), false, '纯空白不算');
 assert.equal(aboutInfo.isUsablePolicyUrl('https://'), false, '只有协议不算');
 assert.equal(aboutInfo.isUsablePolicyUrl('https:///privacy.html'), false, '没有主机名不算');

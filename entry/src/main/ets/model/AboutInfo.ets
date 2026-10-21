@@ -11,15 +11,23 @@
  */
 
 /**
- * 隐私政策地址（**待填**）。
+ * 隐私政策地址（2026-10-21 填入，发布方提供）。
  *
  * 取值要求：`https://` 开头、公开可访问、**不需要登录**、打开即政策正文、长期不改名不删除。
  * 可选形态（按推荐度）：
  *   ① 静态页（Gitee Pages / GitHub Pages / 对象存储静态站）→ `https://<用户>.gitee.io/<仓库>/privacy.html`
  *   ② 代码托管的 raw 纯文本 → `https://gitee.com/<用户>/<仓库>/raw/<分支>/docs/PRIVACY.md`
- *   ③ 不建议用仓库的推文/blob 页：带仓库导航、正文靠脚本渲染，审校常判为「不是独立政策页」。
+ *   ③ 仓库的文件浏览页（`blob`）→ 本次采用的形态
+ *
+ * **2026-10-21 实测记录（避免后人重复踩）**：
+ * - `https://monkey0803.gitee.io/`、`/pages/`、`/pages/PocketToolBox/PRIVACY.html` **全部 HTTP 404**
+ *   → 该账号当前**没有部署 Gitee Pages**，因此①形态暂时不可用（要用得先去 Gitee 控制台开启并部署）；
+ * - `gitee.com` 在开发环境被网络策略拦截（「resolves to a non-public IP」），**无法在本地核对 `blob` 页
+ *   渲染的是「政策正文」还是「HTML 源码」**——这一点只能由发布方在浏览器点一次确认；
+ * - 若审校认为 `blob` 页不算「独立政策页」，把下面这一行换成同一文件的 `raw` 地址即可（**只改这一处**）：
+ *   `https://gitee.com/monkey0803/pages/raw/master/PocketToolBox/PRIVACY.html`
  */
-export const PRIVACY_POLICY_URL: string = '';
+export const PRIVACY_POLICY_URL: string = 'https://gitee.com/monkey0803/pages/blob/master/PocketToolBox/PRIVACY.html';
 
 /**
  * 地址是否可用于「打开政策」。判据只有两条，都是为了合规而不是为了好看：
