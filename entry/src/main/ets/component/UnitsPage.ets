@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -343,22 +344,22 @@ export struct UnitsPage {
       try {
         await saveCachedFx(store, merged);
       } catch (_) {
-        this.onStatus(this.tr('汇率已更新，但本机缓存写入失败', 'Rates updated, but saving the local cache failed'));
+        this.onStatus(appText('units.rates-updated-but-saving', this.english));
         return;
       }
     }
-    this.onStatus(this.tr('汇率已更新', 'Rates updated') + ' · ' +
+    this.onStatus(appText('units.rates-updated', this.english) + ' · ' +
       fxDataAgeText(outcome.table.fetchedAt, Date.now(), this.english));
   }
 
   build() {
     Column({ space: 12 }) {
       OptionSelect({
-        label: this.tr('类别', 'Category'),
+        label: appText('history.category', this.english),
         options: this.categoryOptions(),
         selectedIndex: this.category,
         selectedText: this.categoryName(),
-        a11yText: this.tr('换算类别', 'Conversion category'),
+        a11yText: appText('units.conversion-category', this.english),
         onSelected: (index: number): void => { this.selectCategory(index); }
       })
       if (this.isCurrency()) {
@@ -372,7 +373,7 @@ export struct UnitsPage {
       }) {
         Row({ space: 12 }) {
           Column({ space: 2 }) {
-            Text(this.tr('结果', 'Result')).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+            Text(appText('field.result', this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
             Row({ space: 6 }) {
               Text(this.result()).fontSize(30).fontWeight(FontWeight.Bold)
               Text(this.unitName(this.toUnit)).fontSize(15).fontColor(ToolPalette.textMuted)
@@ -383,18 +384,18 @@ export struct UnitsPage {
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
-            a11yText: this.tr('复制结果', 'Copy result'),
+            a11yText: appText('action.copyResult', this.english),
             usable: this.numericInput() !== undefined && this.result().length > 0,
             onTap: () => this.copyResult()
           })
         }.width('100%').padding(16)
       }
       OptionSelect({
-        label: this.tr('精度', 'Precision'),
+        label: appText('field.precision', this.english),
         options: this.precisionOptions(),
         selectedIndex: this.precisionIndex(),
         selectedText: this.tr(this.precision + ' 位有效数字', this.precision + ' significant digits'),
-        a11yText: this.tr('结果显示精度', 'Result precision'),
+        a11yText: appText('units.result-precision', this.english),
         onSelected: (index: number): void => {
           this.precision = PRECISION_OPTIONS[index];
           this.saveState();
@@ -405,8 +406,8 @@ export struct UnitsPage {
         lightEffect: true
       }) {
         Column({ space: 10 }) {
-          Text(this.isCurrency() ? this.tr('其他币种', 'Other currencies') :
-            this.tr('同类其他单位', 'Other units in this category'))
+          Text(this.isCurrency() ? appText('units.other-currencies', this.english) :
+            appText('units.other-units-in-this', this.english))
             .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
           ForEach(this.otherUnits(), (ref: UnitDef | string) => {
             this.unitRow(ref, this.isCurrency())
@@ -438,10 +439,10 @@ export struct UnitsPage {
     }) {
     Column({ space: 12 }) {
       Row({ space: 8 }) {
-        Text(this.tr('单位', 'Units')).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+        Text(appText('units.units', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
         IconActionButton({
           icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.accentPurple,
-          a11yText: this.tr('交换单位', 'Swap units'), boxSize: 44, iconSize: 22,
+          a11yText: appText('units.swap-units', this.english), boxSize: 44, iconSize: 22,
           onTap: () => {
             const previous: number = this.fromUnit; this.fromUnit = this.toUnit; this.toUnit = previous;
             this.saveState();
@@ -449,19 +450,19 @@ export struct UnitsPage {
         })
       }.width('100%')
       OptionSelect({
-        label: this.tr('从', 'From'),
+        label: appText('units.from', this.english),
         options: this.unitOptions(),
         selectedIndex: this.fromUnit,
         selectedText: this.unitName(this.fromUnit),
-        a11yText: this.tr('换算的源单位', 'Convert from unit'),
+        a11yText: appText('units.convert-from-unit', this.english),
         onSelected: (index: number): void => { this.fromUnit = index; this.saveState(); }
       })
       OptionSelect({
-        label: this.tr('到', 'To'),
+        label: appText('units.to', this.english),
         options: this.unitOptions(),
         selectedIndex: this.toUnit,
         selectedText: this.unitName(this.toUnit),
-        a11yText: this.tr('换算的目标单位', 'Convert to unit'),
+        a11yText: appText('units.convert-to-unit', this.english),
         onSelected: (index: number): void => { this.toUnit = index; this.saveState(); }
       })
     }.width('100%').padding(14)
@@ -489,35 +490,34 @@ export struct UnitsPage {
     }) {
     Column({ space: 12 }) {
       Row({ space: 8 }) {
-        Text(this.tr('币种', 'Currencies')).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+        Text(appText('units.currencies', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
         IconActionButton({
           icon: $r('sys.symbol.cloud_and_arrow_down'), tintColor: ToolPalette.primary,
-          a11yText: this.tr('更新汇率', 'Update rates'), usable: !this.fxLoading,
+          a11yText: appText('units.update-rates', this.english), usable: !this.fxLoading,
           onTap: () => { this.updateRates(); }
         })
       }.width('100%')
       Text(fxDataAgeText(this.fxTable === undefined ? 0 : this.fxTable.fetchedAt, Date.now(), this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       OptionSelect({
-        label: this.tr('从', 'From'),
+        label: appText('units.from', this.english),
         options: this.unitOptions(),
         selectedIndex: this.fromUnit,
         selectedText: this.unitName(this.fromUnit),
-        a11yText: this.tr('换算的源币种', 'Convert from currency'),
+        a11yText: appText('units.convert-from-currency', this.english),
         onSelected: (index: number): void => { this.fromUnit = index; this.saveState(); }
       })
       OptionSelect({
-        label: this.tr('到', 'To'),
+        label: appText('units.to', this.english),
         options: this.unitOptions(),
         selectedIndex: this.toUnit,
         selectedText: this.unitName(this.toUnit),
-        a11yText: this.tr('换算的目标币种', 'Convert to currency'),
+        a11yText: appText('units.convert-to-currency', this.english),
         onSelected: (index: number): void => { this.toUnit = index; this.saveState(); }
       })
     }.width('100%').padding(14)
     }
-    Text(this.tr('离线时显示上次缓存的汇率；汇率只在本机保存，不会上传。',
-      'Offline uses the last cached rates. Rates are stored only on this device.'))
+    Text(appText('units.offline-uses-the-last', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
   }
 

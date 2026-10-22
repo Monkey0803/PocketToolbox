@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { appText } from '../model/AppStrings';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
@@ -90,41 +91,37 @@ export struct TimestampPage {
 
   private errorTextOf(error: string): string {
     if (error === 'range') {
-      return this.tr('超出可表示范围', 'Out of range');
+      return appText('stamp.out-of-range', this.english);
     }
     if (error === 'date') {
-      return this.tr('日期或时间字段超出范围', 'Date or time out of range');
+      return appText('stamp.date-or-time-out', this.english);
     }
     if (error === 'dst') {
-      return this.tr('该本地时间在夏令时切换中不存在', 'Nonexistent local time (DST change)');
+      return appText('stamp.nonexistent-local-time-dst', this.english);
     }
     // 解释方式不是登记表里的 id（第 50 轮新增的错误码）：必须有自己的文案，
     // 否则会像第 48 轮的 `loanErrorText('method')` 那样**落到「无法识别」上，把人引向错误的原因**。
     if (error === 'mode') {
-      return this.tr('解释方式无效，请重新选择「自动 / 按秒 / 按毫秒」',
-        'Invalid interpretation mode; pick Auto, Seconds or Milliseconds again');
+      return appText('stamp.invalid-interpretation-mode-pick', this.english);
     }
-    return this.tr('无法识别', 'Unrecognized');
+    return appText('stamp.unrecognized', this.english);
   }
 
   private errorText(): string {
     const error: string = this.result.error;
     if (error === 'empty') {
-      return this.tr('请输入时间戳或日期时间', 'Enter a timestamp or a date and time');
+      return appText('stamp.enter-a-timestamp-or', this.english);
     }
     if (error === 'range') {
-      return this.tr('超出可表示范围（按 UTC 公元 1–9999 年）', 'Out of range (years 1–9999 UTC)');
+      return appText('stamp.out-of-range-years', this.english);
     }
     if (error === 'date') {
-      return this.tr('日期或时间字段超出范围（如 2026-02-30、25:00:00）',
-        'Date or time fields are out of range (for example 2026-02-30 or 25:00:00)');
+      return appText('stamp.date-or-time-fields', this.english);
     }
     if (error === 'dst') {
-      return this.tr('该本地时间在夏令时切换中不存在，请改用带时区偏移或 UTC 的写法',
-        'That local time does not exist because of a daylight-saving change; use an explicit UTC offset or UTC');
+      return appText('stamp.that-local-time-does', this.english);
     }
-    return this.tr('无法识别：请用时间戳，或 YYYY-MM-DD HH:mm:ss（可带 .SSS 与 Z/+08:00）',
-      'Unrecognized: use a timestamp, or YYYY-MM-DD HH:mm:ss (an optional .SSS and a trailing Z/+08:00 are accepted)');
+    return appText('stamp.unrecognized-use-a-timestamp', this.english);
   }
 
   /** 时间戳被解释成秒还是毫秒：让用户看懂「这一串被当成了什么」。 */
@@ -133,11 +130,11 @@ export struct TimestampPage {
     if (!result.ok || !result.fromTimestamp) { return ''; }
     const manual: boolean = this.stampMode !== 'auto';
     if (result.unit === 'milliseconds') {
-      return manual ? this.tr('按毫秒解释（手动指定）', 'Read as milliseconds (set manually)') :
-        this.tr('按毫秒解释（11 位及以上）', 'Read as milliseconds (11 or more digits)');
+      return manual ? appText('stamp.read-as-milliseconds-set', this.english) :
+        appText('stamp.read-as-milliseconds-11', this.english);
     }
-    return manual ? this.tr('按秒解释（手动指定）', 'Read as seconds (set manually)') :
-      this.tr('按秒解释', 'Read as seconds');
+    return manual ? appText('stamp.read-as-seconds-set', this.english) :
+      appText('stamp.read-as-seconds', this.english);
   }
 
   private modeOptions(): SelectOption[] {
@@ -180,7 +177,7 @@ export struct TimestampPage {
   private pickLabel(kind: string): string {
     const base: Date | undefined = this.pickBase();
     if (base === undefined) {
-      return kind === 'date' ? this.tr('选取日期', 'Pick a date') : this.tr('选取时间', 'Pick a time');
+      return kind === 'date' ? appText('stamp.pick-a-date', this.english) : appText('field.pickTime', this.english);
     }
     return kind === 'date' ? localDateText(base) : localTimeText(base);
   }
@@ -223,7 +220,7 @@ export struct TimestampPage {
         });
       }
     } catch (_) {
-      this.onStatus(this.tr('无法打开日期或时间选择器', 'Could not open the date or time picker'));
+      this.onStatus(appText('stamp.could-not-open-the', this.english));
     }
   }
 
@@ -453,8 +450,7 @@ export struct TimestampPage {
           this.pickCard('时间', 'Time', 'time', $r('sys.symbol.timer'))
         }.layoutWeight(1)
       }.width('100%')
-      Text(this.tr('选择结果按本地时间写入输入框（不含时区偏移）。',
-        'Picked values are written as local time (no UTC offset).'))
+      Text(appText('stamp.picked-values-are-written', this.english))
         .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }
@@ -467,25 +463,25 @@ export struct TimestampPage {
    */
   @Builder private zoneSection() {
     Column({ space: 10 }) {
-      Text(this.tr('时区换算', 'Time zone')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('stamp.time-zone', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       OptionSelect({
-        label: this.tr('时区', 'Zone'),
+        label: appText('stamp.zone', this.english),
         options: this.zoneOptions(),
         selectedIndex: this.zoneIndex(),
         selectedText: this.zoneName(this.english),
-        a11yText: this.tr('选择时区', 'Choose a time zone'),
+        a11yText: appText('stamp.choose-a-time-zone', this.english),
         onSelected: (index: number): void => {
           const entries: TimeZoneEntry[] = this.zoneEntries();
           if (index >= 0 && index < entries.length) { this.timeZone = entries[index].id; }
         }
       })
       if (!Number.isFinite(this.zoneOffsetMinutes())) {
-        Text(this.tr('当前设备不支持该时区', 'This time zone is not supported on this device'))
+        Text(appText('stamp.this-time-zone-is', this.english))
           .fontSize(14).fontColor(ToolPalette.warning).width('100%')
       } else {
         this.resultLine('zone')
         Row({ space: 12 }) {
-          Text(this.tr('时区偏移', 'UTC offset')).fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
+          Text(appText('stamp.utc-offset', this.english)).fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
           Text(formatOffsetText(this.zoneOffsetMinutes())).fontSize(18).fontWeight(FontWeight.Medium)
             .fontColor(ToolPalette.textPrimary)
         }.width('100%')
@@ -509,8 +505,7 @@ export struct TimestampPage {
       }) {
         // 多行输入：批量转换要求用户能把一整列时间戳粘进来（`TextInput` 是单行的）。
         Row({ space: 4 }) {
-          TextArea({ text: this.input, placeholder: this.tr('时间戳或日期时间；每行一条可批量转换',
-            'Timestamp or date and time; one per line to convert in bulk') })
+          TextArea({ text: this.input, placeholder: appText('stamp.timestamp-or-date-and', this.english) })
             .backgroundColor(Color.Transparent)
             .layoutWeight(1)
             .onChange((value: string) => this.input = value).height(72)
@@ -519,7 +514,7 @@ export struct TimestampPage {
           IconActionButton({
             icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
             usable: this.input.length > 0,
-            a11yText: this.tr('清空时间戳输入', 'Clear the timestamp input'),
+            a11yText: appText('stamp.clear-the-timestamp-input', this.english),
             onTap: () => { this.input = ''; }
           })
         }.width('100%').alignItems(VerticalAlign.Top)
@@ -529,11 +524,11 @@ export struct TimestampPage {
         this.dateTimePick()
       }
       OptionSelect({
-        label: this.tr('解释方式', 'Read as'),
+        label: appText('stamp.read-as', this.english),
         options: this.modeOptions(),
         selectedIndex: this.modeIndex(),
         selectedText: stampModeLabel(this.stampMode, this.english),
-        a11yText: this.tr('选择时间戳的解释方式', 'Choose how to read the timestamp'),
+        a11yText: appText('stamp.choose-how-to-read', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < STAMP_MODES.length) { this.stampMode = STAMP_MODES[index].id; }
         }
@@ -541,7 +536,7 @@ export struct TimestampPage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.clock'), tintColor: ToolPalette.success,
-          a11yText: this.tr('填入当前时间戳', 'Use the current timestamp'), onTap: () => this.useNow()
+          a11yText: appText('stamp.use-the-current-timestamp', this.english), onTap: () => this.useNow()
         })
       }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
@@ -589,8 +584,7 @@ export struct TimestampPage {
           this.zoneSection()
         }
       }
-      Text(this.tr('结果按本机时区换算；时间戳不随设备时区改变。时区偏移由系统按该时刻给出，含夏令时；UTC±HH:MM 条目为固定偏移。',
-        'Results use the device time zone; the timestamp itself does not change with it. Zone offsets come from the system for that instant, daylight saving included; UTC±HH:MM entries are fixed offsets.'))
+      Text(appText('stamp.results-use-the-device', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

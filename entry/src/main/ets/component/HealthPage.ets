@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -150,7 +151,7 @@ export struct HealthPage {
               selectedIndex: optionIndex(this.agePickOptions, this.ageYears),
               immersiveSupported: this.immersiveSupported,
               materialLevel: this.materialLevel,
-              a11yText: this.tr('从列表选择年龄', 'Pick the age from a list'),
+              a11yText: appText('health.pick-the-age-from', this.english),
               onPicked: (value: string): void => this.setFieldText('age', value),
               onStatus: (message: string): void => this.onStatus(message)
             })
@@ -194,7 +195,7 @@ export struct HealthPage {
 
   @Builder private resultCard() {
     Column({ space: 10 }) {
-      Text(this.tr('估算结果', 'Estimate')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('field.estimate', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       if (this.bmiResult() !== undefined) {
         this.valueLine('BMI', 'BMI', 'bmi', true)
         this.valueLine('正常体重范围', 'Normal weight range', 'range', false)
@@ -204,18 +205,17 @@ export struct HealthPage {
         this.valueLine('每日消耗 TDEE', 'Daily energy (TDEE)', 'tdee', true)
       }
       if (this.bmiResult() === undefined && this.bmrValue() === undefined) {
-        Text(this.tr('填入身高与体重（算 BMR/TDEE 还需年龄），结果会自动出现。',
-          'Enter height and weight (add age for BMR/TDEE) and the results appear automatically.'))
+        Text(appText('health.enter-height-and-weight', this.english))
           .fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         Row({ space: 8 }) {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-            a11yText: this.tr('复制结果摘要', 'Copy the summary'), onTap: () => this.copySummary()
+            a11yText: appText('action.copySummary', this.english), onTap: () => this.copySummary()
           })
           IconActionButton({
             icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-            a11yText: this.tr('清空输入', 'Clear inputs'),
+            a11yText: appText('action.clearInputs', this.english),
             onTap: () => { this.heightCm = ''; this.weightKg = ''; this.ageYears = ''; }
           })
         }.width('100%').justifyContent(this.actionAlign)
@@ -239,20 +239,19 @@ export struct HealthPage {
       this.onStatus(healthErrorText('age', this.english));
       return;
     }
-    this.onStatus(this.tr('输入有效', 'Inputs look valid'));
+    this.onStatus(appText('health.inputs-look-valid', this.english));
   }
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('按中国成人标准判断 BMI（偏瘦<18.5、正常 18.5–23.9、超重 24–27.9、肥胖≥28）；BMR 用 Mifflin-St Jeor 公式。结果为估算，不构成医疗建议，孕产、青少年与运动员不适用。',
-        'BMI follows the Chinese adult cut-offs (<18.5, 18.5–23.9, 24–27.9, ≥28); BMR uses Mifflin-St Jeor. Figures are estimates, not medical advice, and do not apply to pregnancy, adolescents or athletes.'))
+      Text(appText('health.bmi-follows-the-chinese', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       OptionSelect({
-        label: this.tr('性别', 'Gender'),
+        label: appText('health.gender', this.english),
         options: this.genderOptions(),
         selectedIndex: genderIndex(this.gender),
         selectedText: genderLabel(this.gender, this.english),
-        a11yText: this.tr('性别', 'Gender'),
+        a11yText: appText('health.gender', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < GENDERS.length) { this.gender = GENDERS[index].id; }
         }
@@ -262,11 +261,11 @@ export struct HealthPage {
       this.inputField('age', '年龄（' + HEALTH_AGE_MIN_YEARS + '–' + HEALTH_AGE_MAX_YEARS + ' 岁）',
         'Age (' + HEALTH_AGE_MIN_YEARS + '–' + HEALTH_AGE_MAX_YEARS + ')', '如 30', true)
       OptionSelect({
-        label: this.tr('活动量', 'Activity'),
+        label: appText('health.activity', this.english),
         options: this.activityOptions(),
         selectedIndex: activityIndex(this.activity),
         selectedText: activityLabel(this.activity, this.english),
-        a11yText: this.tr('日常活动量', 'Daily activity level'),
+        a11yText: appText('health.daily-activity-level', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < ACTIVITY_LEVELS.length) { this.activity = ACTIVITY_LEVELS[index].id; }
         }
@@ -274,7 +273,7 @@ export struct HealthPage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.heart'), tintColor: ToolPalette.primary,
-          a11yText: this.tr('检查输入', 'Validate inputs'), onTap: () => this.validateInputs()
+          a11yText: appText('health.validate-inputs', this.english), onTap: () => this.validateInputs()
         })
       }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({
@@ -283,8 +282,7 @@ export struct HealthPage {
       }) {
         this.resultCard()
       }
-      Text(this.tr('计算只在本机进行，不上传任何数据。',
-        'Everything is calculated on this device.'))
+      Text(appText('health.everything-is-calculated-on', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

@@ -21,7 +21,7 @@
 |---|---|
 | `launch` | 安装最新 HAP、强停并启动应用 |
 | `dump` | 重新抓取布局树到 `.cache/emulator/layout.json`（其它命令每次都会自动抓一次） |
-| `title` | 打印标题栏文字（顶部 y < 140 的文本），验收「返回上一级标题是否正确」时最省事 |
+| `title` | 打印标题栏文字（**本应用窗口内、状态栏之下、内容区之上**的文本；2026-10-21 修正：全局沉浸后标题从 y≈172 起算，旧判据 `y1 < 140` 只能取到状态栏的时间与电量） |
 | `texts` | 打印当前页全部文本 + `bounds` |
 | `find <文本>` | 打印包含该文本的节点与 `bounds` |
 | `click <文本> [序号]` | 点击第一个（或第 n 个）匹配节点的中心 |
@@ -31,6 +31,7 @@
 | `key <keyCode>` | 发送按键：`2055` 退格、`2` 返回、`3` HOME |
 | `shot <名字>` | 截图到 `.cache/emulator/<名字>.jpeg` |
 | `grid [density]` | 量当前页的工具网格：列数、卡片宽高、内容列宽与左右边距、行列间距（`density` 是该实例配置里的 px/in，默认 480） |
+| `smoke [--only <工具id>] [--shots]` | **逐工具页渲染回归**：用启动意图（`aa start --ps tool <id>`）依次打开 24 个工具页，断言标题与页面关键文案都在；`--only` 只跑一个，`--shots` 顺带给每页截图 |
 
 产物目录 `.cache/emulator/` 已在 `.gitignore` 里（`/.cache`），需要入库的证据图要手动复制到
 `docs/screenshots/emulator/` 并在 `docs/DEVICE_ACCEPTANCE.md` 里引用。
@@ -102,11 +103,15 @@ Emulator -create "Phone376"   -deviceType phone     -osVersion "HarmonyOS 7.0.0(
   标题栏不会重算（靠 `onShown` 维护的 `shownRoute` 兜底，见 `AGENTS.md`）。验收导航时要**用 `title` 单独核对标题**，
   不能只看内容对不对。
 - 模拟器的二维码/条形码生成 API 可能直接失败（本机镜像如此），涉及「生成成功 → 历史记录」的链路需要真机复验。
+- **输入框聚焦后有「吞掉一次点击」的窗口**（2026-10-22 实测）：`TextInput` 聚焦、系统键盘（含「安全键盘」）弹出时，页面上的 `tap`/`click` 会被吞掉一次——表现为「点了下拉没反应」。先 `key 2` 收起键盘再点即可；`input` 之后再点别处同理。
+- **`input` 的 24 次退格对密码框不可靠**：`InputType.Password` 的字段实测没被清空（内容会累积、位数越验越多）。清空改用输入框自带的清除按钮，或先 `tap` 聚焦再用 `uitest uiInput text`（`input` 的点击本身也会被上面那条吞掉）。
+- **同一台设备不要跨会话并发驱动**：`emu.mjs` 的每个子命令都是独立进程，两台会话交替 `aa start`/`tap` 会让页面在断言之间跳到对方的目标页（本轮实测：密码页的输入被送进了另一个会话正在测的二维码 vCard 字段）。多人共用检出时先确认没有别的 `emu.mjs` 在跑。
 
 ## 一次典型回归
 
 ```sh
 node tests/emulator/emu.mjs launch
+node tests/emulator/emu.mjs smoke                 # 24 个工具页的渲染回归（约 1.5 分钟，不需要点按坐标）
 node tests/emulator/emu.mjs title                 # 期望「工具 / Tools」
 node tests/emulator/emu.mjs click 日期计算
 node tests/emulator/emu.mjs title                 # 期望「日期计算 / Date calculator」
@@ -115,5 +120,10 @@ node tests/emulator/emu.mjs shot date-tool-zh
 node tests/emulator/emu.mjs key 2                 # 返回
 node tests/emulator/emu.mjs title                 # 期望回到「工具 / Tools」
 ```
+
+`smoke` 只做**结构性**回归（工具登记表与路由对不上、页面白屏、面板整体消失、文案装配崩掉），
+交互与数值路径（生成、扫码、传感器、动画）仍按 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 在真机走。
+新增工具时**顺手往 `SMOKE_CASES` 加一条**（id + 双语标题里的中文 + 2–3 个必然出现的文案）；
+判据刻意宽松，所以写成「这个页面本该有的东西」即可，不要写会成为维护负担的细节。
 
 切换语言后重复上面的点击路径，即可覆盖「双语文案与刷新」这一大类回归。

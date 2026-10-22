@@ -7,19 +7,30 @@ import { HdsNavigation, HdsNavigationTitleMode, HdsNavDestination, HdsNavDestina
   SystemMaterialParams, ScrollEffectType } from '@kit.UIDesignKit';
 import { motion } from '@kit.MultimodalAwarenessKit';
 // 懒加载：设备缺少 SystemCapability.AI.Component.DocScan 时，模块链接失败不应影响应用启动。
-import lazy { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
+// 配置对象由 `services/SystemTools.buildDocumentScannerConfig()` 构造（页面只传登记表 id），
+// 这里保留 `DocumentScanner` 组件与 `DocumentScannerConfig` 类型用于 `scanner` 路由。
+import lazy { DocumentScanner, DocumentScannerConfig, SaveOption } from '@kit.VisionKit';
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
 import { matchTools, promoteFavorite, moveFavorite, allowedFavorites } from '../model/ToolMeta';
 import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, maxGridColumns, resolveGridColumns,
+  cardHeightVp, CARD_HEIGHT_BASE_VP,
   WIDTH_MD, actionHandSide } from '../model/LayoutAdaptive';
+// 固定文案（外壳/设置页）集中登记：`model/AppStrings.ets`，2026-10-21 C 项「文案外置」第一批。
+import { appText } from '../model/AppStrings';
 import { DEFAULT_GRID_COLUMNS, GRID_COLUMNS_AUTO, gridColumnCount, gridColumnIdForColumns,
   gridColumnLabel, parseGridColumns, serializeGridColumns } from '../model/GridColumns';
+// 文档扫描的纯逻辑：设置登记表/状态解析、结果码文案、结果页操作（页删除与追加）。
+import { DEFAULT_DOC_SCAN_FILTER, DEFAULT_DOC_SCAN_SHOOTING, DOC_SCAN_MAX_SHOT, DocScanState,
+  parseDocScanState, serializeDocScanState, docScanResultText, docScanFileNames, removePageAt,
+  appendPages } from '../model/DocumentScan';
 import { DEFAULT_HAND_POSTURE, parseHandPosture, serializeHandPosture } from '../model/HandPosture';
+import { DEFAULT_HAPTIC_FEEDBACK, parseHapticFeedback, serializeHapticFeedback } from '../model/Haptics';
+import { setHapticEnabled } from '../services/Haptics';
 import { ToolPalette } from '../model/ToolPalette';
 import { LocalData, LOCAL_KEYS } from '../model/LocalData';
 import { RecentEntry, allowedRecents, parseRecents, pushRecent, serializeRecents } from '../model/RecentTools';
-import { HistoryItem, historyContentSnippet, historyRefill, historyTargetRoute,
-  pinnedFirst, withToggledPin } from '../model/HistoryKinds';
+import { HistoryItem, HISTORY_MAX, historyContentSnippet, historyRefill, historyTargetRoute,
+  insertHistory, moveHistory, withToggledPin } from '../model/HistoryKinds';
 import { backupFileName, backupSummaryText, buildBackupJson, historyExportText, historyFileName } from '../model/DataExport';
 import { ImportPlan, importErrorText, importSummaryText, parseBackupJson } from '../model/DataImport';
 import { IconActionButton } from '../component/IconActionButton';
@@ -49,12 +60,13 @@ import { BasePage } from '../component/BasePage';
 import { DiffPage } from '../component/DiffPage';
 import { AnniversaryPage } from '../component/AnniversaryPage';
 import { NetworkProbePage } from '../component/NetworkProbePage';
-import { consumeStartupTool, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
+import { StartupIntentValue, consumeStartupIntent, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
   normalizeLanguagePreference } from '../model/LanguagePreference';
 import { SettingsPage } from '../component/SettingsPage';
 import { TimersPage } from '../component/TimersPage';
-import { DocumentExportResult, saveScannedDocuments, systemPreferredLanguage, saveTextFile,
+import { DocumentExportResult, GallerySaveResult, buildDocumentScannerConfig, saveScannedDocuments,
+  saveScannedImagesToGallery, systemPreferredLanguage, saveTextFile,
   pickTextFile, TextExportResult, TextImportResult } from '../services/SystemTools';
 import { refreshQuickToolsCards } from '../services/WidgetData';
 import { WindowSizeVp, currentWindowSizeVp, subscribeFoldStatus,
@@ -75,22 +87,22 @@ const HDS_TITLE_BAR_HEIGHT: number = 56;
  *
  * **必须是固定高度**：Grid 会把 `constraintSize({ minHeight })` 的单元格拉满整行（实测卡片被撑到约 3 倍高），
  * 所以这里不能改成最小高度。标题的显示由 `maxLines(2)` + 省略号兜底，不再无声裁切（2026-10-20 审计 §3.26②）。
+ *
+ * 2026-10-21：高度改为**跟随系统字体缩放**——`LayoutAdaptive.cardHeightVp(fontScale)` 给出确定值
+ * （基准 `CARD_HEIGHT_BASE_VP = 128`、上限 1.75 倍），在 `refreshFontScale()` 里读取当前配置。
+ * 此前固定 128 在系统字体放大到 1.3×/1.75× 时会把两行标题裁掉（审计记为后续候选）。
  */
-const CARD_HEIGHT: number = 128;
 
-function scannerConfiguration(): DocumentScannerConfig {
-  const config: DocumentScannerConfig = new DocumentScannerConfig();
-  config.maxShotCount = 10;
-  config.supportType = [DocType.DOC];
-  config.saveOptions = [SaveOption.JPG, SaveOption.PDF];
-  config.isGallerySupported = true;
-  config.isShareable = true;
-  return config;
-}
+/**
+ * 扫描控件的配置构造已搬到 `services/SystemTools.buildDocumentScannerConfig()`（系统能力的适配层），
+ * 这里只剩「建一次、存起来」的懒加载：设备缺少 DocScan 能力时不创建，避免无谓地加载 VisionKit。
+ */
 
 @Entry
 @ComponentV2
 struct Index {
+  // 工具卡片高度：基准 × 系统字体缩放（上限见 `LayoutAdaptive.CARD_FONT_SCALE_MAX`），在 `refreshFontScale()` 里更新。
+  @Local cardHeight: number = CARD_HEIGHT_BASE_VP;
   @Local page: string = 'home';
   // 当前可见的详情页路由（由 HdsNavDestination.onShown 维护），用于返回上一级后重算标题栏。
   @Local shownRoute: string = '';
@@ -140,14 +152,25 @@ struct Index {
   @Local documentUris: string[] = [];
   @Local documentPdf: boolean = false;
   @Local documentSaving: boolean = false;
+  // 扫描设置（键 `doc_scan_state`）：默认滤镜与拍摄方式，值是 `model/DocumentScan.ets` 的登记表 id。
+  @Local docScanFilter: string = DEFAULT_DOC_SCAN_FILTER;
+  @Local docScanShooting: string = DEFAULT_DOC_SCAN_SHOOTING;
+  // 「继续扫描并追加」：由两个入口显式设置（追加=true、主扫描按钮=false），扫描回调无论成功/取消都复位。
+  private docScanAppending: boolean = false;
   @Local holdingSide: number = 0;
-  // 系统明确报了「双手持握 / 未持握」：动作行保持默认版式（不跟随操作手，理由见 `actionHandSide()`）。
+  // 系统明确报了「双手持握」：动作行保持默认版式（不跟随操作手，理由见 `actionHandSide()`）。
+  // **「未持握」（平放/立在桌上）不再冻结**——2026-10-22 按用户决定改为仍按操作手靠边：
+  // 水平仪/指南针这类「把手机放着测、单手点按钮」的页面正需要按钮到手边。
   @Local holdingFreezes: boolean = false;
   @Local operatingSide: number = 0;
   // 智感握姿开关（设置页可关）。关闭时不订阅系统握姿事件、所有动作行保持原位（见 `actionSide()`）。
   @Local handPosture: boolean = DEFAULT_HAND_POSTURE;
   // 本机是否真的提供了握姿识别（`motion` 的查询/订阅没抛 801）。设置页据此如实说明开关是否生效。
   @Local handPostureSupported: boolean = false;
+  // 触觉反馈开关（设置页可关，键 `haptic_feedback`）：关掉后一律不震（见 `Index.setHapticFeedback()`）。
+  @Local hapticFeedback: boolean = DEFAULT_HAPTIC_FEEDBACK;
+  // 本机是否提供振动能力（`SystemCapability.Sensors.MiscDevice`）。设置页据此禁用开关并如实说明。
+  private readonly hapticSupported: boolean = canIUse('SystemCapability.Sensors.MiscDevice');
   @Local immersiveSupported: boolean = false;
   @Local materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Local appActive: boolean = true;
@@ -178,14 +201,16 @@ struct Index {
   /**
    * 持握手状态 → 是否「冻结布局」。
    *
-   * 系统把 `BOTH_HANDS_HELD`（双手持握）与 `NOT_HELD`（没握住，例如平放在桌上用手指点）**明确报出来**，
-   * 这两种情况都返回 0（保持默认版式）：两侧一样好够，跟随操作手只会让按钮在交替用拇指时左右横跳。
-   * 其余值（`LEFT_HAND_HELD`/`RIGHT_HAND_HELD`/`UNKNOWN_STATUS`）都不冻结——`UNKNOWN_STATUS` 表示
-   * 设备没给握姿信息，这时仍要用操作手兜底。
+   * **只有 `BOTH_HANDS_HELD`（双手持握）冻结**：两手都在手机上，两侧一样好够，跟随操作手只会让动作行
+   * 在交替用左右拇指时左右横跳（点完一下按钮就跑到另一边，破坏肌肉记忆）。
+   *
+   * **`NOT_HELD`（没握住，例如平放在桌上/立在桌面上用手指点）不再冻结**（2026-10-22 用户决定）：
+   * 这种形态下用户是「单手来点」的，「水平仪/指南针把手机放着测」正是典型场景，按钮要靠到那只手边；
+   * 代价是平放时交替用左右手点会让按钮换边，用户明确选了这一侧。
+   * `UNKNOWN_STATUS`（设备没给握姿信息）也**不冻结**——这时仍要用操作手兜底，否则老设备整个功能失效。
    */
   private holdingCallback: (status: motion.HoldingHandStatus) => void = (status: motion.HoldingHandStatus): void => {
-    this.holdingFreezes = status === motion.HoldingHandStatus.BOTH_HANDS_HELD ||
-      status === motion.HoldingHandStatus.NOT_HELD;
+    this.holdingFreezes = status === motion.HoldingHandStatus.BOTH_HANDS_HELD;
     this.holdingSide = status === motion.HoldingHandStatus.LEFT_HAND_HELD ? -1 :
       status === motion.HoldingHandStatus.RIGHT_HAND_HELD ? 1 : 0;
   };
@@ -212,11 +237,19 @@ struct Index {
     this.applyStartupIntent();
   }
 
-  /** 系统入口（桌面快捷方式）指定的目标工具：一次性消费，取到就直接进对应工具页。 */
+  /**
+   * 系统入口指定的目标工具：一次性消费，取到就直接进对应工具页。
+   *
+   * 两个来源共用这条通道：桌面长按图标的快捷方式（只有工具 id）与**分享接收**
+   * （`shareext/ShareExtAbility.ets` 拉起主应用时带的 `tool` + `content`）。带内容时把内容放进
+   * `pendingInput`，由目标工具的 `initialValue` 一次性取走（与历史记录回填走同一个通道，
+   * 因此不存在「分享的内容污染下一次正常进入」的问题）。
+   */
   private applyStartupIntent(): void {
-    const target: string = consumeStartupTool();
-    if (target.length === 0) { return; }
-    this.navigate(target);
+    const intent: StartupIntentValue = consumeStartupIntent();
+    if (intent.tool.length === 0) { return; }
+    this.pendingInput = intent.content;
+    this.navigate(intent.tool);
   }
 
   aboutToDisappear(): void {
@@ -297,17 +330,17 @@ struct Index {
     return new Promise<boolean>((resolve: (value: boolean) => void) => {
       try {
         this.getUIContext().showAlertDialog({
-          title: this.tr('确认导入', 'Confirm import'),
+          title: appText('dialog.importTitle', this.english),
           message: message,
-          primaryButton: { value: this.tr('取消', 'Cancel'), action: () => resolve(false) },
+          primaryButton: { value: appText('dialog.cancel', this.english), action: () => resolve(false) },
           secondaryButton: {
-            value: this.tr('导入', 'Import'),
+            value: appText('dialog.import', this.english),
             fontColor: ToolPalette.danger,
             action: () => resolve(true)
           }
         });
       } catch (_) {
-        this.showToast(this.tr('无法打开确认框，未导入', 'Could not open the confirmation dialog; nothing was imported'));
+        this.showToast(appText('dialog.noImportConfirm', this.english));
         resolve(false);
       }
     });
@@ -418,10 +451,29 @@ struct Index {
   private refreshSafeArea(): void {
     this.immersiveLayout = isImmersiveLayout();
     this.safeAreaTop = immersiveTopInset();
+    // 卡片高度跟随系统字体缩放：与安全区一起刷新（首帧、回前台、折叠/展开都会走到这里）。
+    this.refreshFontScale();
     refreshImmersiveMetrics(this.ctx()).then((immersive: boolean): void => {
       this.immersiveLayout = immersive;
       this.safeAreaTop = immersiveTopInset();
     });
+  }
+
+  /**
+   * 读一次系统字体缩放并换算卡片高度（纯逻辑 `LayoutAdaptive.cardHeightVp()`）。
+   *
+   * 取不到（或非法）时按不放大处理，**不会**让卡片变矮；系统里把字体调大后通常伴随应用重建/回前台，
+   * 这两个时机都会跑到这里，因此不需要额外订阅配置变化事件。
+   */
+  private refreshFontScale(): void {
+    let scale: number = 1;
+    try {
+      const scaleValue: number | undefined = this.ctx().config.fontSizeScale;
+      if (typeof scaleValue === 'number') { scale = scaleValue; }
+    } catch (_) {
+      // 读不到就用基准高度：宁可不放大，也不要按未知值乱算。
+    }
+    this.cardHeight = cardHeightVp(scale);
   }
 
   // 智感握姿：把高频操作靠近正在使用的手。宽屏（MD 及以上）不按手机握姿移动控件，保持稳定布局。
@@ -457,13 +509,21 @@ struct Index {
       // 智感握姿开关：偏好读完才知道要不要订阅（`setupAdaptiveUi()` 跑在读取之前，先默认开着订上）。
       this.handPosture = parseHandPosture(
         await this.data.getString('hand_posture', serializeHandPosture(DEFAULT_HAND_POSTURE)));
+      // 触觉反馈开关：偏好读完立刻同步给服务层，否则首屏之后触发的震动会按默认值走。
+      this.hapticFeedback = parseHapticFeedback(
+        await this.data.getString('haptic_feedback', serializeHapticFeedback(DEFAULT_HAPTIC_FEEDBACK)));
+      setHapticEnabled(this.hapticFeedback);
       // 工具页 / 收藏页的「每行显示几个」：非法值（手改备份、旧版本残留）由 `parseGridColumns()` 回退「自动」。
       this.toolsColumns = parseGridColumns(
         await this.data.getString('tools_columns', DEFAULT_GRID_COLUMNS));
       this.favoritesColumns = parseGridColumns(
         await this.data.getString('favorites_columns', DEFAULT_GRID_COLUMNS));
+      // 文档扫描设置（默认滤镜/拍摄方式）：空串、坏 JSON、未知 id 一律由 `parseDocScanState()` 回退默认值。
+      const docScan: DocScanState = parseDocScanState(await this.data.getString('doc_scan_state', ''));
+      this.docScanFilter = docScan.filter;
+      this.docScanShooting = docScan.shooting;
       this.syncHandPostureSubscription();
-    } catch (_) { this.fatalError = this.tr('无法读取本地数据', 'Could not load local data'); }
+    } catch (_) { this.fatalError = appText('shell.could-not-load-local', this.english); }
     this.refreshIcon();
   }
 
@@ -511,7 +571,7 @@ struct Index {
       this.iconReady = false;
       if (!this.iconErrorReported) {
         this.iconErrorReported = true;
-        this.status = this.tr('无法读取当前应用图标', 'Could not read the current app icon');
+        this.status = appText('shell.could-not-read-the', this.english);
       }
     }
   }
@@ -523,30 +583,34 @@ struct Index {
       await bundleManager.setAlternateIcon(name);
       await this.refreshIcon();
       if (this.iconReady) {
-        this.status = this.tr('应用图标已更新', 'App icon updated');
+        this.status = appText('shell.app-icon-updated', this.english);
       }
     } catch (_) {
       await this.refreshIcon();
       if (this.iconReady) {
-        this.status = this.tr('更换应用图标失败，请重试', 'Could not change the app icon; try again');
+        this.status = appText('shell.could-not-change-the', this.english);
       }
     } finally {
       this.iconBusy = false;
     }
   }
 
+  /**
+   * 进入系统扫描控件前的准备：能力门控 + 构造配置。
+   *
+   * **每次进入都按当前设置重建配置**（不再缓存）：用户在扫描页改过「默认滤镜/拍摄方式」后，
+   * 下一次扫描必须按新值生效——缓存一份就会让设置页看起来「改了没用」。
+   */
   private prepareScanner(): boolean {
     if (!this.scannerSupported) {
-      this.status = this.tr('当前设备不支持系统文档扫描', 'System document scanning is not available on this device');
+      this.status = appText('shell.system-document-scanning-is', this.english);
       return false;
     }
-    if (this.scanConfig === undefined) {
-      try {
-        this.scanConfig = scannerConfiguration();
-      } catch (_) {
-        this.status = this.tr('无法启动系统文档扫描', 'Could not start system document scanning');
-        return false;
-      }
+    try {
+      this.scanConfig = buildDocumentScannerConfig(this.docScanFilter, this.docScanShooting);
+    } catch (_) {
+      this.status = appText('shell.could-not-start-system', this.english);
+      return false;
     }
     return true;
   }
@@ -603,16 +667,117 @@ struct Index {
     if (this.selectedTab === 'settings') { this.refreshIcon(); }
   }
 
+  /**
+   * 扫描控件回传结果。
+   *
+   * 三种情况分开处理：
+   * - **追加**（`docScanAppending`，仅 JPG 结果）：与已有页合并，超过 `DOC_SCAN_MAX_SHOT` 时按纯逻辑
+   *   `appendPages()` 的结果如实提示「已达上限、未追加」，绝不静默丢页；
+   * - **替换**：默认路径（主扫描按钮、PDF 结果、无已有结果）；
+   * - **取消/失败**：只提示，不动已有结果（`-1` 与 `1008601001` 的文案由 `docScanResultText()` 分开给）。
+   *
+   * `docScanAppending` 在这里统一复位：取消/失败/异常路径都不能让它留到下一次扫描。
+   */
   private documentScanResult(code: number, saveType: SaveOption, uris: string[]): void {
     this.pathStack.pop();
-    if (code === 200 && uris.length > 0) {
-      this.documentUris = uris;
-      this.documentPdf = saveType === SaveOption.PDF;
-      this.status = this.tr('扫描完成，可导出文件', 'Scan complete; files are ready to export');
-    } else if (code === -1) {
-      this.status = this.tr('已取消扫描', 'Scan cancelled');
+    const appending: boolean = this.docScanAppending;
+    this.docScanAppending = false;
+    if (code !== 200 || uris.length === 0) {
+      this.status = docScanResultText(code, this.english);
+      return;
+    }
+    const pdf: boolean = saveType === SaveOption.PDF;
+    if (appending && !pdf && !this.documentPdf && this.documentUris.length > 0) {
+      const merged: string[] = appendPages(this.documentUris, uris, DOC_SCAN_MAX_SHOT);
+      if (merged.length === this.documentUris.length) {
+        this.status = appText('docs.append-limit-reached', this.english);
+        return;
+      }
+      this.documentUris = merged;
     } else {
-      this.status = this.tr('扫描失败或未生成文件', 'Scan failed or produced no files');
+      this.documentUris = uris;
+      this.documentPdf = pdf;
+    }
+    this.status = docScanResultText(code, this.english);
+  }
+
+  /**
+   * 删掉结果里的某一页（单页删除，一次只影响一行，按 AGENTS 的例外即时执行）。
+   * 删到一页不剩时整体清空，避免留下一个「0 页」的空结果区。
+   */
+  private removeDocumentPage(index: number): void {
+    const next: string[] = removePageAt(this.documentUris, index);
+    if (next.length === this.documentUris.length) { return; }
+    if (next.length === 0) {
+      this.clearDocumentUris();
+      return;
+    }
+    this.documentUris = next;
+  }
+
+  /**
+   * 「继续扫描并追加」：只对 JPG 结果成立——应用侧无法把两批 PDF 合成一个文档，
+   * 因此 PDF 结果下这个入口的语义是**重新扫描**（覆盖），文案由页面按 `documentPdf` 如实区分。
+   */
+  private startAppendScan(): void {
+    this.docScanAppending = !this.documentPdf && this.documentUris.length > 0;
+    this.navigate('scanner');
+  }
+
+  /** 把 JPG 扫描结果写入系统相册（PDF 不是图片，界面上也不显示这个入口）。 */
+  private async saveDocumentsToGallery(): Promise<void> {
+    if (this.documentSaving || this.documentUris.length === 0 || this.documentPdf) { return; }
+    this.documentSaving = true;
+    try {
+      const result: GallerySaveResult = await saveScannedImagesToGallery(this.ctx(), this.documentUris,
+        docScanFileNames(this.documentUris.length, false, Date.now()));
+      if (result.cancelled) {
+        this.status = appText('scan.saveCancelled', this.english);
+      } else if (result.written === 0) {
+        this.status = appText('shell.gallery-save-failed', this.english);
+      } else if (result.written < result.total) {
+        this.status = this.tr('部分保存：' + result.written + '/' + result.total,
+          'Partly saved: ' + result.written + '/' + result.total);
+      } else {
+        this.status = this.tr('已保存到相册：' + result.written, 'Saved to gallery: ' + result.written);
+      }
+    } catch (_) {
+      this.status = appText('shell.gallery-save-failed', this.english);
+    } finally { this.documentSaving = false; }
+  }
+
+  /**
+   * 「送到文本工具」：识别文本经 `pendingInput` 一次性交给文本工具（与历史回填同一条通道），
+   * 用户可以接着整理/去重/编码，不必手动复制粘贴。
+   */
+  private sendOcrTextToText(text: string): void {
+    if (text.length === 0) { return; }
+    this.pendingInput = text;
+    this.navigate('text');
+  }
+
+  /**
+   * 扫描设置（默认滤镜 / 拍摄方式）：先改内存 → 落盘 → 失败回滚 + toast（与握姿、触觉同一套口径）。
+   * 落盘走 `serializeDocScanState()`：非法 id 在写入时就被归到默认值，手改备份也不会留下坏状态。
+   */
+  private async setDocScanOption(filter: string, shooting: string): Promise<void> {
+    if (filter.length === 0 || shooting.length === 0) { return; }
+    const previousFilter: string = this.docScanFilter;
+    const previousShooting: string = this.docScanShooting;
+    if (previousFilter === filter && previousShooting === shooting) { return; }
+    this.docScanFilter = filter;
+    this.docScanShooting = shooting;
+    if (this.data) {
+      const state: DocScanState = new DocScanState();
+      state.filter = filter;
+      state.shooting = shooting;
+      try {
+        await this.data.putString('doc_scan_state', serializeDocScanState(state));
+      } catch (_) {
+        this.docScanFilter = previousFilter;
+        this.docScanShooting = previousShooting;
+        this.status = appText('shell.scan-options-save-failed', this.english);
+      }
     }
   }
 
@@ -625,9 +790,9 @@ struct Index {
       // 如实区分「取消」「全部失败」「部分成功」「全部成功」——此前只报一个「导出失败」，
       // 多页导出时用户拿不到任何原因（2026-10-20 审计 P0）。
       if (result.selected === 0) {
-        this.status = this.tr('已取消导出', 'Export cancelled');
+        this.status = appText('shell.export-cancelled', this.english);
       } else if (result.written === 0) {
-        this.status = this.tr('导出失败，请重试', 'Export failed; try again');
+        this.status = appText('shell.export-failed-try-again', this.english);
       } else if (result.written < result.selected) {
         this.status = this.tr('部分导出：' + result.written + '/' + result.selected,
           'Partially exported: ' + result.written + '/' + result.selected);
@@ -635,7 +800,7 @@ struct Index {
         this.status = this.tr('文件已导出：' + result.written, 'Files exported: ' + result.written);
       }
     } catch (_) {
-      this.status = this.tr('导出失败，请重试', 'Export failed; try again');
+      this.status = appText('shell.export-failed-try-again', this.english);
     } finally { this.documentSaving = false; }
   }
 
@@ -643,9 +808,9 @@ struct Index {
     if (!value) { return; }
     try {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value));
-      this.status = this.tr('已复制', 'Copied');
+      this.status = appText('shell.copied', this.english);
     } catch (_) {
-      this.status = this.tr('复制失败', 'Copy failed');
+      this.status = appText('shell.copy-failed', this.english);
     }
   }
 
@@ -662,7 +827,7 @@ struct Index {
       await this.data.saveHistory(next);
     } catch (_) {
       this.history = previous;
-      this.status = this.tr('历史保存失败，改动已撤销', 'Could not save history; change reverted');
+      this.status = appText('shell.could-not-save-history', this.english);
     }
   }
 
@@ -678,11 +843,11 @@ struct Index {
         await this.data.saveHistory(next);
       } catch (_) {
         this.history = previous;
-        this.status = this.tr('历史保存失败，改动已撤销', 'Could not save history; change reverted');
+        this.status = appText('shell.could-not-save-history', this.english);
         return;
       }
     }
-    this.status = this.tr('已删除筛选结果', 'Filtered records deleted');
+    this.status = appText('shell.filtered-records-deleted', this.english);
   }
 
   // 点历史条目：跳到对应工具并回填内容（跳哪个工具、回填什么由纯逻辑 HistoryKinds 决定）。
@@ -693,8 +858,9 @@ struct Index {
     this.navigate(route);
   }
 
-  // 历史是「二维码 + 文本/换算/时间戳的复制结果」共用的一份列表（最多 50 条，新的在前）。
+  // 历史是「二维码 + 文本/换算/时间戳的复制结果」共用的一份列表（上限 `HISTORY_MAX`，数组顺序即显示顺序）。
   // 过长内容按 historyContentSnippet 截断，避免一条超长文本把列表撑爆；空内容不入库。
+  // 插入位置与截断（含保护置顶条目）都在纯逻辑 `insertHistory()` 里，页面不再自己写排序 + slice。
   private async addHistoryItem(kind: string, content: string): Promise<void> {
     const snippet: string = historyContentSnippet(content);
     if (snippet.length === 0) { return; }
@@ -702,29 +868,56 @@ struct Index {
     item.id = Date.now().toString() + Math.random().toString();
     item.kind = kind; item.content = snippet; item.createdAt = Date.now();
     const previous: HistoryItem[] = this.history;
-    // 先按「置顶优先 + 时间倒序」排好再截断：否则置顶条目会被新记录挤出 50 条上限。
-    const next: HistoryItem[] = pinnedFirst([item].concat(this.history)).slice(0, 50);
+    const next: HistoryItem[] = insertHistory(this.history, item, HISTORY_MAX);
     this.history = next;
     if (!this.data) { return; }
     try {
       await this.data.saveHistory(next);
     } catch (_) {
       this.history = previous;
-      this.status = this.tr('历史保存失败，未记录本次复制', 'Could not save history; this copy was not recorded');
+      this.status = appText('shell.history-not-recorded', this.english);
     }
   }
 
-  /** 历史条目置顶/取消置顶：与收藏同口径（先改内存 → 落盘 → 失败回滚）。 */
+  /**
+   * 历史条目置顶/取消置顶：与收藏同口径（先改内存 → 落盘 → 失败回滚）。
+   *
+   * 顺序不变量在纯逻辑里维持：置顶移到最前、取消置顶落到置顶区之后（`withToggledPin()`），
+   * 因此这里**不再**做「显示时排序」。
+   */
   private async toggleHistoryPin(id: string): Promise<void> {
     const previous: HistoryItem[] = this.history;
-    const next: HistoryItem[] = pinnedFirst(withToggledPin(this.history, id));
+    const next: HistoryItem[] = withToggledPin(this.history, id);
     this.history = next;
     if (!this.data) { return; }
     try {
       await this.data.saveHistory(next);
     } catch (_) {
       this.history = previous;
-      this.status = this.tr('历史保存失败，改动已撤销', 'Could not save history; change reverted');
+      this.status = appText('shell.could-not-save-history', this.english);
+    }
+  }
+
+  /**
+   * 排序模式拖拽换位（`insertIndex` 语义由纯逻辑 `moveHistory()` 处理）。
+   *
+   * 与收藏页 `moveFavorite()` 同一套写入口口径：先改内存 → 落盘 → 失败回滚 + toast。
+   * 拖拽只在排序模式下启用（长按已经用于置顶菜单，同一手势不能既弹菜单又拖动）。
+   */
+  private async moveHistoryItem(from: number, to: number): Promise<void> {
+    const previous: HistoryItem[] = this.history;
+    const next: HistoryItem[] = moveHistory(this.history, from, to);
+    if (next.length === this.history.length && next.every((item: HistoryItem, index: number): boolean =>
+      item.id === this.history[index].id)) {
+      return;
+    }
+    this.history = next;
+    if (!this.data) { return; }
+    try {
+      await this.data.saveHistory(next);
+    } catch (_) {
+      this.history = previous;
+      this.status = appText('shell.history-order-reverted', this.english);
     }
   }
 
@@ -762,14 +955,39 @@ struct Index {
       } catch (_) {
         this.handPosture = previous;
         this.syncHandPostureSubscription();
-        this.status = this.tr('智感握姿偏好保存失败，已恢复原设置',
-          'Could not save the hand-posture preference; reverted');
+        this.status = appText('shell.could-not-save-the', this.english);
         return;
       }
     }
     this.status = enabled
-      ? this.tr('智感握姿已开启', 'Adaptive hand posture on')
-      : this.tr('智感握姿已关闭', 'Adaptive hand posture off');
+      ? appText('shell.adaptive-hand-posture-on', this.english)
+      : appText('shell.adaptive-hand-posture-off', this.english);
+  }
+
+  /**
+   * 设置页切换「触觉反馈」（先改内存 → 落盘 → 失败回滚 + toast，与握姿开关同一套口径）。
+   *
+   * 内存侧有两个地方要同步：`hapticFeedback`（开关本身）与**服务层的进程内标志**
+   * （`setHapticEnabled()`）——只改一处就会出现「开关显示关着、动作仍然在震」或者反过来。
+   */
+  private async setHapticFeedback(enabled: boolean): Promise<void> {
+    const previous: boolean = this.hapticFeedback;
+    if (previous === enabled) { return; }
+    this.hapticFeedback = enabled;
+    setHapticEnabled(enabled);
+    if (this.data) {
+      try {
+        await this.data.putString('haptic_feedback', serializeHapticFeedback(enabled));
+      } catch (_) {
+        this.hapticFeedback = previous;
+        setHapticEnabled(previous);
+        this.status = appText('shell.haptic-save-failed', this.english);
+        return;
+      }
+    }
+    this.status = enabled
+      ? appText('shell.haptic-feedback-on', this.english)
+      : appText('shell.haptic-feedback-off', this.english);
   }
 
   private async clearHistory(): Promise<void> {
@@ -780,11 +998,11 @@ struct Index {
         await this.data.saveHistory([]);
       } catch (_) {
         this.history = previous;
-        this.status = this.tr('历史保存失败，未清空', 'Could not save history; nothing was cleared');
+        this.status = appText('shell.history-not-cleared', this.english);
         return;
       }
     }
-    this.status = this.tr('历史已清空', 'History cleared');
+    this.status = appText('shell.history-cleared', this.english);
   }
 
   /**
@@ -799,7 +1017,7 @@ struct Index {
     try {
       await this.data.clearAll();
     } catch (_) {
-      this.status = this.tr('清除失败，本机数据未改动', 'Erase failed; on-device data is unchanged');
+      this.status = appText('shell.erase-failed-on-device', this.english);
       return;
     }
     this.history = [];
@@ -813,11 +1031,17 @@ struct Index {
     // 智感握姿也回到默认（开启）并同步订阅——只删存储会让界面上仍显示「已关闭」（与「最近使用」同类缺陷）。
     this.handPosture = DEFAULT_HAND_POSTURE;
     this.syncHandPostureSubscription();
+    // 触觉反馈同样回到默认（开启）并同步服务层，否则清除后仍按旧开关执行（与握姿开关同类）。
+    this.hapticFeedback = DEFAULT_HAPTIC_FEEDBACK;
+    setHapticEnabled(DEFAULT_HAPTIC_FEEDBACK);
     // 「每行显示几个」同理回到默认（自动），否则清除后网格仍按旧列数渲染。
     this.toolsColumns = DEFAULT_GRID_COLUMNS;
     this.favoritesColumns = DEFAULT_GRID_COLUMNS;
+    // 扫描设置同样回到默认（增强 + 手动拍摄），否则清除后界面仍显示旧的滤镜/拍摄方式。
+    this.docScanFilter = DEFAULT_DOC_SCAN_FILTER;
+    this.docScanShooting = DEFAULT_DOC_SCAN_SHOOTING;
     this.refreshWidgets();
-    this.status = this.tr('本机数据已清除', 'On-device data erased');
+    this.status = appText('shell.on-device-data-erased', this.english);
   }
 
   /**
@@ -832,17 +1056,17 @@ struct Index {
     try {
       values = await this.data.rawValues();
     } catch (_) {
-      this.status = this.tr('读取本机数据失败，未导出', 'Could not read on-device data; nothing was exported');
+      this.status = appText('shell.could-not-read-on', this.english);
       return;
     }
     const outcome: TextExportResult = await saveTextFile(this.ctx(), backupFileName(Date.now()),
       buildBackupJson(values, Date.now()));
     if (outcome.error.length > 0) {
-      this.status = this.tr('导出失败，请换个位置重试', 'Export failed; try another location');
+      this.status = appText('shell.export-failed-try-another', this.english);
       return;
     }
     if (!outcome.saved) {
-      this.status = this.tr('已取消导出', 'Export cancelled');
+      this.status = appText('shell.export-cancelled', this.english);
       return;
     }
     // 导出成功的提示用纯逻辑 `DataExport.backupSummaryText()`（第 58 轮接上）：
@@ -863,18 +1087,18 @@ struct Index {
     const picked: TextImportResult = await pickTextFile(this.ctx());
     if (picked.error.length > 0) {
       this.status = picked.error === 'toolarge'
-        ? this.tr('文件过大，可能不是备份文件', 'That file is too large to be a backup')
-        : this.tr('读取文件失败', 'Could not read the file');
+        ? appText('shell.that-file-is-too', this.english)
+        : appText('shell.could-not-read-the-2', this.english);
       return;
     }
     if (picked.cancelled) {
-      this.status = this.tr('已取消导入', 'Import cancelled');
+      this.status = appText('shell.import-cancelled', this.english);
       return;
     }
     const plan: ImportPlan = parseBackupJson(picked.content, LOCAL_KEYS);
     if (!plan.ok) {
       const reason: string = importErrorText(plan.error, this.english);
-      this.status = reason.length > 0 ? reason : this.tr('备份无法识别', 'Backup not recognised');
+      this.status = reason.length > 0 ? reason : appText('shell.backup-not-recognised', this.english);
       return;
     }
     // 读到文件后**再确认一次**（第 58 轮新增）：选文件之前不可能知道里面有哪些键，所以第一次确认框
@@ -882,7 +1106,7 @@ struct Index {
     // 列出来再让用户点头——AGENTS「导入必须比导出更保守」；该函数此前同样**没有任何生产调用点**。
     const confirmed: boolean = await this.confirmImportPlan(importSummaryText(plan, this.english));
     if (!confirmed) {
-      this.status = this.tr('已取消导入', 'Import cancelled');
+      this.status = appText('shell.import-cancelled', this.english);
       return;
     }
     let written: number = 0;
@@ -906,6 +1130,10 @@ struct Index {
       this.toolsColumns = parseGridColumns(await this.data.getString('tools_columns', DEFAULT_GRID_COLUMNS));
       this.favoritesColumns = parseGridColumns(
         await this.data.getString('favorites_columns', DEFAULT_GRID_COLUMNS));
+      // 扫描设置也按导入后的值重读（与上面几项同一原因：界面不能停在旧偏好上）。
+      const importedScan: DocScanState = parseDocScanState(await this.data.getString('doc_scan_state', ''));
+      this.docScanFilter = importedScan.filter;
+      this.docScanShooting = importedScan.shooting;
       this.applyLanguagePreference(normalizeLanguagePreference(        await this.data.getString('language', DEFAULT_LANGUAGE_PREFERENCE)));
       this.refreshWidgets();
     } catch (_) {
@@ -921,19 +1149,21 @@ struct Index {
       'Imported ' + (written === 1 ? '1 item' : written.toString() + ' items'));
   }
 
-  /** 导出历史记录为纯文本（历史页的导出按钮；没有记录时不生成空文件）。 */  private async exportHistoryText(): Promise<void> {
-    const text: string = historyExportText(pinnedFirst(this.history), this.english);
+  /** 导出历史记录为纯文本（历史页的导出按钮；没有记录时不生成空文件）。 */
+  private async exportHistoryText(): Promise<void> {
+    // 导出顺序 = 当前显示顺序（数组顺序；置顶条目本来就在最前）。
+    const text: string = historyExportText(this.history, this.english);
     if (text.length === 0) {
-      this.status = this.tr('还没有可导出的记录', 'No records to export yet');
+      this.status = appText('shell.no-records-to-export', this.english);
       return;
     }
     const outcome: TextExportResult = await saveTextFile(this.ctx(), historyFileName(Date.now()), text);
     if (outcome.error.length > 0) {
-      this.status = this.tr('导出失败，请换个位置重试', 'Export failed; try another location');
+      this.status = appText('shell.export-failed-try-another', this.english);
       return;
     }
-    this.status = outcome.saved ? this.tr('历史记录已导出', 'History exported')
-      : this.tr('已取消导出', 'Export cancelled');
+    this.status = outcome.saved ? appText('shell.history-exported', this.english)
+      : appText('shell.export-cancelled', this.english);
   }
 
   /**
@@ -957,6 +1187,9 @@ struct Index {
    * （返回或切 Tab）时清空，下次进入就是干净状态（2026-10-20 审计 §3.23③）。
    */
   private clearDocumentUris(): void {
+    // 「追加」意图只在「点追加 → 立刻拿到结果」这一条路径上有效：清空结果时必须一起复位，
+    // 否则下一次从主扫描按钮进来会被当成追加。
+    this.docScanAppending = false;
     if (this.documentUris.length === 0) { return; }
     this.documentUris = [];
     this.documentPdf = false;
@@ -974,11 +1207,11 @@ struct Index {
     this.favorites = next;
     try {
       await this.data.saveFavorites(this.favorites);
-      this.status = this.tr('已置顶', 'Moved to top');
+      this.status = appText('shell.moved-to-top', this.english);
       this.refreshWidgets();
     } catch (_) {
       this.favorites = previous;
-      this.status = this.tr('收藏保存失败', 'Could not save favorites');
+      this.status = appText('shell.could-not-save-favorites', this.english);
     } finally {
       this.favoriteSaving = false;
     }
@@ -998,7 +1231,7 @@ struct Index {
       this.refreshWidgets();
     } catch (_) {
       this.favorites = previous;
-      this.status = this.tr('收藏保存失败', 'Could not save favorites');
+      this.status = appText('shell.could-not-save-favorites', this.english);
     } finally {
       this.favoriteSaving = false;
     }
@@ -1013,12 +1246,12 @@ struct Index {
       [id].concat(this.favorites);
     try {
       await this.data.saveFavorites(this.favorites);
-      this.status = this.isFavorite(id) ? this.tr('已收藏工具', 'Tool added to favorites') :
-        this.tr('已取消收藏', 'Tool removed from favorites');
+      this.status = this.isFavorite(id) ? appText('shell.tool-added-to-favorites', this.english) :
+        appText('shell.tool-removed-from-favorites', this.english);
       this.refreshWidgets();
     } catch (_) {
       this.favorites = previous;
-      this.status = this.tr('收藏保存失败', 'Could not save favorites');
+      this.status = appText('shell.could-not-save-favorites', this.english);
     } finally {
       this.favoriteSaving = false;
     }
@@ -1059,8 +1292,8 @@ struct Index {
           .fontSize(20).fontColor([this.isFavorite(target) ? ToolPalette.favoriteActive : ToolPalette.textSubtle])
       }
         .backgroundColor(Color.Transparent).borderRadius(22).width(44).height(44)
-        .accessibilityText(this.isFavorite(target) ? this.tr('取消收藏', 'Remove from favorites') :
-          this.tr('收藏工具', 'Add to favorites'))
+        .accessibilityText(this.isFavorite(target) ? appText('fav.remove', this.english) :
+          appText('fav.a11y.add', this.english))
         .enabled(this.data !== undefined && !this.favoriteSaving)
         .onClick(() => this.toggleFavorite(target))
     }
@@ -1069,7 +1302,7 @@ struct Index {
       // 高度保持**固定值**：Grid 会用 `minHeight` 把整行拉到很高（实测卡片被撑到约 3 倍高），
       // 因此这里不能用 `constraintSize`。标题的裁切改由 `maxLines(2)` + 省略号如实呈现，
       // 大字体下的自适应高度属「卡片高度纳入 LayoutAdaptive」的后续项（2026-10-20 审计 §3.26②）。
-      .width('100%').height(CARD_HEIGHT)
+      .width('100%').height(this.cardHeight)
       .backgroundColor(color).borderRadius(20)
   }
 
@@ -1077,10 +1310,10 @@ struct Index {
   // 因此语言切换后菜单文案与「取消收藏」的可用性都跟着当前状态走。
   @Builder private favoriteMenu(id: string) {
     Menu() {
-      MenuItem({ content: this.tr('置顶', 'Move to top') })
+      MenuItem({ content: appText('fav.pin', this.english) })
         .enabled(!this.favoriteSaving)
         .onClick(() => this.promoteFavorite(id))
-      MenuItem({ content: this.tr('取消收藏', 'Remove from favorites') })
+      MenuItem({ content: appText('fav.remove', this.english) })
         .enabled(!this.favoriteSaving)
         .onClick(() => this.toggleFavorite(id))
     }
@@ -1136,8 +1369,10 @@ struct Index {
 
   // 根页当前 Tab 名称，用于 HdsNavigation 标题栏。
   private homeTabName(): string {
-    return this.selectedTab === 'tools' ? this.tr('工具', 'Tools') :
-      this.selectedTab === 'favorites' ? this.tr('收藏', 'Favorites') : this.tr('设置', 'Settings');
+    // 固定文案统一从 `model/AppStrings.ets` 取（2026-10-21 C 项「文案外置」第一批）。
+    return this.selectedTab === 'tools' ? appText('tab.tools', this.english) :
+      this.selectedTab === 'favorites' ? appText('tab.favorites', this.english) :
+        appText('tab.settings', this.english);
   }
 
   // 标题栏文案的统一来源：根 Tab 或当前可见的详情页（shownRoute 由详情页 onShown 维护）。
@@ -1197,7 +1432,7 @@ struct Index {
    */
   @Builder private recentRow() {
     if (this.recentTools().length > 0) {
-      Text(this.tr('最近使用', 'Recently used')).fontSize(14)
+      Text(appText('recent.title', this.english)).fontSize(14)
         .fontColor(ToolPalette.textSecondary).width('100%')
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
         ForEach(this.recentTools(), (tool: ToolEntry) => {
@@ -1223,7 +1458,7 @@ struct Index {
    * （2026-10-20 审计 §3.26⑦）。这里如实说「未知工具」并把路由名带出来，便于定位遗漏的登记。
    */
   private destinationName(route: string): string {
-    if (route === 'history') { return this.tr('历史记录', 'History'); }
+    if (route === 'history') { return appText('route.history', this.english); }
     const tool: ToolEntry | undefined = toolById(route);
     if (tool !== undefined) { return this.tr(tool.titleZh, tool.titleEn); }
     return this.tr('未知工具（' + route + '）', 'Unknown tool (' + route + ')');
@@ -1243,15 +1478,14 @@ struct Index {
         Search({ value: this.toolQuery, placeholder: this.searchPlaceholder() })
           .height(48)
           .backgroundColor(Color.Transparent)
-          .accessibilityText(this.tr('搜索工具', 'Search tools'))
+          .accessibilityText(appText('search.tools', this.english))
           .onChange((value: string) => { this.toolQuery = value; })
       }
       // 「每行显示几个」紧跟在搜索框下、**无条件渲染**：搜索过滤时也跟着在（否则打字过程中控件移入移出、
       // 网格整体跳一下）。它只改本页网格的列数，收藏页各有一份自己的偏好。
       this.gridDensityRow('tools')
       if (this.toolQuery.trim().length > 0 && this.visibleTools.length === 0) {
-        Text(this.tr('没有匹配的工具，试试「二维码」「换算」或英文名。',
-          'No tool matches. Try “QR”, “converter” or another keyword.'))
+        Text(appText('tools.empty', this.english))
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         // 搜索时不再显示「最近使用」：搜索本身已经是在找工具，多一行反而干扰。
@@ -1268,8 +1502,8 @@ struct Index {
    * 例子在搜索无结果的空态文案里仍然保留，不会丢可发现性。
    */
   private searchPlaceholder(): string {
-    return this.metrics().narrow ? this.tr('搜索工具', 'Search tools') :
-      this.tr('搜索工具，如「二维码」「换算」', 'Search tools, e.g. “QR” or “converter”');
+    return this.metrics().narrow ? appText('search.tools', this.english) :
+      appText('search.toolsHint', this.english);
   }
 
   /**
@@ -1359,8 +1593,7 @@ struct Index {
       }
     } catch (_) {
       if (which === 'tools') { this.toolsColumns = previous; } else { this.favoritesColumns = previous; }
-      this.status = this.tr('每行显示保存失败，已恢复原设置',
-        'Could not save the per-row setting; reverted');
+      this.status = appText('shell.could-not-save-the-3', this.english);
     }
   }
 
@@ -1372,11 +1605,11 @@ struct Index {
    */
   @Builder private gridDensityRow(which: string) {
     OptionSelect({
-      label: this.tr('每行显示', 'Per row'),
+      label: appText('grid.perRow', this.english),
       options: this.gridColumnOptions(),
       selectedIndex: this.gridColumnSelectedIndex(which),
       selectedText: gridColumnLabel(this.gridColumnDisplayId(which), this.autoGridColumns(), this.english),
-      a11yText: this.tr('每行显示几个工具', 'Tools per row'),
+      a11yText: appText('grid.perRowA11y', this.english),
       onSelected: (index: number): void => {
         const ids: string[] = this.gridColumnChoiceIds();
         if (index >= 0 && index < ids.length) { this.setGridColumns(which, ids[index]); }
@@ -1425,10 +1658,9 @@ struct Index {
       if (this.favorites.length === 0) {
         // 空态不只说明「怎么收藏」，还要给一步就能到的动作——此前只有一句说明，用户得自己回工具页
         // （2026-10-20 审计 §3「收藏空态动作」）。
-        Text(this.tr('还没有收藏的工具。点击工具卡片上的星标，即可在这里快速找到它。',
-          'No favourites yet. Tap the star on a tool card to find it here.'))
+        Text(appText('favorites.empty', this.english))
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
-        Button(this.tr('去工具页挑选', 'Browse tools'))
+        Button(appText('favorites.browse', this.english))
           .height(48).width('100%').backgroundColor(Color.Transparent)
           .fontColor(ToolPalette.primaryDeep).fontWeight(FontWeight.Medium)
           .onClick(() => this.switchTab(0))
@@ -1437,15 +1669,15 @@ struct Index {
         this.gridDensityRow('favorites')
         Row({ space: 12 }) {
           Text(this.favoritesSorting ?
-            this.tr('拖动卡片调整顺序，完成后点右侧按钮。', 'Drag cards to reorder, then tap the button on the right.') :
-            this.tr('长按卡片可置顶或取消收藏。', 'Long-press a card to move it to the top or remove it.'))
+            appText('fav.hint.sorting', this.english) :
+            appText('fav.hint.idle', this.english))
             .fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
           IconActionButton({
             icon: this.favoritesSorting ? $r('sys.symbol.checkmark') :
               $r('sys.symbol.arrow_down_and_line_horizontal_and_arrow_up'),
             tintColor: ToolPalette.textPrimary, boxSize: 44, iconSize: 24,
-            a11yText: this.favoritesSorting ? this.tr('完成排序', 'Finish sorting') :
-              this.tr('调整收藏顺序', 'Reorder favorites'),
+            a11yText: this.favoritesSorting ? appText('sort.finishA11y', this.english) :
+              appText('fav.a11y.reorder', this.english),
             onTap: () => { this.favoritesSorting = !this.favoritesSorting; }
           })
         }.width('100%').alignItems(VerticalAlign.Center)
@@ -1485,6 +1717,9 @@ struct Index {
       handPosture: this.handPosture,
       handPostureSupported: this.handPostureSupported,
       onHandPostureChange: (enabled: boolean): void => { this.setHandPosture(enabled); },
+      hapticFeedback: this.hapticFeedback,
+      hapticSupported: this.hapticSupported,
+      onHapticFeedbackChange: (enabled: boolean): void => { this.setHapticFeedback(enabled); },
       actionAlign: this.actionAlignment(FlexAlign.Start),
       historyCount: this.history.length,
       languagePreference: this.languagePreference,
@@ -1647,8 +1882,19 @@ struct Index {
                 documentUris: this.documentUris, documentPdf: this.documentPdf,
                 documentSaving: this.documentSaving, actionAlign: this.actionAlignment(),
                 previewWidth: this.documentPreviewWidth(),
-                onScan: (): void => { this.navigate('scanner'); },
-                onExport: (): void => { this.exportDocuments(); } })
+                docScanFilter: this.docScanFilter, docScanShooting: this.docScanShooting,
+                // 主扫描按钮必须显式清掉「追加」意图：两者都会推 `scanner` 路由，只靠结果回调复位
+                // 会在「点了追加又直接从主按钮扫」时把两批页混在一起。
+                onScan: (): void => { this.docScanAppending = false; this.navigate('scanner'); },
+                onExport: (): void => { this.exportDocuments(); },
+                onAppendScan: (): void => { this.startAppendScan(); },
+                onSaveToGallery: (): void => { this.saveDocumentsToGallery(); },
+                onRemovePage: (index: number): void => { this.removeDocumentPage(index); },
+                onFilterChange: (id: string): void => { this.setDocScanOption(id, this.docScanShooting); },
+                onShootingChange: (id: string): void => { this.setDocScanOption(this.docScanFilter, id); },
+                onSendToText: (text: string): void => { this.sendOcrTextToText(text); },
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
             }
             else if (name === 'level') {
               LevelPage({ english: this.english, materialLevel: this.materialLevel, active: this.appActive,
@@ -1670,15 +1916,13 @@ struct Index {
             else if (name === 'base') {
               BasePage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
-                onCopy: (value: string): void => { this.copy(value); },
-                onStatus: (message: string): void => { this.status = message; } })
+                onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'diff') {
               DiffPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
                 handSide: this.actionSide(),
-                onCopy: (value: string): void => { this.copy(value); },
-                onStatus: (message: string): void => { this.status = message; } })
+                onCopy: (value: string): void => { this.copy(value); } })
             }
             else if (name === 'anniversary') {
               AnniversaryPage({ english: this.english, immersiveSupported: this.immersiveSupported,
@@ -1702,6 +1946,7 @@ struct Index {
                 onDeleteMany: (ids: string[]): void => { this.deleteHistoryItems(ids); },
                 onOpen: (kind: string, content: string): void => { this.openHistoryItem(kind, content); },
                 onTogglePin: (id: string): void => { this.toggleHistoryPin(id); },
+                onMove: (from: number, to: number): void => { this.moveHistoryItem(from, to); },
                 onStatus: (message: string): void => { this.status = message; },
                 onExport: (): void => { this.exportHistoryText(); },
                 onClear: (): void => { this.clearHistory(); } })
@@ -1738,11 +1983,11 @@ struct Index {
         }
         HdsTabs({ controller: this.tabsController }) {
           TabContent() { this.tabScroll('tools') }
-            .tabBar(this.tabBarStyle($r('sys.symbol.square_grid_2x2'), this.tr('工具', 'Tools')))
+            .tabBar(this.tabBarStyle($r('sys.symbol.square_grid_2x2'), appText('tab.tools', this.english)))
           TabContent() { this.tabScroll('favorites') }
-            .tabBar(this.tabBarStyle($r('sys.symbol.star_fill'), this.tr('收藏', 'Favorites')))
+            .tabBar(this.tabBarStyle($r('sys.symbol.star_fill'), appText('tab.favorites', this.english)))
           TabContent() { this.tabScroll('settings') }
-            .tabBar(this.tabBarStyle($r('sys.symbol.gearshape'), this.tr('设置', 'Settings')))
+            .tabBar(this.tabBarStyle($r('sys.symbol.gearshape'), appText('tab.settings', this.english)))
         }
         .vertical(false).barPosition(BarPosition.End).barOverlap(true).scrollable(false)
         .barFloatingStyle({

@@ -96,6 +96,15 @@ export function toHex(color: RgbColor): string {
   return '#' + hex2(color.r) + hex2(color.g) + hex2(color.b);
 }
 
+/**
+ * 输出 `0xRRGGBB` 数值（生成二维码这类**要数值色值**的系统接口用）。
+ *
+ * 与 `toHex()` 同源：都走 `clampByte()`，不要另写一份位移运算，否则非法输入时两者会不一致。
+ */
+export function rgbToNumber(color: RgbColor): number {
+  return (clampByte(color.r) << 16) | (clampByte(color.g) << 8) | clampByte(color.b);
+}
+
 /** 输出 `rgb(r, g, b)` 写法。 */
 export function toRgbText(color: RgbColor): string {
   return 'rgb(' + clampByte(color.r) + ', ' + clampByte(color.g) + ', ' + clampByte(color.b) + ')';

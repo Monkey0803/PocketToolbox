@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { appText } from '../model/AppStrings';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
@@ -112,7 +113,7 @@ export struct AnniversaryPage {
       return true;
     } catch (_) {
       this.items = previous;
-      this.onStatus(this.tr('保存失败，改动已撤销', 'Could not save; the change was reverted'));
+      this.onStatus(appText('anniv.could-not-save-the', this.english));
       return false;
     }
   }
@@ -142,7 +143,7 @@ export struct AnniversaryPage {
       if (!savedEdit) { return; }
       this.editingId = '';
       this.entryName = '';
-      this.onStatus(this.tr('已更新', 'Updated'));
+      this.onStatus(appText('anniv.updated', this.english));
       return;
     }
     if (this.items.length >= ANNIVERSARY_MAX) {
@@ -156,7 +157,7 @@ export struct AnniversaryPage {
       sortAnniversaries(upsertAnniversary(this.items, item), this.today));
     if (!saved) { return; }
     this.entryName = '';
-    this.onStatus(this.tr('已添加', 'Added'));
+    this.onStatus(appText('anniv.added', this.english));
   }
 
   /** 把某条填回上方编辑（不删除原条目：用户放弃编辑时原数据仍在）。 */
@@ -168,12 +169,12 @@ export struct AnniversaryPage {
     this.entryName = item.title;
     this.entryDate = item.date;
     this.yearly = item.yearly;
-    this.onStatus(this.tr('已填入上方，保存将覆盖该条', 'Loaded above; saving will update this entry'));
+    this.onStatus(appText('anniv.loaded-above-saving-will', this.english));
   }
 
   private async deleteItem(id: string): Promise<void> {
     const saved: boolean = await this.saveItems(removeAnniversary(this.items, id));
-    if (saved) { this.onStatus(this.tr('已删除', 'Deleted')); }
+    if (saved) { this.onStatus(appText('anniv.deleted', this.english)); }
   }
 
   private deleteItemAt(index: number): void {
@@ -233,7 +234,7 @@ export struct AnniversaryPage {
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开日期选择器', 'Could not open the date picker'));
+      this.onStatus(appText('status.datePickerFailed', this.english));
     }
   }
 
@@ -298,13 +299,13 @@ export struct AnniversaryPage {
         Row({ space: 4 }) {
           IconActionButton({
             icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
-            a11yText: this.tr('编辑纪念日', 'Edit anniversary'),
+            a11yText: appText('anniv.edit-anniversary', this.english),
             onTap: () => this.editItemAt(index)
           })
           IconActionButton({
             icon: $r('sys.symbol.trash'),
             tintColor: ToolPalette.danger,
-            a11yText: this.tr('删除纪念日', 'Delete anniversary'),
+            a11yText: appText('anniv.delete-anniversary', this.english),
             onTap: () => this.deleteItemAt(index)
           })
         }.padding(this.handSide < 0 ? { left: 8, top: 8 } : { right: 8, top: 8 })
@@ -330,7 +331,7 @@ export struct AnniversaryPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.entryName, placeholder: this.tr('名称，例如 结婚纪念日', 'Name') })
+        TextInput({ text: this.entryName, placeholder: appText('anniv.name', this.english) })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
@@ -342,13 +343,13 @@ export struct AnniversaryPage {
 
       Row({ space: 12 }) {
         Toggle({ type: ToggleType.Checkbox, isOn: this.yearly })
-          .accessibilityText(this.tr('每年重复', 'Repeats yearly'))
+          .accessibilityText(appText('anniv.repeats-yearly', this.english))
           .onChange((isOn: boolean) => { this.yearly = isOn; })
-        Text(this.tr('每年重复', 'Repeats yearly')).fontSize(16).fontColor(ToolPalette.textPrimary)
+        Text(appText('anniv.repeats-yearly', this.english)).fontSize(16).fontColor(ToolPalette.textPrimary)
       }.width('100%').height(52)
 
       Row({ space: 8 }) {
-        Button(this.editingId.length > 0 ? this.tr('保存修改', 'Save changes') : this.tr('添加', 'Add'))
+        Button(this.editingId.length > 0 ? appText('anniv.save-changes', this.english) : appText('anniv.add', this.english))
           .layoutWeight(1).height(48)
           .backgroundColor(this.editingId.length > 0 ? ToolPalette.success : ToolPalette.primary)
           .fontColor(Color.White).fontWeight(FontWeight.Medium)
@@ -356,11 +357,11 @@ export struct AnniversaryPage {
           .enabled(this.editingId.length > 0 || this.items.length < ANNIVERSARY_MAX)
           .onClick(() => this.addItem())
         if (this.editingId.length > 0) {
-          Button(this.tr('取消编辑', 'Cancel')).height(48)
+          Button(appText('anniv.cancel', this.english)).height(48)
             .backgroundColor(ToolPalette.borderMuted).fontColor(ToolPalette.textPrimary)
             .onClick(() => {
               this.editingId = ''; this.entryName = '';
-              this.onStatus(this.tr('已取消编辑', 'Editing cancelled'));
+              this.onStatus(appText('status.editCancelled', this.english));
             })
         }
       }.width('100%')
@@ -371,7 +372,7 @@ export struct AnniversaryPage {
       }
 
       if (this.items.length === 0) {
-        Text(this.tr('还没有纪念日', 'No anniversaries yet'))
+        Text(appText('anniv.no-anniversaries-yet', this.english))
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         List({ space: LIST_ROW_GAP }) {
@@ -386,8 +387,7 @@ export struct AnniversaryPage {
         .scrollBar(BarState.Auto)
       }
 
-      Text(this.tr('纪念日只保存在本机，可随时删除。',
-        'Anniversaries are stored on this device only.'))
+      Text(appText('anniv.anniversaries-are-stored-on', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

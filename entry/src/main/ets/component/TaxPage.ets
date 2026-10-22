@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
@@ -84,16 +85,16 @@ export struct TaxPage {
   /** 计算方向：「税前算税后」与「税后反推」是互斥选项，走统一的选项行而不是两个按钮。 */
   private reverseOptions(): SelectOption[] {
     return [
-      { value: this.tr('税前算税后', 'Gross to net') },
-      { value: this.tr('税后反推', 'Net to gross') }
+      { value: appText('tax.gross-to-net', this.english) },
+      { value: appText('tax.net-to-gross', this.english) }
     ];
   }
 
   /** 社保 / 公积金的录入方式：直接填实缴额，或按基数与比例算。 */
   private contributionModeOptions(): SelectOption[] {
     return [
-      { value: this.tr('实缴额', 'Amount') },
-      { value: this.tr('按基数和比例', 'Base + rate') }
+      { value: appText('tax.amount', this.english) },
+      { value: appText('tax.base-rate', this.english) }
     ];
   }
 
@@ -117,7 +118,7 @@ export struct TaxPage {
 
   private async openTaxReference(url: string): Promise<void> {
     try { await this.ctx().openLink(url); }
-    catch (_) { this.onStatus(this.tr('无法打开官方查询页面', 'Could not open the official reference')); }
+    catch (_) { this.onStatus(appText('tax.could-not-open-the', this.english)); }
   }
 
   private taxValue(value: string): number {
@@ -202,7 +203,7 @@ export struct TaxPage {
     this.taxResult = undefined;
     const amount: number = this.taxValue(this.taxAmount);
     if (amount < 0) {
-      this.onStatus(this.tr('请输入非负金额，最多两位小数', 'Enter a non-negative amount with up to two decimals'));
+      this.onStatus(appText('tax.enter-a-non-negative', this.english));
       return;
     }
     let result: TaxResult | undefined = undefined;
@@ -228,9 +229,8 @@ export struct TaxPage {
         return;
       }
       this.onStatus(this.taxKind === 'bonus'
-        ? this.tr('请输入大于 0 的年终奖金额', 'Enter a bonus amount greater than 0')
-        : this.tr('请检查期数、各项金额和比例；房贷与租金不可同时扣除，养老金全年不超过 12000 元',
-          'Check period, amounts and rates. Mortgage and rent cannot both be deducted; annual pension limit is 12,000 yuan'));
+        ? appText('tax.enter-a-bonus-amount', this.english)
+        : appText('tax.check-period-amounts-and', this.english));
       return;
     }
     this.onStatus('');
@@ -242,11 +242,11 @@ export struct TaxPage {
     const result: TaxResult | undefined = this.taxResult;
     if (result === undefined) { return ''; }
     return this.taxKindLabel() + this.tr('：', ': ') +
-      this.tr('税前 ', 'Gross ') + '¥' + moneyText(result.grossCents) +
-      this.tr(' · 应纳税所得 ', ' · Taxable ') + '¥' + moneyText(result.taxableCents) +
-      this.tr(' · 个税 ', ' · Tax ') + '¥' + moneyText(result.taxCents) +
-      this.tr(' · 实得 ', ' · Net ') + '¥' + moneyText(result.netCents) +
-      this.tr(' · 税率 ', ' · Rate ') + result.ratePercent.toString() + '%';
+      appText('tax.gross', this.english) + '¥' + moneyText(result.grossCents) +
+      appText('tax.taxable', this.english) + '¥' + moneyText(result.taxableCents) +
+      appText('tax.tax', this.english) + '¥' + moneyText(result.taxCents) +
+      appText('tax.net', this.english) + '¥' + moneyText(result.netCents) +
+      appText('tax.rate', this.english) + result.ratePercent.toString() + '%';
   }
 
   /**
@@ -281,8 +281,8 @@ export struct TaxPage {
         interactive: true
       }) {
         TextInput({ text: value,
-          placeholder: this.taxFieldLabelZh(zh, dynamic).includes('比例') ? this.tr('比例（%）', 'Rate (%)') :
-            this.tr('金额（元）', 'Amount (CNY)') })
+          placeholder: this.taxFieldLabelZh(zh, dynamic).includes('比例') ? appText('tax.rate-2', this.english) :
+            appText('tax.amount-cny', this.english) })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
@@ -307,26 +307,26 @@ export struct TaxPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('中国大陆居民个人 · 本机估算', 'Mainland China resident · on-device estimate'))
+      Text(appText('tax.mainland-china-resident-on', this.english))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       // 政策复核日期要露出来：规则随政策变，用户有权知道按哪天的规则算（§3.8）。
       Text(this.tr('税率与扣除口径复核日期 ' + TAX_RULES_REVIEWED, 'Tax rules reviewed ' + TAX_RULES_REVIEWED))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       OptionSelect({
-        label: this.tr('计税类型', 'Tax type'),
+        label: appText('tax.tax-type', this.english),
         options: this.taxKindOptions(),
         selectedIndex: this.taxKindAt(),
         selectedText: this.taxKindLabel(),
-        a11yText: this.tr('计税类型', 'Tax type'),
+        a11yText: appText('tax.tax-type', this.english),
         onSelected: (index: number): void => this.selectTaxKind(index)
       })
       if (this.taxKind === 'wage' || this.taxKind === 'labor' || this.taxKind === 'royalty') {
         OptionSelect({
-          label: this.tr('计算方向', 'Direction'),
+          label: appText('tax.direction', this.english),
           options: this.reverseOptions(),
           selectedIndex: this.taxReverse ? 1 : 0,
-          selectedText: this.taxReverse ? this.tr('税后反推', 'Net to gross') : this.tr('税前算税后', 'Gross to net'),
-          a11yText: this.tr('计算方向', 'Calculation direction'),
+          selectedText: this.taxReverse ? appText('tax.net-to-gross', this.english) : appText('tax.gross-to-net', this.english),
+          a11yText: appText('tax.calculation-direction', this.english),
           onSelected: (index: number): void => this.selectReverse(index)
         })
       }
@@ -337,8 +337,7 @@ export struct TaxPage {
         this.taxAmount, (value: string) => this.taxAmount = value, 'amount')
       if (this.taxKind === 'wage') {
         this.taxHeading('本期工资与扣除', 'Current wage and deductions')
-        Text(this.tr('任职受雇期数为本年在同一单位的第几期；基本减除费用按每期 5000 元累计。',
-          'Period is the current payment at the same employer this year; basic deduction accumulates at CNY 5,000 per period.'))
+        Text(appText('tax.period-is-the-current', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         Column({ space: 6 }) {
           Text(this.tr('本年任职受雇期数（' + TAX_PERIOD_MIN + '–' + TAX_PERIOD_MAX + '）',
@@ -357,7 +356,7 @@ export struct TaxPage {
                 // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
                 .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
                 .backgroundColor(Color.Transparent).type(InputType.Number).height(48).layoutWeight(1)
-                .accessibilityText(this.tr('本年任职受雇期数', 'Employment period this year'))
+                .accessibilityText(appText('tax.employment-period-this-year', this.english))
                 .onChange((value: string) => { this.taxPeriod = value; this.taxResult = undefined; })
               WheelPickerButton({
                 english: this.english,
@@ -365,7 +364,7 @@ export struct TaxPage {
                 selectedIndex: optionIndex(this.periodPickOptions, this.taxPeriod),
                 immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
-                a11yText: this.tr('从列表选择任职受雇期数', 'Pick the employment period from a list'),
+                a11yText: appText('tax.pick-the-employment-period', this.english),
                 onPicked: (value: string): void => { this.taxPeriod = value; this.taxResult = undefined; },
                 onStatus: (message: string): void => this.onStatus(message)
               })
@@ -373,11 +372,11 @@ export struct TaxPage {
           }
         }.width('100%')
         OptionSelect({
-          label: this.tr('社保', 'Social'),
+          label: appText('tax.social', this.english),
           options: this.contributionModeOptions(),
           selectedIndex: this.taxSocialByBase ? 1 : 0,
-          selectedText: this.taxSocialByBase ? this.tr('按基数和比例', 'Base + rate') : this.tr('实缴额', 'Amount'),
-          a11yText: this.tr('社保录入方式', 'Social insurance input'),
+          selectedText: this.taxSocialByBase ? appText('tax.base-rate', this.english) : appText('tax.amount', this.english),
+          a11yText: appText('tax.social-insurance-input', this.english),
           onSelected: (index: number): void => this.selectContributionMode('social', index)
         })
         if (this.taxSocialByBase) {
@@ -390,11 +389,11 @@ export struct TaxPage {
             (value: string) => this.taxSocialAmount = value)
         }
         OptionSelect({
-          label: this.tr('公积金', 'Housing'),
+          label: appText('tax.housing', this.english),
           options: this.contributionModeOptions(),
           selectedIndex: this.taxHousingByBase ? 1 : 0,
-          selectedText: this.taxHousingByBase ? this.tr('按基数和比例', 'Base + rate') : this.tr('实缴额', 'Amount'),
-          a11yText: this.tr('公积金录入方式', 'Housing fund input'),
+          selectedText: this.taxHousingByBase ? appText('tax.base-rate', this.english) : appText('tax.amount', this.english),
+          a11yText: appText('tax.housing-fund-input', this.english),
           onSelected: (index: number): void => this.selectContributionMode('housing', index)
         })
         if (this.taxHousingByBase) {
@@ -407,14 +406,14 @@ export struct TaxPage {
             (value: string) => this.taxHousingAmount = value)
         }
         if (this.taxPeriodValue() > 1) {
-          Text(this.tr('第二期起需核对本年此前累计数据。', 'From period 2, check prior year-to-date amounts.'))
+          Text(appText('tax.from-period-2-check', this.english))
             .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         } else {
           // 标题固定为「扣除与累计数据」，展开与否只由 chevron 与无障碍文案表达（与会话里科学计算器、
           // LoanPage 的折叠入口同一口径：可见标题不随状态变成另一个话题）。
           Button() {
             Row({ space: 8 }) {
-              Text(this.tr('扣除与累计数据', 'Deductions and prior history'))
+              Text(appText('tax.deductions-and-prior-history', this.english))
                 .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textStrong).layoutWeight(1)
               // 指示箭头：未展开 ▶、展开 ▼（与科学计算器、文本工具菜单入口、贷款折叠入口同一套约定）
               SymbolGlyph(this.taxAdvanced ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
@@ -424,21 +423,19 @@ export struct TaxPage {
           .width('100%').height(48).padding({ left: 16, right: 16 })
           .backgroundColor(ToolPalette.border)
           .accessibilityText(this.taxAdvanced
-            ? this.tr('收起扣除与累计数据', 'Hide deductions and prior history')
-            : this.tr('展开扣除与累计数据', 'Show deductions and prior history'))
+            ? appText('tax.hide-deductions-and-prior', this.english)
+            : appText('tax.show-deductions-and-prior', this.english))
           .onClick(() => { this.taxAdvanced = !this.taxAdvanced; this.taxResult = undefined; })
           if (!this.taxAdvanced) {
-            Text(this.tr('若已填写隐藏项，其金额仍参与计算。', 'Previously entered hidden amounts still affect the result.'))
+            Text(appText('tax.previously-entered-hidden-amounts', this.english))
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }
         }
         if (this.taxAdvanced || this.taxPeriodValue() > 1) {
         this.taxHeading('本期专项附加扣除', 'Current special deductions')
-        Text(this.tr('填写已确认可在本期预扣的扣除额；房贷利息与住房租金不能同时填写。大病医疗在年度汇算时处理。',
-          'Enter eligible withholding deductions. Mortgage interest and rent cannot both apply. Serious illness expenses are handled in annual settlement.'))
+        Text(appText('tax.enter-eligible-withholding-deductions', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-        Text(this.tr('参考标准：婴幼儿照护与子女教育每孩每月 2000 元；学历继续教育通常每月 400 元；房贷利息每月 1000 元；租金依城市为每月 800、1100 或 1500 元；赡养老人最多每月 3000 元。请按本人资格及分摊比例填写。',
-          'Reference amounts: childcare and education CNY 2,000 per child/month; academic continuing education generally CNY 400/month; mortgage CNY 1,000/month; rent CNY 800, 1,100 or 1,500 by city; elder care up to CNY 3,000/month. Enter only your eligible share.'))
+        Text(appText('tax.reference-amounts-childcare-and', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         this.taxField('3 岁以下婴幼儿照护（元）', 'Childcare under age 3 (CNY)', this.taxChildcare,
           (value: string) => this.taxChildcare = value)
@@ -457,8 +454,7 @@ export struct TaxPage {
         this.taxField('本期其他依法扣除（元）', 'Other lawful deductions (CNY)', this.taxOther,
           (value: string) => this.taxOther = value)
         this.taxHeading('本年此前累计金额', 'Previous year-to-date amounts')
-        Text(this.tr('只填写同一单位本年此前期数的累计值；个人养老金本年总额不超过 12000 元。',
-          'Enter prior periods at the same employer only; annual personal pension deductions are capped at CNY 12,000.'))
+        Text(appText('tax.enter-prior-periods-at', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         this.taxField('此前累计税前工资（元）', 'Prior gross wages (CNY)', this.taxPreviousGross,
           (value: string) => this.taxPreviousGross = value)
@@ -476,15 +472,13 @@ export struct TaxPage {
       } else if (this.taxKind === 'severance') {
         this.taxField('当地上年职工月平均工资（元）', 'Previous-year local monthly average wage (CNY)',
           this.taxAverageWage, (value: string) => this.taxAverageWage = value)
-        Text(this.tr('当地上年职工平均工资三倍以内的补偿免税；请输入经当地公布的月平均工资。',
-          'Compensation within three times the local prior annual average wage is exempt. Enter the official monthly average.'))
+        Text(appText('tax.compensation-within-three-times', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       } else if (this.taxKind !== 'bonus') {
-        Text(this.tr('按一次支付的居民个人收入预扣；同一项目连续收入按月合并计算。',
-          'Resident withholding per payment; continuous income from one project is grouped by month.'))
+        Text(appText('tax.resident-withholding-per-payment', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
-      Button(this.tr('计算', 'Calculate')).width('100%').height(52)
+      Button(appText('action.calculate', this.english)).width('100%').height(52)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
         .onClick(() => this.calculateTax())
       if (this.taxResult) {
@@ -494,10 +488,10 @@ export struct TaxPage {
         }) {
         Column({ space: 10 }) {
           Row({ space: 8 }) {
-            Text(this.tr('计算结果', 'Result')).fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
+            Text(appText('tax.result', this.english)).fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
             IconActionButton({
               icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-              a11yText: this.tr('复制计算结果', 'Copy the result'),
+              a11yText: appText('tax.copy-the-result', this.english),
               boxSize: 44, iconSize: 22,
               onTap: (): void => { this.onCopy(this.taxCopyText()); }
             })
@@ -519,7 +513,7 @@ export struct TaxPage {
             this.taxResultLine(this.taxKind === 'wage' ? '累计应税额' : '本次应税额',
               this.taxKind === 'wage' ? 'Cumulative taxable income' : 'Taxable income', 'taxable')
           }
-          Text(this.tr('适用税率 ', 'Applicable rate ') + this.taxResult.ratePercent.toString() + '%')
+          Text(appText('tax.applicable-rate', this.english) + this.taxResult.ratePercent.toString() + '%')
             .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
           if (this.taxKind === 'bonus') {
             this.taxResultLine('速算扣除数', 'Quick deduction', 'quick')
@@ -531,13 +525,11 @@ export struct TaxPage {
           this.taxResultLine(this.taxKind === 'bonus' ? '税后收入' : '实得金额',
             this.taxKind === 'bonus' ? 'Take-home' : 'Net amount', 'net')
           if (this.taxKind === 'wage') {
-            Text(this.tr('实得金额只扣本期个人社保、公积金与个税；专项附加扣除、个人养老金及其他依法扣除仅用于计算税基。若养老金等由工资直接代扣，请另核对工资单实发额。',
-              'Net amount subtracts current social insurance, housing fund and tax only. Special, pension and other lawful deductions reduce the tax base; if pension is also withheld from pay, check the payroll cash amount separately.'))
+            Text(appText('tax.net-amount-subtracts-current', this.english))
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }
           if (this.taxReverse) {
-            Text(this.tr('反推结果为达到目标税后额的最小分位税前金额。',
-              'The reverse result is the smallest gross amount in cents reaching the target net.'))
+            Text(appText('tax.the-reverse-result-is', this.english))
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }
         }.padding(16).width('100%')
@@ -549,25 +541,24 @@ export struct TaxPage {
           Text(this.bonusTrapText()).fontSize(13).fontColor(ToolPalette.warning).width('100%')
         }
       }
-      Text(this.tr('仅供预扣估算；实际申报和年度汇算结果可能不同。所有输入仅在本机当前运行期间保留。',
-        'Withholding estimate only; filing and annual settlement may differ. Inputs remain on this device for this run only.'))
+      Text(appText('tax.withholding-estimate-only-filing', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       Row({ space: 8 }) {
-        Button(this.tr('税务规则', 'Tax rules')).layoutWeight(1).height(44)
+        Button(appText('tax.tax-rules', this.english)).layoutWeight(1).height(44)
           .onClick(() => this.openTaxReference(
             'https://fgk.chinatax.gov.cn/zcfgk/c100015/c5200946/content.html'))
-        Button(this.tr('社保查询', 'Social insurance')).layoutWeight(1).height(44)
+        Button(appText('tax.social-insurance', this.english)).layoutWeight(1).height(44)
           .onClick(() => this.openTaxReference('https://si.12333.gov.cn'))
       }.width('100%')
       Row({ space: 8 }) {
-        Button(this.tr('扣除新标准', 'Deduction updates')).layoutWeight(1).height(44)
+        Button(appText('tax.deduction-updates', this.english)).layoutWeight(1).height(44)
           .onClick(() => this.openTaxReference(
             'https://fgk.chinatax.gov.cn/zcfgk/c100012/c5213592/content.html'))
-        Button(this.tr('公积金查询', 'Housing fund')).layoutWeight(1).height(44)
+        Button(appText('tax.housing-fund', this.english)).layoutWeight(1).height(44)
           .onClick(() => this.openTaxReference('https://app.www.gov.cn/govdata/gov/202007/09/460532/article.html'))
       }.width('100%')
       if (this.taxKind === 'severance') {
-        Button(this.tr('离职补偿计税依据', 'Severance tax rule')).width('100%').height(44)
+        Button(appText('tax.severance-tax-rule', this.english)).width('100%').height(44)
           .onClick(() => this.openTaxReference('https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202364/content.html'))
       }
     }.width('100%')

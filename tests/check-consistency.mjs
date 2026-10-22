@@ -460,6 +460,56 @@ check('文案口径：页面不得在文案里另写一份「已导入常量」�
   return `${importedChecked} 个导入了模型常量的页面/服务文件都未在文案里重写常量数值`;
 });
 
+// --- 15. 服务卡片标题只有一份口径（第 110 轮新增）-----------------------------
+// 背景（2026-10-20 审计 §3.27）：卡片标题有**两个来源**——卡片进程下发的 `WidgetCards.quickToolTitle()`
+// 与系统在卡片中心/添加面板里显示的 `$string:widget_quick_tools_display_name`。两处文字属于同一个用户可见
+// 名称，改一处漏一处就会「桌面卡片写「常用工具」、添加面板写别的」而**没有任何构建或单测会报错**。
+// 这里把纯逻辑函数里的两串文案与两份 string.json 直接对齐（base=中文、en_US=英文）。
+check('服务卡片：卡片标题与 widget_quick_tools_display_name 一致', () => {
+  const source = read('entry/src/main/ets/model/WidgetCards.ets');
+  const match = /export function quickToolTitle[\s\S]*?return english \? '([^']*)' : '([^']*)';/.exec(source);
+  if (match === null) {
+    throw new Error('WidgetCards.quickToolTitle() 的写法变了，无法比对（请同步更新本检查）');
+  }
+  const enTitle = match[1];
+  const zhTitle = match[2];
+  const lookup = (file) => {
+    const entry = readJson(file).string.find((item) => item.name === 'widget_quick_tools_display_name');
+    if (entry === undefined) { throw new Error(`${file} 缺 widget_quick_tools_display_name`); }
+    return entry.value;
+  };
+  equal('中文卡片标题', zhTitle, lookup('entry/src/main/resources/base/element/string.json'));
+  equal('英文卡片标题', enTitle, lookup('entry/src/main/resources/en_US/element/string.json'));
+  return `${zhTitle} / ${enTitle}`;
+});
+
+// --- 16. 固定文案登记表：用到的 id 必须存在，登记的 id 必须有人用（第 111 轮新增）-----
+// 背景（2026-10-21 C1「文案外置」）：固定文案集中在 `model/AppStrings.ets`，页面用 `appText('id', this.english)`
+// 取值。`appText()` 对**未知 id 会原样返回 id**（这是刻意的：界面上露出 `tab.tools` 比留白更容易发现拼错），
+// 但纯靠肉眼盯不出来——所以这里做双向断言：① 源码里出现的每个 id 都必须在登记表里；
+// ② 每个登记项都至少被生产代码用过一次（防止「登记了却没人取」的僵尸条目）。
+check('固定文案：appText 的 id 双向对齐', () => {
+  const source = read('entry/src/main/ets/model/AppStrings.ets');
+  const ids = new Set([...source.matchAll(/new AppString\('([^']+)'/g)].map((match) => match[1]));
+  if (ids.size === 0) { throw new Error('AppStrings.ets 里没有解析到任何登记项，写法可能变了'); }
+  const used = new Set();
+  const walk = (dir) => readdirSync(join(ROOT, dir), { withFileTypes: true })
+    .flatMap((entry) => entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]);
+  for (const file of walk('entry/src/main/ets')) {
+    if (!file.endsWith('.ets') || file.endsWith('model/AppStrings.ets')) { continue; }
+    for (const match of read(file).matchAll(/appText\('([^']+)'/g)) { used.add(match[1]); }
+  }
+  const unknown = [...used].filter((id) => !ids.has(id));
+  if (unknown.length > 0) {
+    throw new Error(`源码用了未登记的 id（界面会直接显示 id）：${unknown.join(', ')}`);
+  }
+  const unused = [...ids].filter((id) => !used.has(id));
+  if (unused.length > 0) {
+    throw new Error(`登记了但生产代码没用（僵尸条目）：${unused.join(', ')}`);
+  }
+  return `${ids.size} 个 id / ${[...used].length} 个使用点`;
+});
+
 for (const line of checks) { console.log(line); }
 if (failures.length > 0) {
   console.error('');

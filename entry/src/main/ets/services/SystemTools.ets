@@ -9,9 +9,16 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { i18n } from '@kit.LocalizationKit';
+// 懒加载：设备缺少 SystemCapability.AI.Component.DocScan 时，模块链接失败不应影响应用启动
+// （与 `pages/Index.ets` 里那份同一个原因）。扫描配置在这里构造，页面只传登记表 id。
+import lazy { DocumentScannerConfig, DocType, SaveOption, FilterId, ShootingMode } from '@kit.VisionKit';
+import { DOC_SCAN_FILTERS, DOC_SCAN_SHOOTING_MODES, DOC_SCAN_MAX_SHOT, docScanFilterIndex,
+  docScanShootingIndex, docScanOptionIdAt, docScanFileNames } from '../model/DocumentScan';
 import { BarcodeKind, barcodeFormatId, barcodeTwoDimensional } from '../model/BarcodeTools';
 import { utf8Text } from '../model/EncodingTools';
-import { QrColorEntry, qrColorEntry, qrLevelValue } from '../model/QrStyle';
+import { QrRenderStyle, QrResolvedColor, QrLogoLayout, QrLogoBox, QrLogoSize, resolveQrColor,
+  qrLevelValue, qrLogoLayout, qrLogoFit, qrLogoDecodeSize } from '../model/QrStyle';
+import { PixelRect, fillRectOpaque, blendImageRect } from '../model/QrCompose';
 import { TorchSegment } from '../model/TorchSignal';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
@@ -94,25 +101,121 @@ function logGenerateFailure(label: string, error: Error): void {
   hilog.error(DOMAIN, TAG, 'generateBarcode failed (%{public}s): %{public}s', label, JSON.stringify(error));
 }
 
-/**
- * 生成二维码：容错等级与码色由纯逻辑登记表给出（未知 id 回退默认值，不会把 undefined 传给系统）。
- * 码色是 `0xRRGGBB`，与 `generateBarcode.CreateOptions` 的文档一致。
- */
-export async function makeQr(content: string, levelId: string, colorId: string): Promise<image.PixelMap> {
-  const color: QrColorEntry | undefined = qrColorEntry(colorId);
-  const background: number = color === undefined ? 0xFFFFFF : color.background;
-  const foreground: number = color === undefined ? 0x000000 : color.foreground;
-  // 与条码走同一个日志入口：二维码页此前也只有一个笼统的 catch，模拟器上的 804
-  // （能力不支持）与真失败在界面上无法区分。
+/** 二维码画布边长（px）：居中 Logo 的几何、白底板与解码上限都按它换算。 */
+const QR_CANVAS_SIDE: number = 800;
+
+/** 按样式对象生成二维码底图（不含 Logo）：等级与码色都由纯逻辑解析好，这里只映射枚举。 */
+async function generateQrBase(content: string, levelId: string,
+  resolved: QrResolvedColor): Promise<image.PixelMap> {
   try {
     return await generateBarcode.createBarcode(content, {
-      scanType: scanCore.ScanType.QR_CODE, width: 800, height: 800,
+      scanType: scanCore.ScanType.QR_CODE, width: QR_CANVAS_SIDE, height: QR_CANVAS_SIDE,
       level: errorCorrectionLevel(levelId),
-      backgroundColor: background, pixelMapColor: foreground
+      backgroundColor: resolved.background, pixelMapColor: resolved.foreground
     });
   } catch (error) {
     logGenerateFailure('qr', error as Error);
     throw error as Error;
+  }
+}
+
+/**
+ * 居中 Logo 的本机合成：读码图像素 → 盖白底板 → 按 alpha 叠加 Logo → 重建 `PixelMap`。
+ *
+ * 为什么不能交给系统：`generateBarcode.CreateOptions` 没有任何 Logo/水印参数（2026-10-22 核过 SDK），
+ * 只能自己叠。算术（底板矩形、等比内嵌、通道/stride/边界）全在纯逻辑 `model/QrCompose.ets`，
+ * 这里只做图像 I/O；`sourceIsRgba` 由 `ImageInfo.pixelFormat` 决定，避免红蓝互串。
+ */
+async function compositeQrLogo(base: image.PixelMap, resolved: QrResolvedColor,
+  logo: image.PixelMap): Promise<image.PixelMap> {
+  try {
+    const side: number = QR_CANVAS_SIDE;
+    const basePixels: ArrayBuffer = new ArrayBuffer(side * side * 4);
+    await base.readPixels({
+      pixels: basePixels, offset: 0, stride: side * 4,
+      region: { size: { width: side, height: side }, x: 0, y: 0 }
+    });
+    const logoInfo: image.ImageInfo = await logo.getImageInfo();
+    const logoWidth: number = logoInfo.size.width;
+    const logoHeight: number = logoInfo.size.height;
+    // `ImageInfo.stride` 可能大于 `width * 4`（行填充）：读像素与叠加都必须用真实 stride。
+    const logoStride: number = logoInfo.stride > logoWidth * 4 ? logoInfo.stride : logoWidth * 4;
+    const logoPixels: ArrayBuffer = new ArrayBuffer(logoStride * logoHeight);
+    await logo.readPixels({
+      pixels: logoPixels, offset: 0, stride: logoStride,
+      region: { size: { width: logoWidth, height: logoHeight }, x: 0, y: 0 }
+    });
+    const canvas: Uint8Array = new Uint8Array(basePixels);
+    const layout: QrLogoLayout = qrLogoLayout(side);
+    // 底板用码图背景色（恒为纯白）：Logo 四周留一圈白，紧贴的码点不会被搅在一起。
+    fillRectOpaque(canvas, side, side,
+      new PixelRect(layout.plateX, layout.plateY, layout.plateSize, layout.plateSize),
+      resolved.background & 0xFF, (resolved.background >> 8) & 0xFF, (resolved.background >> 16) & 0xFF);
+    const box: QrLogoBox = qrLogoFit(logoWidth, logoHeight, layout.x, layout.y, layout.size);
+    blendImageRect(canvas, side, side, new Uint8Array(logoPixels), logoStride, logoWidth, logoHeight,
+      new PixelRect(box.x, box.y, box.width, box.height),
+      logoInfo.pixelFormat === image.PixelMapFormat.RGBA_8888);
+    return await image.createPixelMap(canvas.buffer, {
+      size: { width: side, height: side },
+      srcPixelFormat: image.PixelMapFormat.BGRA_8888,
+      pixelFormat: image.PixelMapFormat.BGRA_8888
+    });
+  } catch (error) {
+    // 与「系统不给生成」分开记：这一段是本地像素处理失败，日志里能直接看出卡在哪一步。
+    hilog.error(DOMAIN, TAG, 'qr logo compositing failed: %{public}s', JSON.stringify(error));
+    throw error as Error;
+  }
+}
+
+/**
+ * 生成二维码：容错等级与码色由纯逻辑登记表给出（未知 id 回退默认值，不会把 undefined 传给系统）。
+ * 码色是 `0xRRGGBB`，与 `generateBarcode.CreateOptions` 的文档一致。
+ *
+ * 2026-10-22：入参改成 `QrRenderStyle`（等级 + 码色档 + 自定义色文本），并支持**居中 Logo**——
+ * 传了 `logo` 就在本机合成到中心（页面已用 `qrLogoLevelOk()` 保证等级为 Q/H）；不传则与旧行为一致。
+ * 返回的 `PixelMap` 就是显示 / 保存 PNG / 分享三处共用的那一份，Logo 与自定义色都在里面。
+ */
+export async function makeQr(content: string, style: QrRenderStyle,
+  logo?: image.PixelMap): Promise<image.PixelMap> {
+  const resolved: QrResolvedColor = resolveQrColor(style.colorId, style.customHex);
+  const base: image.PixelMap = await generateQrBase(content, style.levelId, resolved);
+  if (logo === undefined) { return base; }
+  try {
+    return await compositeQrLogo(base, resolved, logo);
+  } finally {
+    // 底图只在合成期间需要；合成结果已经是独立 PixelMap。
+    await base.release();
+  }
+}
+
+/**
+ * 从相册选一张图片作为**居中 Logo**，返回解码后的 `PixelMap`（取消返回 `undefined`）。
+ *
+ * 与 `decodeCodeFromImage()` 同款系统选图器（临时授权、不需要相册权限），但**不返回也不留存 URI**：
+ * 调用方只拿到内存里的像素图（AGENTS：系统给的临时 URI 不要长期驻留），由页面在离开时 `release()`。
+ * 解码按 `qrLogoDecodeSize()` 限长边（照片几千像素，全解码要几十 MB），并统一成 BGRA 便于叠加。
+ */
+export async function pickQrLogo(context: common.UIAbilityContext): Promise<image.PixelMap | undefined> {
+  const photoPicker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
+  const selection: photoAccessHelper.PhotoSelectResult = await photoPicker.select({
+    MIMEType: photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE,
+    maxSelectNumber: 1
+  });
+  if (selection.photoUris.length === 0) { return undefined; }
+  let source: image.ImageSource | undefined = undefined;
+  try {
+    source = image.createImageSource(selection.photoUris[0]);
+    const info: image.ImageInfo = await source.getImageInfo();
+    const target: QrLogoSize = qrLogoDecodeSize(info.size.width, info.size.height);
+    return await source.createPixelMap({
+      desiredSize: { width: target.width, height: target.height },
+      desiredPixelFormat: image.PixelMapFormat.BGRA_8888
+    });
+  } catch (error) {
+    hilog.error(DOMAIN, TAG, 'pickQrLogo failed: %{public}s', JSON.stringify(error));
+    throw error as Error;
+  } finally {
+    if (source !== undefined) { await source.release(); }
   }
 }
 
@@ -386,6 +489,30 @@ export async function pickTextFile(context: common.UIAbilityContext): Promise<Te
   return outcome;
 }
 
+/**
+ * 扫描控件的配置（`@kit.VisionKit` 的 `DocumentScannerConfig`）。
+ *
+ * 从 `pages/Index.ets` 搬到这里的原因有两个：① `Index` 已经 1800+ 行，配置构造属于系统能力的适配层；
+ * ② 参数是**登记表 id**（`model/DocumentScan.ets`），映射成 SDK 枚举这一步不该散在页面里。
+ *
+ * `maxShotCount` 由 `DOC_SCAN_MAX_SHOT` 单一来源给出；`defaultFilterId`/`defaultShootingMode` 是本轮
+ * 新增的两个用户可选参数（此前只用默认值，等于白送的能力没用上）。
+ */
+export function buildDocumentScannerConfig(filter: string, shooting: string): DocumentScannerConfig {
+  const config: DocumentScannerConfig = new DocumentScannerConfig();
+  config.maxShotCount = DOC_SCAN_MAX_SHOT;
+  config.supportType = [DocType.DOC];
+  config.saveOptions = [SaveOption.JPG, SaveOption.PDF];
+  const filterId: string = docScanOptionIdAt(DOC_SCAN_FILTERS, docScanFilterIndex(filter));
+  config.defaultFilterId = filterId === 'MONOCHROME' ? FilterId.MONOCHROME :
+    (filterId === 'ORIGINAL' ? FilterId.ORIGINAL : FilterId.STRENGTHEN);
+  const shootingId: string = docScanOptionIdAt(DOC_SCAN_SHOOTING_MODES, docScanShootingIndex(shooting));
+  config.defaultShootingMode = shootingId === 'AUTO' ? ShootingMode.AUTO : ShootingMode.MANUAL;
+  config.isGallerySupported = true;
+  config.isShareable = true;
+  return config;
+}
+
 /** 导出结果：`selected` 是系统保存器回传的目标数（0 = 用户取消），`written` 是真正写成功的页数。 */
 export class DocumentExportResult {
   selected: number = 0;
@@ -397,8 +524,8 @@ export async function saveScannedDocuments(context: common.UIAbilityContext, uri
   const outcome: DocumentExportResult = new DocumentExportResult();
   if (uris.length === 0) { return outcome; }
   let options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
-  options.newFileNames = uris.map((uri: string, index: number): string =>
-    'PocketToolbox-Scan-' + (index + 1).toString() + (pdf ? '.pdf' : '.jpg'));
+  // 文件名只由纯逻辑生成（`PocketToolbox-Scan-YYYYMMDD-HHmm-N`），导出与写相册两处名字保持一致。
+  options.newFileNames = docScanFileNames(uris.length, pdf, Date.now());
   let targets: string[] = await new picker.DocumentViewPicker(context).save(options);
   outcome.selected = targets.length;
   if (targets.length === 0) { return outcome; }
@@ -418,6 +545,84 @@ export async function saveScannedDocuments(context: common.UIAbilityContext, uri
       } finally { fs.closeSync(source); }
     } catch (_) {
       // 单页失败继续处理下一页；返回值让界面如实提示部分成功。
+    }
+  }
+  return outcome;
+}
+
+/** 写相册结果：`cancelled` 是用户在系统对话框里取消，`written/total` 用于如实提示部分成功。 */
+export class GallerySaveResult {
+  cancelled: boolean = false;
+  written: number = 0;
+  total: number = 0;
+}
+
+/**
+ * 把扫描结果（**仅图片**，PDF 相册不接受）写入系统相册。
+ *
+ * 与二维码的 `saveCodeToGallery()` 同一套口径：走 `showAssetsCreationDialog()` 由用户确认，
+ * 不需要申请相册权限。差别是这里可能有**多页**：
+ *
+ * 1. 先把每一页复制到应用缓存目录——相册对话框要的是「本应用可读的文件 URI」，
+ *    而扫描返回的临时 URI 形态在不同版本上不一致，复制一份是最稳的；
+ * 2. 一次对话框提交全部页（分多次弹框会打断用户），系统只接受部分目标时按能对应的部分写；
+ * 3. 单页写失败不影响其它页，界面据 `written/total` 如实提示；缓存文件无论成败都清掉。
+ */
+export async function saveScannedImagesToGallery(context: common.UIAbilityContext, uris: string[],
+  fileNames: string[]): Promise<GallerySaveResult> {
+  const outcome: GallerySaveResult = new GallerySaveResult();
+  outcome.total = uris.length;
+  if (uris.length === 0) { return outcome; }
+  const stagedPaths: string[] = [];
+  const stagedUris: string[] = [];
+  const configs: photoAccessHelper.PhotoCreationConfig[] = [];
+  try {
+    for (let index: number = 0; index < uris.length; index++) {
+      const name: string = index < fileNames.length ? fileNames[index] : 'PocketToolbox-Scan-' +
+        (index + 1).toString() + '.jpg';
+      const stagePath: string = context.cacheDir + '/scan-gallery-' + (index + 1).toString() + '.jpg';
+      const source: fs.File = fs.openSync(uris[index], fs.OpenMode.READ_ONLY);
+      try {
+        const staged: fs.File = fs.openSync(stagePath,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        try { await fs.copyFile(source.fd, staged.fd); } finally { fs.closeSync(staged); }
+      } finally { fs.closeSync(source); }
+      stagedPaths.push(stagePath);
+      stagedUris.push(fileUri.getUriFromPath(stagePath));
+      // 相册项的标题不带扩展名（与 `saveCodeToGallery()` 一致），扩展名走 `fileNameExtension`。
+      let title: string = name;
+      if (title.endsWith('.jpg')) { title = title.substring(0, title.length - 4); }
+      const config: photoAccessHelper.PhotoCreationConfig = {
+        title: title, fileNameExtension: 'jpg', photoType: photoAccessHelper.PhotoType.IMAGE
+      };
+      configs.push(config);
+    }
+    const helper: photoAccessHelper.PhotoAccessHelper = photoAccessHelper.getPhotoAccessHelper(context);
+    const targets: string[] = await helper.showAssetsCreationDialog(stagedUris, configs);
+    if (targets.length === 0) {
+      outcome.cancelled = true;
+      return outcome;
+    }
+    const pairs: number = Math.min(targets.length, stagedPaths.length);
+    for (let index: number = 0; index < pairs; index++) {
+      try {
+        const staged: fs.File = fs.openSync(stagedPaths[index], fs.OpenMode.READ_ONLY);
+        try {
+          const target: fs.File = fs.openSync(targets[index], fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+          try {
+            await fs.copyFile(staged.fd, target.fd);
+            outcome.written += 1;
+          } finally { fs.closeSync(target); }
+        } finally { fs.closeSync(staged); }
+      } catch (_) {
+        // 单页失败继续；`written` 与 `total` 不一致时界面如实提示。
+      }
+    }
+  } catch (_) {
+    // 对话框或暂存失败：`written` 保持已成功的计数（通常为 0），界面按「未写入」提示失败。
+  } finally {
+    for (let index: number = 0; index < stagedPaths.length; index++) {
+      try { fs.unlinkSync(stagedPaths[index]); } catch (_) {}
     }
   }
   return outcome;

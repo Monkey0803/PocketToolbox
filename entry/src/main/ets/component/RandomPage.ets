@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -110,11 +111,11 @@ export struct RandomPage {
   // 新增随机能力只需在 RANDOM_MODES 加登记项 + 在 build() 加一个分支。
   @Builder private modeSelect() {
     OptionSelect({
-      label: this.tr('方式', 'Method'),
+      label: appText('field.method', this.english),
       options: this.modeOptions(),
       selectedIndex: this.randomModeIndex(),
       selectedText: this.randomModeLabel(),
-      a11yText: this.tr('随机方式', 'Random tool'),
+      a11yText: appText('random.random-tool', this.english),
       onSelected: (index: number): void => {
         const mode: RandomOption | undefined = RANDOM_MODES[index];
         if (mode !== undefined) { this.randomMode = mode.id; }
@@ -248,7 +249,7 @@ export struct RandomPage {
   }
 
   private numberButtonText(): string {
-    if (this.numberDrawCount <= 1) { return this.tr('生成随机数', 'Draw a number'); }
+    if (this.numberDrawCount <= 1) { return appText('random.draw-a-number', this.english); }
     return this.tr('生成 ' + this.numberDrawCount + ' 个不重复整数',
       'Draw ' + this.numberDrawCount + ' unique numbers');
   }
@@ -279,33 +280,28 @@ export struct RandomPage {
     const maxText: string = this.randomMax.trim();
     // 区分「还没填」与「填错了」：只收十进制整数（`Number('0x10')` 会静默变成 16，与文案承诺不符）
     if (minText.length === 0 || maxText.length === 0) {
-      this.onStatus(this.tr('请先填写最小值和最大值',
-        'Enter both the minimum and the maximum'));
+      this.onStatus(appText('random.enter-both-the-minimum', this.english));
       return;
     }
     const minimum: number | undefined = parseIntegerInput(minText);
     const maximum: number | undefined = parseIntegerInput(maxText);
     if (minimum === undefined || maximum === undefined) {
-      this.onStatus(this.tr('请只输入十进制整数（如 -5、10），不支持 0x10 / 1e3 / 小数',
-        'Enter plain whole numbers only (e.g. -5, 10); 0x10 / 1e3 / decimals are not accepted'));
+      this.onStatus(appText('random.enter-plain-whole-numbers', this.english));
       return;
     }
     const size: number | undefined = rangeSize(minimum, maximum);
     if (size === undefined) {
-      this.onStatus(this.tr('请输入 -1000000 至 1000000 内的整数区间',
-        'Enter a whole-number range within -1000000 to 1000000'));
+      this.onStatus(appText('random.enter-a-whole-number', this.english));
       return;
     }
     if (this.numberDrawCount > size) {
-      this.onStatus(this.tr('区间内可用数字不足，请减少抽取个数或扩大区间',
-        'Not enough numbers in the range for that amount'));
+      this.onStatus(appText('random.not-enough-numbers-in', this.english));
       return;
     }
     const values: number[] | undefined = randomIntegers(minimum, maximum,
       this.numberDrawCount, (bound: number) => this.next(bound));
     if (values === undefined) {
-      this.onStatus(this.tr('区间内可用数字不足，请减少抽取个数或扩大区间',
-        'Not enough numbers in the range for that amount'));
+      this.onStatus(appText('random.not-enough-numbers-in', this.english));
       return;
     }
     this.onStatus('');
@@ -322,8 +318,7 @@ export struct RandomPage {
     if (this.diceNotation.trim().length === 0) { return; }
     const spec: DiceSpec | undefined = parseDiceNotation(this.diceNotation);
     if (spec === undefined) {
-      this.onStatus(this.tr('记法无法识别，请写成 2d6+3 这样（面数支持 4/6/8/10/12/20，颗数 1–5）',
-        'Unrecognised notation; try 2d6+3 (sides: 4/6/8/10/12/20, dice: 1–5)'));
+      this.onStatus(appText('random.unrecognised-notation-try-2d6', this.english));
       return;
     }
     this.diceCount = spec.count;
@@ -337,12 +332,12 @@ export struct RandomPage {
   private roll(): void {
     const modifier: number | undefined = parseDiceModifier(this.diceModifier);
     if (modifier === undefined) {
-      this.onStatus(this.tr('加值需为 -100 至 100 的整数', 'Modifier must be a whole number from -100 to 100'));
+      this.onStatus(appText('random.modifier-must-be-a', this.english));
       return;
     }
     const values: number[] | undefined = rollDice(this.diceCount, this.diceSides, (bound: number) => this.next(bound));
     if (values === undefined) {
-      this.onStatus(this.tr('骰子参数无效', 'Invalid dice settings'));
+      this.onStatus(appText('random.invalid-dice-settings', this.english));
       return;
     }
     this.onStatus('');
@@ -354,14 +349,14 @@ export struct RandomPage {
   private flip(): void {
     const heads: boolean[] | undefined = flipCoins(this.coinCount, (bound: number) => this.next(bound));
     if (heads === undefined) {
-      this.onStatus(this.tr('硬币枚数无效', 'Invalid number of coins'));
+      this.onStatus(appText('random.invalid-number-of-coins', this.english));
       return;
     }
     const front: number = heads.filter((value: boolean) => value).length;
     const back: number = heads.length - front;
     this.onStatus('');
     if (heads.length <= 1) {
-      this.coinResult = front === 1 ? this.tr('正面', 'Heads') : this.tr('反面', 'Tails');
+      this.coinResult = front === 1 ? appText('random.heads', this.english) : appText('random.tails', this.english);
       return;
     }
     this.coinResult = this.tr('正面 ' + front + ' · 反面 ' + back, 'heads ' + front + ' · tails ' + back);
@@ -409,12 +404,12 @@ export struct RandomPage {
       this.onStatus(this.poolEnabled
         ? this.tr('只剩 ' + remaining + ' 个没抽过，不够抽 ' + this.listDrawCount + ' 名',
           'Only ' + remaining + ' left; cannot draw ' + this.listDrawCount)
-        : this.tr('候选项数量需不少于抽取人数', 'Need at least as many choices as the amount to draw'));
+        : appText('random.need-at-least-as', this.english));
       return;
     }
     this.onStatus('');
     if (this.poolEnabled) { this.usedPool = mergeDrawn(this.usedPool, picked); }
-    this.listResultLabel = this.listDrawCount <= 1 ? this.tr('抽取结果', 'Chosen item')
+    this.listResultLabel = this.listDrawCount <= 1 ? appText('random.chosen-item', this.english)
       : this.tr('抽取结果（' + this.listDrawCount + ' 名）', 'Chosen ' + this.listDrawCount);
     this.listResult = picked.join(this.tr('、', ', '));
     if (this.poolEnabled) {
@@ -443,13 +438,13 @@ export struct RandomPage {
   private resetPool(): void {
     this.usedPool = [];
     this.poolNote = poolProgressText(this.listCandidates().length, 0, this.english);
-    this.onStatus(this.tr('已重置，可以重新抽', 'Reset — you can draw again'));
+    this.onStatus(appText('random.reset-you-can-draw', this.english));
   }
 
   private shuffleList(): void {
     if (!this.listReady('请先输入候选项', 'Enter the choices first')) { return; }
     this.onStatus('');
-    this.listResultLabel = this.tr('随机排序', 'Shuffled order');
+    this.listResultLabel = appText('random.shuffled-order', this.english);
     this.listResult = shuffleCandidates(this.randomItems, (bound: number) => this.next(bound)).join('\n');
   }
 
@@ -459,8 +454,7 @@ export struct RandomPage {
       const groups: string[][] | undefined =
         groupCandidatesBySize(this.randomItems, this.groupSize, (bound: number) => this.next(bound));
       if (groups === undefined) {
-        this.onStatus(this.tr('每组人数需在 2 至候选人数之间',
-          'Group size must be between 2 and the number of choices'));
+        this.onStatus(appText('random.group-size-must-be', this.english));
         return;
       }
       this.onStatus('');
@@ -471,8 +465,7 @@ export struct RandomPage {
     const groups: string[][] | undefined =
       groupCandidates(this.randomItems, this.groupCount, (bound: number) => this.next(bound));
     if (groups === undefined) {
-      this.onStatus(this.tr('候选项数量需不少于组数（最多 10 组）',
-        'You need at least as many choices as groups (maximum 10 groups)'));
+      this.onStatus(appText('random.you-need-at-least', this.english));
       return;
     }
     this.onStatus('');
@@ -487,7 +480,7 @@ export struct RandomPage {
   }
 
   private listResultTitle(): string {
-    return this.listResultLabel.length > 0 ? this.listResultLabel : this.tr('结果', 'Result');
+    return this.listResultLabel.length > 0 ? this.listResultLabel : appText('field.result', this.english);
   }
 
   // 数值输入行与单位换算页一致：带 layoutWeight 的普通 Column 里放 MaterialSurface。
@@ -502,7 +495,7 @@ export struct RandomPage {
           corner: 16,
           interactive: true
         }) {
-          TextInput({ text: this.randomMin, placeholder: this.tr('最小值', 'Minimum') })
+          TextInput({ text: this.randomMin, placeholder: appText('random.minimum', this.english) })
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
@@ -520,7 +513,7 @@ export struct RandomPage {
           corner: 16,
           interactive: true
         }) {
-          TextInput({ text: this.randomMax, placeholder: this.tr('最大值', 'Maximum') })
+          TextInput({ text: this.randomMax, placeholder: appText('random.maximum', this.english) })
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
@@ -531,11 +524,11 @@ export struct RandomPage {
       }.layoutWeight(1)
     }.width('100%')
     OptionSelect({
-      label: this.tr('抽取个数', 'Amount'),
+      label: appText('random.amount', this.english),
       options: this.drawCountOptions(),
       selectedIndex: DRAW_COUNTS.indexOf(this.numberDrawCount),
       selectedText: this.drawCountLabel(this.numberDrawCount),
-      a11yText: this.tr('抽取个数', 'Amount to draw'),
+      a11yText: appText('random.amount-to-draw', this.english),
       onSelected: (index: number): void => {
         this.numberDrawCount = DRAW_COUNTS[index];
         this.randomNumberResult = '';
@@ -558,7 +551,7 @@ export struct RandomPage {
       }
       IconActionButton({
         icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-        a11yText: this.tr('复制随机数', 'Copy random number'),
+        a11yText: appText('random.copy-random-number', this.english),
         onTap: () => this.copyResult(this.randomNumberResult,
           this.numberContext(false), this.numberContext(true))
       })
@@ -568,7 +561,7 @@ export struct RandomPage {
   @Builder private dicePanel() {
     // 骰子记法直输（2026-10-20 审计 §3.24）：选面数/颗数之外，也允许直接写 `2d6+3`。
     Row({ space: 12 }) {
-      Text(this.tr('记法', 'Notation')).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
+      Text(appText('random.notation', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
       Column() {
         MaterialSurface({
           supported: this.immersiveSupported,
@@ -586,28 +579,28 @@ export struct RandomPage {
             .onSubmit(() => this.applyDiceNotation())
         }
       }.layoutWeight(1)
-      Button(this.tr('套用', 'Apply')).height(44)
+      Button(appText('random.apply', this.english)).height(44)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.primaryDeep)
         .onClick(() => this.applyDiceNotation())
     }.width('100%')
     OptionSelect({
-      label: this.tr('骰子面数', 'Sides'),
+      label: appText('random.sides', this.english),
       options: this.diceSideOptions(),
       selectedIndex: DICE_SIDES.indexOf(this.diceSides),
       selectedText: 'D' + this.diceSides,
-      a11yText: this.tr('骰子面数', 'Dice sides'),
+      a11yText: appText('random.dice-sides', this.english),
       onSelected: (index: number): void => { this.diceSides = DICE_SIDES[index]; this.diceResult = ''; }
     })
     OptionSelect({
-      label: this.tr('骰子颗数', 'Dice'),
+      label: appText('random.dice', this.english),
       options: this.diceOptions(),
       selectedIndex: DICE_COUNTS.indexOf(this.diceCount),
       selectedText: this.tr(this.diceCount + ' 颗', this.diceCount + (this.diceCount === 1 ? ' die' : ' dice')),
-      a11yText: this.tr('骰子颗数', 'Number of dice'),
+      a11yText: appText('random.number-of-dice', this.english),
       onSelected: (index: number): void => { this.diceCount = DICE_COUNTS[index]; this.diceResult = ''; }
     })
     Row({ space: 12 }) {
-      Text(this.tr('加值', 'Modifier')).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
+      Text(appText('random.modifier', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary).width(72)
       Column() {
         MaterialSurface({
           supported: this.immersiveSupported,
@@ -626,18 +619,18 @@ export struct RandomPage {
         }
       }.layoutWeight(1)
     }.width('100%')
-    Button(this.tr('掷骰子', 'Roll dice')).width('100%').height(48)
+    Button(appText('random.roll-dice', this.english)).width('100%').height(48)
       .backgroundColor(Color.Transparent).fontColor(ToolPalette.warning).fontWeight(FontWeight.Medium)
       .onClick(() => this.roll())
     OptionSelect({
-      label: this.tr('硬币枚数', 'Coins'),
+      label: appText('random.coins', this.english),
       options: this.coinCountOptions(),
       selectedIndex: COIN_COUNTS.indexOf(this.coinCount),
       selectedText: this.coinCountLabel(this.coinCount),
-      a11yText: this.tr('硬币枚数', 'Number of coins'),
+      a11yText: appText('random.number-of-coins', this.english),
       onSelected: (index: number): void => { this.coinCount = COIN_COUNTS[index]; this.coinResult = ''; }
     })
-    Button(this.tr('抛硬币', 'Flip a coin')).width('100%').height(48)
+    Button(appText('random.flip-a-coin', this.english)).width('100%').height(48)
       .backgroundColor(Color.Transparent).fontColor(ToolPalette.accentPurple).fontWeight(FontWeight.Medium)
       .onClick(() => this.flip())
     if (this.diceResult || this.coinResult) {
@@ -652,7 +645,7 @@ export struct RandomPage {
                 .copyOption(CopyOptions.LocalDevice)
               IconActionButton({
                 icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-                a11yText: this.tr('复制掷骰结果', 'Copy dice result'), boxSize: 44, iconSize: 22,
+                a11yText: appText('random.copy-dice-result', this.english), boxSize: 44, iconSize: 22,
                 onTap: () => this.copyResult(this.diceResult, this.diceContext(false), this.diceContext(true))
               })
             }.width('100%')
@@ -663,7 +656,7 @@ export struct RandomPage {
                 .copyOption(CopyOptions.LocalDevice)
               IconActionButton({
                 icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-                a11yText: this.tr('复制抛硬币结果', 'Copy coin result'), boxSize: 44, iconSize: 22,
+                a11yText: appText('random.copy-coin-result', this.english), boxSize: 44, iconSize: 22,
                 onTap: () => this.copyResult(this.coinResult, this.coinContext(false), this.coinContext(true))
               })
             }.width('100%')
@@ -674,8 +667,7 @@ export struct RandomPage {
   }
 
   @Builder private listPanel() {
-    Text(this.tr('每行一个候选项，也可用逗号或分号分隔；重复项只算一次',
-      'One choice per line, or separate with commas or semicolons; duplicates count once'))
+    Text(appText('random.one-choice-per-line', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     MaterialSurface({
       supported: this.immersiveSupported,
@@ -685,7 +677,7 @@ export struct RandomPage {
       interactive: true
     }) {
       Row({ space: 4 }) {
-        TextArea({ text: this.randomItems, placeholder: this.tr('输入候选项', 'Enter choices') })
+        TextArea({ text: this.randomItems, placeholder: appText('random.enter-choices', this.english) })
           .backgroundColor(Color.Transparent)
           .layoutWeight(1)
           .onChange((value: string) => {
@@ -698,17 +690,17 @@ export struct RandomPage {
         IconActionButton({
           icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
           usable: this.randomItems.length > 0,
-          a11yText: this.tr('清空候选名单', 'Clear the choices'),
+          a11yText: appText('random.clear-the-choices', this.english),
           onTap: () => this.clearCandidates()
         })
       }.width('100%').alignItems(VerticalAlign.Top)
     }
     OptionSelect({
-      label: this.tr('抽取方式', 'Draw by'),
+      label: appText('random.draw-by', this.english),
       options: this.drawModeOptions(),
       selectedIndex: this.drawModeIndex(),
       selectedText: this.drawModeLabel(),
-      a11yText: this.tr('抽取方式', 'Draw method'),
+      a11yText: appText('random.draw-method', this.english),
       onSelected: (index: number): void => {
         const mode: RandomOption | undefined = LIST_DRAW_MODES[index];
         if (mode !== undefined) { this.drawMode = mode.id; this.listResult = ''; this.listResultLabel = ''; }
@@ -716,7 +708,7 @@ export struct RandomPage {
     })
     // 多轮不重复（§3.24）：一次抽奖里本来就不重复，这个开关管的是**跨轮**——抽到的名字下轮不再出现。
     Row({ space: 12 }) {
-      Text(this.tr('多轮不重复', 'No repeats across rounds'))
+      Text(appText('random.no-repeats-across-rounds', this.english))
         .fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: this.poolEnabled })
         .onChange((value: boolean) => {
@@ -726,8 +718,7 @@ export struct RandomPage {
         })
     }.width('100%')
     if (this.poolEnabled) {
-      Text(this.tr('抽到的人下一轮不会重复出现；改名单不会重置，点「重置」重新开始一轮',
-        'Names already drawn will not come up again; editing the list does not reset it — use Reset for a new round'))
+      Text(appText('random.names-already-drawn-will', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       Row({ space: 12 }) {
         if (this.poolNote.length > 0) {
@@ -735,7 +726,7 @@ export struct RandomPage {
         }
         IconActionButton({
           icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('重置抽取记录', 'Reset the draw pool'), boxSize: 44, iconSize: 22,
+          a11yText: appText('random.reset-the-draw-pool', this.english), boxSize: 44, iconSize: 22,
           usable: this.usedPool.length > 0, onTap: () => this.resetPool()
         })
       }.width('100%')
@@ -746,29 +737,29 @@ export struct RandomPage {
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }
     OptionSelect({
-      label: this.tr('抽取人数', 'Winners'),
+      label: appText('random.winners', this.english),
       options: this.drawCountOptions(),
       selectedIndex: DRAW_COUNTS.indexOf(this.listDrawCount),
       selectedText: this.drawCountLabel(this.listDrawCount),
-      a11yText: this.tr('抽取人数', 'Amount to draw'),
+      a11yText: appText('random.amount-to-draw-2', this.english),
       onSelected: (index: number): void => {
         this.listDrawCount = DRAW_COUNTS[index]; this.listResult = ''; this.listResultLabel = '';
       }
     })
     Row({ space: 8 }) {
-      Button(this.tr('随机抽取', 'Pick one')).layoutWeight(1).height(48)
+      Button(appText('random.pick-one', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.primary).fontWeight(FontWeight.Medium)
         .onClick(() => this.pickList())
-      Button(this.tr('随机排序', 'Shuffle')).layoutWeight(1).height(48)
+      Button(appText('random.shuffle', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.accentPurple).fontWeight(FontWeight.Medium)
         .onClick(() => this.shuffleList())
     }.width('100%')
     OptionSelect({
-      label: this.tr('分组方式', 'Group by'),
+      label: appText('random.group-by', this.english),
       options: this.groupModeOptions(),
       selectedIndex: this.groupModeIndex(),
       selectedText: this.groupModeLabel(),
-      a11yText: this.tr('分组方式', 'Group method'),
+      a11yText: appText('random.group-method', this.english),
       onSelected: (index: number): void => {
         const mode: RandomOption | undefined = GROUP_MODES[index];
         if (mode !== undefined) { this.groupMode = mode.id; this.listResult = ''; this.listResultLabel = ''; }
@@ -776,34 +767,33 @@ export struct RandomPage {
     })
     if (this.groupMode === 'size') {
       OptionSelect({
-        label: this.tr('每组人数', 'Group size'),
+        label: appText('random.group-size', this.english),
         options: this.groupSizeOptions(),
         // 选中下标必须在**收窄后的列表**里取，否则收窄后显示与列表对不上（§3.24⑥）。
         selectedIndex: this.groupSizeChoicesList().indexOf(this.groupSize),
         selectedText: this.tr(this.groupSize + ' 人', this.groupSize + ' people'),
-        a11yText: this.tr('每组人数', 'Number of people in each group'),
+        a11yText: appText('random.number-of-people-in', this.english),
         onSelected: (index: number): void => {
           const list: number[] = this.groupSizeChoicesList();
           if (index >= 0 && index < list.length) { this.groupSize = list[index]; }
           this.listResult = ''; this.listResultLabel = '';
         }
       })
-      Text(this.tr('按每组人数分组时，最后一组可能少于设定人数',
-        'With a fixed group size the last group may have fewer people'))
+      Text(appText('random.with-a-fixed-group', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     } else {
       OptionSelect({
-        label: this.tr('分组组数', 'Groups'),
+        label: appText('random.groups', this.english),
         options: this.groupOptions(),
         selectedIndex: GROUP_COUNTS.indexOf(this.groupCount),
         selectedText: this.tr(this.groupCount + ' 组', this.groupCount + ' groups'),
-        a11yText: this.tr('分组组数', 'Number of groups'),
+        a11yText: appText('random.number-of-groups', this.english),
         onSelected: (index: number): void => {
           this.groupCount = GROUP_COUNTS[index]; this.listResult = ''; this.listResultLabel = '';
         }
       })
     }
-    Button(this.tr('分组', 'Group')).width('100%').height(48)
+    Button(appText('random.group', this.english)).width('100%').height(48)
       .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
       .onClick(() => this.groupList())
     if (this.listResult) {
@@ -817,7 +807,7 @@ export struct RandomPage {
       }
       IconActionButton({
         icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-        a11yText: this.tr('复制结果', 'Copy result'),
+        a11yText: appText('action.copyResult', this.english),
         onTap: () => this.copyResult(this.listResult, this.listResultLabel, this.listResultLabel)
       })
     }
@@ -831,14 +821,14 @@ export struct RandomPage {
   @Builder private seedSection() {
     Row({ space: 8 }) {
       Column({ space: 4 }) {
-        Text(this.tr('固定种子（可复现）', 'Fixed seed (reproducible)')).fontSize(15).width('100%')
+        Text(appText('random.fixed-seed-reproducible', this.english)).fontSize(15).width('100%')
         Text(this.tr('同一种子重复点同一动作会得到同一结果；不是密码学安全，别用它生成密码。',
           'The same seed repeats the same result for the same action; not cryptographically secure, ' +
           'so do not use it for passwords.'))
           .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
       }.layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: this.useSeed })
-        .accessibilityText(this.tr('固定种子', 'Fixed seed'))
+        .accessibilityText(appText('random.fixed-seed', this.english))
         .onChange((isOn: boolean) => { this.useSeed = isOn; })
     }.width('100%')
     if (this.useSeed) {
@@ -846,7 +836,7 @@ export struct RandomPage {
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.seedText, placeholder: this.tr('种子（任意文字，空则用默认）', 'Seed (any text)') })
+        TextInput({ text: this.seedText, placeholder: appText('random.seed-any-text', this.english) })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent).height(48)

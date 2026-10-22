@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { appText } from '../model/AppStrings';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { ToolPalette } from '../model/ToolPalette';
@@ -22,7 +23,8 @@ export struct DiffPage {
   // 单个 `FlexAlign`，各行动作各用 `handAlign(原位)` 取自己的靠向（2026-10-21）。
   @Param handSide: number = 0;
   @Event onCopy: (value: string) => void = () => {};
-  @Event onStatus: (message: string) => void = () => {};
+  // 本页**没有**一次性提示：输入校验与超限都是「用户还停在这份输入上」的持续性错误，一律行内显示
+  // （见 `runCompare()` 与结果区上方的错误行），因此不再声明 `onStatus`（口径见 AGENTS「错误态口径」）。
 
   @Local leftText: string = '';
   @Local rightText: string = '';
@@ -34,7 +36,7 @@ export struct DiffPage {
   @Local addedCount: number = 0;
   @Local removedCount: number = 0;
   @Local unchangedCount: number = 0;
-  // 错误码字符串（''/empty/toolarge）；一次性提示走 onStatus，不在页面内联横幅。
+  // 错误码字符串（''/empty/toolarge）：**行内**渲染在结果区上方，改输入后再对比即更新（不弹 toast）。
   @Local errorCode: string = '';
   // 已经对比过（哪怕结果为空）：决定结果区显示占位文案还是「两侧一致」。
   @Local compared: boolean = false;
@@ -61,9 +63,8 @@ export struct DiffPage {
     this.unchangedCount = outcome.unchanged;
     this.errorCode = outcome.error;
     this.compared = true;
-    if (outcome.error === 'toolarge' || outcome.error === 'empty') {
-      this.onStatus(diffErrorText(outcome.error, this.english));
-    }
+    // 错误**只走行内**（`errorCode` 渲染在结果区上方）：这是「用户还停在这份输入上」的持续性错误，
+    // 再弹一次 toast 属于重复提示（口径见 AGENTS「错误态口径」）。
   }
 
   private copyResult(): void {
@@ -123,8 +124,8 @@ export struct DiffPage {
         IconActionButton({
           icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
           usable: this.fieldText(id).length > 0,
-          a11yText: id === 'left' ? this.tr('清空原文本', 'Clear the original text') :
-            this.tr('清空新文本', 'Clear the new text'),
+          a11yText: id === 'left' ? appText('diff.clear-the-original-text', this.english) :
+            appText('diff.clear-the-new-text', this.english),
           onTap: () => this.clearSide(id)
         })
       }.width('100%').alignItems(VerticalAlign.Top)
@@ -195,8 +196,8 @@ export struct DiffPage {
     const line: DiffLine = this.diffLines[index];
     const expanded: boolean = this.expandedRows.has(index);
     const long: boolean = line.text.length > DIFF_LONG_LINE_LENGTH;
-    const state: string = !long ? '' : (expanded ? this.tr('，已展开，点击收起', ', expanded, tap to collapse')
-      : this.tr('，点击展开全文', ', tap to expand'));
+    const state: string = !long ? '' : (expanded ? appText('diff.expanded-tap-to-collapse', this.english)
+      : appText('diff.tap-to-expand', this.english));
     return this.tr('第 ' + this.diffLineLabel(index) + ' 行', 'Line ' + this.diffLineLabel(index)) +
       state + '：' + line.text;
   }
@@ -209,7 +210,7 @@ export struct DiffPage {
 
       // 文字动作按钮：整行居中、品牌底色 + 白字（不带底色那条只适用于纯图标按钮）。
       Row() {
-        Button(this.tr('对比', 'Compare')).height(48).padding({ left: 32, right: 32 })
+        Button(appText('diff.compare', this.english)).height(48).padding({ left: 32, right: 32 })
           .backgroundColor(ToolPalette.primary).fontColor(Color.White).fontWeight(FontWeight.Medium)
           .fontSize(16).borderRadius(24)
           .onClick(() => this.runCompare())
@@ -245,8 +246,8 @@ export struct DiffPage {
         if (this.errorCode.length > 0) {
           Text(diffErrorText(this.errorCode, this.english)).fontSize(14).fontColor(ToolPalette.danger).width('100%')
         } else {
-          Text(this.compared ? this.tr('两侧内容一致', 'Both sides are identical') :
-            this.tr('点击「对比」查看差异', 'Tap Compare to see differences'))
+          Text(this.compared ? appText('diff.both-sides-are-identical', this.english) :
+            appText('diff.tap-compare-to-see', this.english))
             .fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
         }
       }
@@ -254,13 +255,13 @@ export struct DiffPage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制差异', 'Copy differences'),
+          a11yText: appText('diff.copy-differences', this.english),
           usable: this.diffLines.length > 0 && this.errorCode.length === 0,
           onTap: () => this.copyResult()
         })
         IconActionButton({
           icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-          a11yText: this.tr('清空文本与结果', 'Clear text and result'),
+          a11yText: appText('diff.clear-text-and-result', this.english),
           usable: this.leftText.length > 0 || this.rightText.length > 0 || this.diffLines.length > 0,
           onTap: () => this.clearAll()
         })

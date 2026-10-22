@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -93,11 +94,11 @@ export struct NetworkProbePage {
 
   @Builder private modeSelect() {
     OptionSelect({
-      label: this.tr('方式', 'Method'),
+      label: appText('field.method', this.english),
       options: this.modeOptions(),
       selectedIndex: networkModeIndex(this.networkMode),
       selectedText: this.modeLabel(),
-      a11yText: this.tr('联网方式', 'Network tool'),
+      a11yText: appText('netprobe.network-tool', this.english),
       onSelected: (index: number): void => {
         // 只切换显示：输入与结果都留在各自面板里，切回来照旧。
         const item: NetworkMode | undefined = NETWORK_MODES[index];
@@ -136,8 +137,8 @@ export struct NetworkProbePage {
    * 显示 0 会让人以为「探测过了、只是很快」（2026-10-20 审计 §3.22）。只有真的跑过（>0）才显示。
    */
   private elapsedText(millis: number): string {
-    if (!Number.isFinite(millis) || millis <= 0) { return this.tr('未执行', 'Not run'); }
-    return millis.toString() + this.tr(' 毫秒', ' ms');
+    if (!Number.isFinite(millis) || millis <= 0) { return appText('netprobe.not-run', this.english); }
+    return millis.toString() + appText('netprobe.ms', this.english);
   }
 
   /** DNS / 网址分解结果行：只收下标，文本在体内经 `lineText(kind, index)` 现取。 */
@@ -184,7 +185,7 @@ export struct NetworkProbePage {
   @Computed
   get portResultLabel(): string {
     if (!this.portOutcome.ok) { return netErrorText(this.portOutcome.error, this.english); }
-    return this.tr('已连通', 'Reachable');
+    return appText('netprobe.reachable', this.english);
   }
 
   /** 当前方式是否已有可展示的结果（错误码也算，否则用户看不到失败原因）。 */
@@ -342,12 +343,12 @@ export struct NetworkProbePage {
   private copyDns(): void {
     const lines: string[] = this.dnsLines;
     if (lines.length === 0) { return; }
-    this.onCopy(this.dnsHost.trim() + this.tr(' 的解析结果：', ' resolves to: ') + lines.join('；'));
+    this.onCopy(this.dnsHost.trim() + appText('netprobe.resolves-to', this.english) + lines.join('；'));
   }
 
   private copyPort(): void {
     if (!this.portOutcome.ok) { return; }
-    this.onCopy(this.portHost.trim() + ':' + this.portOutcome.port.toString() + this.tr(' 已连通', ' is reachable'));
+    this.onCopy(this.portHost.trim() + ':' + this.portOutcome.port.toString() + appText('netprobe.is-reachable', this.english));
   }
 
   private copyHeaders(): void {
@@ -390,7 +391,7 @@ export struct NetworkProbePage {
         })
     }
     Row({ space: 8 }) {
-      Button(this.tr('解析', 'Resolve')).layoutWeight(1).height(48)
+      Button(appText('netprobe.resolve', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.primary).fontWeight(FontWeight.Medium)
         .enabled(!this.probing)
         .onClick(() => { this.runDns(); })
@@ -415,14 +416,13 @@ export struct NetworkProbePage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制解析结果', 'Copy lookup result'),
+          a11yText: appText('netprobe.copy-lookup-result', this.english),
           usable: this.dnsOutcome.ok && this.dnsLines.length > 0,
           onTap: () => this.copyDns()
         })
       }.width('100%').justifyContent(this.actionAlign)
     }
-    Text(this.tr('域名解析只做查询，不会连接目标主机；需要联网。',
-      'A lookup only queries DNS; it does not connect to the host. Requires network access.'))
+    Text(appText('netprobe.a-lookup-only-queries', this.english))
       .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
   }
 
@@ -471,7 +471,7 @@ export struct NetworkProbePage {
       }.layoutWeight(1)
     }.width('100%')
     Row({ space: 8 }) {
-      Button(this.tr('检测', 'Check')).layoutWeight(1).height(48)
+      Button(appText('netprobe.check', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.success).fontWeight(FontWeight.Medium)
         .enabled(!this.probing)
         .onClick(() => { this.runPort(); })
@@ -490,14 +490,13 @@ export struct NetworkProbePage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制端口检测结果', 'Copy port check result'),
+          a11yText: appText('netprobe.copy-port-check-result', this.english),
           usable: this.portOutcome.ok,
           onTap: () => this.copyPort()
         })
       }.width('100%').justifyContent(this.actionAlign)
     }
-    Text(this.tr('这里是 TCP 连接耗时，不是 ICMP ping：系统 SDK 没有 ping 模块。',
-      'This is the TCP handshake time, not an ICMP ping: the system SDK has no ping module.'))
+    Text(appText('netprobe.this-is-the-tcp', this.english))
       .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
   }
 
@@ -527,17 +526,17 @@ export struct NetworkProbePage {
         })
     }
     Row({ space: 8 }) {
-      Button(this.tr('只看响应头', 'Headers only')).layoutWeight(1).height(48)
+      Button(appText('netprobe.headers-only', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.primary).fontWeight(FontWeight.Medium)
         .enabled(!this.probing)
         .onClick(() => { this.runHttp(0); })
-      Button(this.tr('跟随重定向', 'Follow redirects')).layoutWeight(1).height(48)
+      Button(appText('netprobe.follow-redirects', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.accentPurple).fontWeight(FontWeight.Medium)
         .enabled(!this.probing)
         .onClick(() => { this.runHttp(5); })
     }.width('100%')
     if (this.probing) {
-      Text(this.tr('正在请求…', 'Requesting…')).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+      Text(appText('netprobe.requesting', this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }
     if (this.hasResult) {
       MaterialSurface({
@@ -552,7 +551,7 @@ export struct NetworkProbePage {
           this.valueLine('状态码', 'Status', 'status', 'http')
           this.valueLine('耗时', 'Time', 'elapsed', 'http')
           if (this.headerRowCount > 0) {
-            Text(this.tr('响应头', 'Response headers')).fontSize(14)
+            Text(appText('netprobe.response-headers', this.english)).fontSize(14)
               .fontColor(ToolPalette.textSecondary).width('100%')
             ForEach(this.httpHeaderLines, (line: string, index: number) => {
               this.headerRow(index)
@@ -564,7 +563,7 @@ export struct NetworkProbePage {
             }
           }
           if (this.bodyPreview.length > 0) {
-            Text(this.tr('响应体预览', 'Response body preview')).fontSize(14)
+            Text(appText('netprobe.response-body-preview', this.english)).fontSize(14)
               .fontColor(ToolPalette.textSecondary).width('100%')
             Text(this.bodyPreview).fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
               .copyOption(CopyOptions.LocalDevice)
@@ -579,13 +578,13 @@ export struct NetworkProbePage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制响应头', 'Copy response headers'),
+          a11yText: appText('netprobe.copy-response-headers', this.english),
           usable: this.headerRowCount > 0,
           onTap: () => this.copyHeaders()
         })
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制响应体预览', 'Copy body preview'),
+          a11yText: appText('netprobe.copy-body-preview', this.english),
           usable: this.bodyPreview.length > 0,
           onTap: () => this.copyBody()
         })
@@ -600,7 +599,7 @@ export struct NetworkProbePage {
 
   /** 网址分解：纯离线，界面明确注明本方式不联网。 */
   @Builder private urlPanel() {
-    Text(this.tr('本方式不联网，只做本地解析。', 'This mode is offline; it only parses the text locally.'))
+    Text(appText('netprobe.this-mode-is-offline', this.english))
       .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
     MaterialSurface({
       supported: this.immersiveSupported,
@@ -622,7 +621,7 @@ export struct NetworkProbePage {
         })
     }
     Row({ space: 8 }) {
-      Button(this.tr('分解', 'Parse')).layoutWeight(1).height(48)
+      Button(appText('netprobe.parse', this.english)).layoutWeight(1).height(48)
         .backgroundColor(Color.Transparent).fontColor(ToolPalette.primary).fontWeight(FontWeight.Medium)
         .enabled(!this.probing)
         .onClick(() => { this.runUrl(); })
@@ -647,7 +646,7 @@ export struct NetworkProbePage {
         Row({ space: 8 }) {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-            a11yText: this.tr('复制分解结果', 'Copy URL parts'),
+            a11yText: appText('netprobe.copy-url-parts', this.english),
             onTap: () => this.copyUrlLines()
           })
         }.width('100%').justifyContent(this.actionAlign)

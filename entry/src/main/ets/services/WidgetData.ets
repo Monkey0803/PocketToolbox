@@ -23,11 +23,19 @@ const DOMAIN: number = 0x0000;
 /**
  * 当前系统语言。
  *
- * 这里用 `i18n.System.getSystemLanguage()` 而不是 `context.config.language`：基类 `Context` 上没有
- * `config`（只有 `ExtensionContext`/`UIAbilityContext` 有），而本文件同时被应用进程（UIAbility）与
- * 卡片进程（FormExtensionAbility）调用，取系统语言是两边都成立的写法；取不到交给纯逻辑回退中文。
+ * **优先读资源管理器的配置**（`resourceManager.getConfigurationSync().locale`，形如 `zh-Hans-CN`/`en-US`）：
+ * 它正是系统解析卡片标题等资源时用的那份语言，因此「标题用什么语言、工具名就用什么语言」不会错位；
+ * 基类 `Context` 上确实没有 `config`（只有 `ExtensionContext`/`UIAbilityContext` 有），而本文件同时被
+ * 应用进程（UIAbility）与卡片进程（FormExtensionAbility）调用，资源管理器是两边都成立的入口。
+ * 取不到再退回 `i18n.System.getSystemLanguage()`，最后交给纯逻辑回退中文。
  */
-function systemLanguageOf(): string {
+function systemLanguageOf(context: common.Context): string {
+  try {
+    const locale: string = context.resourceManager.getConfigurationSync().locale;
+    if (locale !== undefined && locale.length > 0) { return locale; }
+  } catch (_) {
+    // 继续尝试下一个来源。
+  }
   try {
     return i18n.System.getSystemLanguage();
   } catch (_) {
@@ -40,16 +48,24 @@ function systemLanguageOf(): string {
  *
  * 任何一步失败都不抛：收藏读不到就按「没有收藏」处理（默认四个工具），语言读不到就回退中文，
  * 保证卡片永远有内容可显示，而不是空白或崩溃。
+ *
+ * `systemLanguageOverride` 是**系统配置变化时**由调用方传进来的新语言（`Configuration.language`）：
+ * 卡片进程里的语言查询不一定立刻跟上系统语言变化，只在卡片进程内读它会让「卡片标题（系统按新语言
+ * 解析资源）已刷新、里面的工具名（我们自己的绑定数据）还是旧语言」——2026-10-22 真机反馈的就是这个
+ * 现象。传空串时才走进程内查询。
  */
-export function quickToolsPayloadFor(context: common.Context, dimensionId: number): QuickToolsPayload {
+export function quickToolsPayloadFor(context: common.Context, dimensionId: number,
+  systemLanguageOverride: string = ''): QuickToolsPayload {
   const dimension: number = normalizeDimensionId(dimensionId);
+  const systemLanguage: string = systemLanguageOverride.length > 0 ?
+    systemLanguageOverride : systemLanguageOf(context);
   const english: boolean = englishFromPreference(
-    normalizeLanguagePreference(DEFAULT_LANGUAGE_PREFERENCE), systemLanguageOf());
+    normalizeLanguagePreference(DEFAULT_LANGUAGE_PREFERENCE), systemLanguage);
   try {
     const data: LocalData = LocalData.openSync(context);
     const preference: string = normalizeLanguagePreference(
       data.getStringSync('language', DEFAULT_LANGUAGE_PREFERENCE));
-    const localized: boolean = englishFromPreference(preference, systemLanguageOf());
+    const localized: boolean = englishFromPreference(preference, systemLanguage);
     return buildQuickToolsPayload(data.getFavoritesSync(), dimension, localized);
   } catch (_) {
     return buildQuickToolsPayload([], dimension, english);
@@ -57,8 +73,10 @@ export function quickToolsPayloadFor(context: common.Context, dimensionId: numbe
 }
 
 /** 供 `formBindingData.createFormBindingData()` 直接使用的绑定数据。 */
-export function quickToolsBindingData(context: common.Context, dimensionId: number): formBindingData.FormBindingData {
-  return formBindingData.createFormBindingData(quickToolsPayloadFor(context, dimensionId));
+export function quickToolsBindingData(context: common.Context, dimensionId: number,
+  systemLanguageOverride: string = ''): formBindingData.FormBindingData {
+  return formBindingData.createFormBindingData(
+    quickToolsPayloadFor(context, dimensionId, systemLanguageOverride));
 }
 
 /**
@@ -69,7 +87,8 @@ export function quickToolsBindingData(context: common.Context, dimensionId: numb
  * 设备/模拟器不支持该 API、或某个实例更新失败时**静默跳过**（系统还有 `updateDuration` 的定时刷新兜底），
  * 返回值只是成功条数，调用方不需要弹提示。
  */
-export async function refreshQuickToolsCards(context: common.Context): Promise<number> {
+export async function refreshQuickToolsCards(context: common.Context,
+  systemLanguageOverride: string = ''): Promise<number> {
   let updated: number = 0;
   try {
     const forms: formInfo.RunningFormInfo[] = await formProvider.getPublishedRunningFormInfos();
@@ -78,7 +97,7 @@ export async function refreshQuickToolsCards(context: common.Context): Promise<n
       if (info.formName !== QUICK_TOOLS_FORM_NAME || info.bundleName !== bundleName) { continue; }
       try {
         await formProvider.updateForm(info.formId,
-          quickToolsBindingData(context, normalizeDimensionId(info.dimension)));
+          quickToolsBindingData(context, normalizeDimensionId(info.dimension), systemLanguageOverride));
         updated++;
       } catch (error) {
         hilog.warn(DOMAIN, 'PocketToolbox', 'Failed to update widget %{public}s: %{public}s',

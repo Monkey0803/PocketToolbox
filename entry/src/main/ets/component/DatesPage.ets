@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -14,6 +15,10 @@ import { todayDate, daysBetween, pickerDate, pickerDateText, calendarSpan, ageAt
   Constellation, DateToolMode, DateShiftUnit, DATE_TOOL_MODES, DATE_SHIFT_UNITS } from '../model/DateTools';
 import { LunarDate, lunarDateText } from '../model/LunarTools';
 import { HolidayTable, holidayTruncationNote } from '../model/HolidayIcs';
+// 自定义时区（2026-10-21，C 项）：只影响「今天是哪天」——日期加减/间隔本身与时刻无关。
+import { LOCAL_ZONE_ID, TIME_ZONES, TimeZoneEntry, dateZoneNoteText, dateZoneUnsupportedText,
+  localZoneDisplay, timeZoneEntry, timeZoneIndex, timeZoneLabel, zonedDateText } from '../model/TimeZoneTools';
+import { localTimeZoneId, timeZoneOffsetMinutes } from '../services/SystemTools';
 import { lunarOf } from '../services/LunarCalendar';
 import { loadHolidayTable, holidayDataDownloaded } from '../services/HolidayData';
 import { holidayCoverageText } from '../model/HolidayIcs';
@@ -53,8 +58,29 @@ export struct DatesPage {
   @Local holidayDownloaded: boolean = false;
   /** 数据是否已载入完成（载入前不宣称「仅排除周末」，避免短暂显示错误的结论）。 */
   @Local holidayLoaded: boolean = false;
+  /**
+   * 「以哪个时区的今天为准」（2026-10-21，C 项的自定义时区）。
+   *
+   * 只影响**依赖「今天」的输出**（默认日期、倒数日的「已过去 / 还剩」）：日期间隔、推算、工作日统计
+   * 都是纯日历运算，与时刻无关。偏移一律走系统 `i18n`（含夏令时），系统给不出时如实说「仍按本机」，
+   * **不假装换算过**；本机时区显示在页面上的名字会补城市名（`localZoneDisplay()`）。
+   */
+  @Local dateZone: string = LOCAL_ZONE_ID;
+  /** 本机 IANA 时区 id（`aboutToAppear` 里取一次；取不到为空串，回退 JS 偏移）。 */
+  @Local localZoneId: string = '';
+  /** 所选时区在当前瞬间的偏移是否可用（非本机时区时用于显示「不支持」的说明）。 */
+  @Local dateZoneUnsupported: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  /** 上一次用于「默认日期」的今天（用户没改过默认值时，换时区要跟着更新）。 */
+  private lastToday: string = todayDate();
+
+  // 系统调用按「分钟 + 时区」缓存：偏移在一分钟内不会变，不必每帧都问系统。
+  private cachedZoneKey: string = '';
+  private cachedZoneOffset: number = Number.NaN;
+  private cachedLocalKey: string = '';
+  private cachedLocalOffset: number = Number.NaN;
 
   // 只给日期选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
   /**
@@ -68,11 +94,88 @@ export struct DatesPage {
   }
 
   aboutToAppear(): void {
+    this.localZoneId = localTimeZoneId();
     this.refreshLunar();
     this.refreshHolidays();
   }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
+
+  /** 固定偏移条目直接用登记值；本机优先走 i18n，失败回退 JS 本地偏移；城市条目交给系统。 */
+  private offsetFor(zoneId: string, instant: number): number {
+    const entry: TimeZoneEntry | undefined = timeZoneEntry(zoneId);
+    if (entry !== undefined && Number.isFinite(entry.fixedOffsetMinutes)) { return entry.fixedOffsetMinutes; }
+    if (zoneId === LOCAL_ZONE_ID) {
+      const key: string = Math.floor(instant / 60000).toString();
+      if (this.cachedLocalKey === key) { return this.cachedLocalOffset; }
+      let minutes: number = Number.NaN;
+      if (this.localZoneId.length > 0) { minutes = timeZoneOffsetMinutes(this.localZoneId, instant); }
+      if (!Number.isFinite(minutes)) { minutes = -new Date(instant).getTimezoneOffset(); }
+      this.cachedLocalKey = key;
+      this.cachedLocalOffset = minutes;
+      return minutes;
+    }
+    const key: string = zoneId + '@' + Math.floor(instant / 60000).toString();
+    if (this.cachedZoneKey === key) { return this.cachedZoneOffset; }
+    const minutes: number = timeZoneOffsetMinutes(zoneId, instant);
+    this.cachedZoneKey = key;
+    this.cachedZoneOffset = minutes;
+    return minutes;
+  }
+
+  /**
+   * 所选时区里的「今天」。
+   *
+   * 本机时区直接用系统日期；其它时区按该瞬间的偏移换算，系统给不出偏移（`NaN`）时**返回本机日期**
+   * 并置 `dateZoneUnsupported = true`，界面据此显示「当前设备不支持该时区」的说明。
+   */
+  private todayInZone(): string {
+    if (this.dateZone === LOCAL_ZONE_ID) {
+      this.dateZoneUnsupported = false;
+      return todayDate();
+    }
+    const offset: number = this.offsetFor(this.dateZone, Date.now());
+    const text: string = zonedDateText(Date.now(), offset);
+    this.dateZoneUnsupported = text.length === 0;
+    return text.length === 0 ? todayDate() : text;
+  }
+
+  private zoneOptions(): SelectOption[] {
+    return TIME_ZONES.map((entry: TimeZoneEntry): SelectOption => {
+      const option: SelectOption = { value: this.zoneName(entry.id) };
+      return option;
+    });
+  }
+
+  /** 时区显示名：「本机」补城市名（能识别时），其它按登记表。 */
+  private zoneName(id: string): string {
+    if (id === LOCAL_ZONE_ID) {
+      return localZoneDisplay(this.localZoneId, this.english);
+    }
+    return timeZoneLabel(id, this.english);
+  }
+
+  private zoneIndex(): number {
+    const index: number = timeZoneIndex(this.dateZone);
+    return index < 0 ? 0 : index;
+  }
+
+  /**
+   * 换时区。
+   *
+   * 默认日期（`firstDate`/`secondDate`）只有在**用户没改过**时才跟着新时区的「今天」走：
+   * 判断依据是它们仍等于上一个 `lastToday`，改过就保留用户输入（不覆盖用户填的日期）。
+   */
+  private selectZone(index: number): void {
+    const entry: TimeZoneEntry | undefined = TIME_ZONES[index];
+    if (entry === undefined || entry.id === this.dateZone) { return; }
+    const previousToday: string = this.lastToday;
+    this.dateZone = entry.id;
+    const nextToday: string = this.todayInZone();
+    if (this.firstDate.trim() === previousToday) { this.firstDate = nextToday; }
+    if (this.secondDate.trim() === previousToday) { this.secondDate = nextToday; }
+    this.lastToday = nextToday;
+  }
 
   private refreshLunar(): void {
     this.lunarDate = lunarOf(this.firstDate.trim());
@@ -122,7 +225,7 @@ export struct DatesPage {
     const sign: Constellation | undefined = this.constellation();
     if (sign === undefined) { return ''; }
     let detail: string = this.tr(sign.elementZh, sign.elementEn) + ' · ' +
-      this.tr('守护星', 'Ruler') + ' ' + this.tr(sign.rulerZh, sign.rulerEn);
+      appText('dates.ruler', this.english) + ' ' + this.tr(sign.rulerZh, sign.rulerEn);
     if (sign.traditionalRulerZh !== '') {
       detail += this.tr('（传统说法 ' + sign.traditionalRulerZh + '）',
         ' (traditionally ' + sign.traditionalRulerEn + ')');
@@ -132,8 +235,8 @@ export struct DatesPage {
 
   private dateDifference(): string {
     const days: number | undefined = daysBetween(this.firstDate.trim(), this.secondDate.trim());
-    if (days === undefined) { return this.tr('请输入有效日期（YYYY-MM-DD）', 'Enter valid dates (YYYY-MM-DD)'); }
-    if (days === 0) { return this.tr('同一天', 'Same day'); }
+    if (days === undefined) { return appText('dates.enter-valid-dates-yyyy', this.english); }
+    if (days === 0) { return appText('dates.same-day', this.english); }
     return days > 0 ? this.tr('相隔 ' + days + ' 天', days + ' days later') :
       this.tr('相隔 ' + Math.abs(days) + ' 天（第二个日期更早）', Math.abs(days) + ' days earlier');
   }
@@ -142,8 +245,7 @@ export struct DatesPage {
     // 只收十进制整数：`Number('0x10')` 会静默变成 16 天，而文案承诺的是「整数数量」
     const amount: number | undefined = parseIntegerInput(this.dayOffset);
     const result: string | undefined = amount === undefined ? undefined : this.shiftResult(amount);
-    return result ?? this.tr('请输入有效日期和该单位允许范围内的整数数量',
-      'Enter a valid date and a whole count within the range of this unit');
+    return result ?? appText('dates.enter-a-valid-date', this.english);
   }
 
   private shiftResult(amount: number): string | undefined {
@@ -174,18 +276,18 @@ export struct DatesPage {
 
   private shiftPlaceholder(): string {
     if (this.dateShiftUnit === 'working') {
-      return this.tr('工作日数，例如 -7', 'Working days, for example -7');
+      return appText('dates.working-days-for-example', this.english);
     }
     if (this.dateShiftUnit === 'week') {
-      return this.tr('周数，例如 -2', 'Weeks, for example -2');
+      return appText('dates.weeks-for-example-2', this.english);
     }
     if (this.dateShiftUnit === 'month') {
-      return this.tr('月数，例如 3', 'Months, for example 3');
+      return appText('dates.months-for-example-3', this.english);
     }
     if (this.dateShiftUnit === 'year') {
-      return this.tr('年数，例如 1', 'Years, for example 1');
+      return appText('dates.years-for-example-1', this.english);
     }
-    return this.tr('天数，例如 -7', 'Days, for example -7');
+    return appText('dates.days-for-example-7', this.english);
   }
 
   // 两个日期的年/月/日细分，用于日期间隔与年龄的补充说明；同一天时留空。
@@ -198,9 +300,10 @@ export struct DatesPage {
   }
 
   // 倒数日：今天落在区间内时，把区间按今天拆成「已过去 / 还剩」。
+  // 「今天」按所选时区算（本机时区 = 系统日期）；纯日历运算（间隔/推算/工作日）不受时区影响。
   private countdownText(): string {
     const info: CountdownInfo | undefined =
-      countdownAt(this.firstDate.trim(), this.secondDate.trim(), todayDate());
+      countdownAt(this.firstDate.trim(), this.secondDate.trim(), this.todayInZone());
     if (info === undefined) { return ''; }
     return this.tr('已过去 ' + info.elapsedDays + ' 天 · 距目标日期还有 ' + info.remainingDays + ' 天',
       info.elapsedDays + ' days elapsed · ' + info.remainingDays + ' days to go');
@@ -213,9 +316,9 @@ export struct DatesPage {
   private ageHeadline(): string {
     const result: AgeResult | undefined = this.ageResult();
     if (result === undefined) {
-      return this.tr('出生日期需早于或等于参考日期', 'The birthday must not be after the reference date');
+      return appText('dates.the-birthday-must-not', this.english);
     }
-    if (result.years === 0) { return this.tr('未满 1 周岁', 'Under 1 year old'); }
+    if (result.years === 0) { return appText('dates.under-1-year-old', this.english); }
     return this.tr(result.years + ' 周岁', result.years === 1 ? '1 year old' : result.years + ' years old');
   }
 
@@ -234,7 +337,7 @@ export struct DatesPage {
 
   private weekdayText(): string {
     const info: CalendarInfo | undefined = calendarInfo(this.firstDate.trim());
-    if (info === undefined) { return this.tr('请输入有效日期', 'Enter a valid date'); }
+    if (info === undefined) { return appText('dates.enter-valid-date', this.english); }
     return this.english ? WEEKDAY_LABELS_EN[info.weekday - 1] : WEEKDAY_LABELS_ZH[info.weekday - 1];
   }
 
@@ -257,7 +360,7 @@ export struct DatesPage {
     if (spanError.length > 0) { return spanError; }
     const days: number | undefined = workingDaysBetweenWithHolidays(this.firstDate.trim(), this.secondDate.trim(),
       this.dateIncludeFirst, this.holidayTable.holidays, this.holidayTable.workdays);
-    if (days === undefined) { return this.tr('请输入有效日期', 'Enter a valid date'); }
+    if (days === undefined) { return appText('dates.enter-valid-date', this.english); }
     return this.tr('工作日 ' + days + ' 天', days === 1 ? '1 working day' : days + ' working days');
   }
 
@@ -286,7 +389,7 @@ export struct DatesPage {
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开日期选择器', 'Could not open the date picker'));
+      this.onStatus(appText('status.datePickerFailed', this.english));
     }
   }
 
@@ -311,18 +414,18 @@ export struct DatesPage {
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开时间选择器', 'Could not open the time picker'));
+      this.onStatus(appText('dates.could-not-open-the', this.english));
     }
   }
 
   private timeFieldLabel(kind: string): string {
-    return kind === 'first' ? this.tr('起始时间', 'Start time') : this.tr('目标时间', 'End time');
+    return kind === 'first' ? appText('dates.start-time', this.english) : appText('dates.end-time', this.english);
   }
 
   // 未选时间时给占位文案，不假装已有值；时间未选时结果按 00:00:00 计算（见 timePoint()）。
   private timeFieldText(kind: string): string {
     const value: string = kind === 'first' ? this.firstTime : this.secondTime;
-    return value === '' ? this.tr('选取时间', 'Pick a time') : value;
+    return value === '' ? appText('field.pickTime', this.english) : value;
   }
 
   // 把「日期 + 可选时间」拼成一个时间点文本；时间未选时按 00:00:00 计算。
@@ -343,7 +446,7 @@ export struct DatesPage {
   // 方法名与 `model/DateTools` 的 `timeSpanText()` 区分开，避免同名遮蔽。
   private timeSpanResultText(): string {
     const span: TimeSpan | undefined = this.timeSpanResult();
-    if (span === undefined) { return this.tr('请输入或选择两个时间点', 'Pick two points in time'); }
+    if (span === undefined) { return appText('dates.pick-two-points-in', this.english); }
     return timeSpanText(span, this.english);
   }
 
@@ -416,11 +519,11 @@ export struct DatesPage {
   // 方式选择与单位换算页「类别」同一套 UI：新增日期能力只需在 DATE_TOOL_MODES 加登记项 + 下方加分支。
   @Builder private dateModeSelect() {
     OptionSelect({
-      label: this.tr('方式', 'Method'),
+      label: appText('field.method', this.english),
       options: this.modeOptions(),
       selectedIndex: this.dateModeIndex(),
       selectedText: this.dateModeLabel(),
-      a11yText: this.tr('日期计算方式', 'Date tool'),
+      a11yText: appText('dates.date-tool', this.english),
       onSelected: (index: number): void => {
         const mode: DateToolMode | undefined = DATE_TOOL_MODES[index];
         if (mode !== undefined) { this.dateMode = mode.id; }
@@ -428,13 +531,30 @@ export struct DatesPage {
     })
   }
 
+  /**
+   * 「时区」选择（只出现在日期间隔方式下）：决定倒数日用的「今天」是哪一天。
+   *
+   * 选项来自 `model/TimeZoneTools.ets` 的登记表（与时间戳页的时区换算共用，偏移含夏令时）；
+   * 「本机」那一项会补城市名（`localZoneDisplay()`），不把 IANA id 暴露给用户。
+   */
+  @Builder private dateZoneSelect() {
+    OptionSelect({
+      label: appText('dates.time-zone', this.english),
+      options: this.zoneOptions(),
+      selectedIndex: this.zoneIndex(),
+      selectedText: this.zoneName(this.dateZone),
+      a11yText: appText('dates.time-zone-used-to', this.english),
+      onSelected: (index: number): void => { this.selectZone(index); }
+    })
+  }
+
   @Builder private shiftUnitSelect() {
     OptionSelect({
-      label: this.tr('单位', 'Unit'),
+      label: appText('field.unit', this.english),
       options: this.shiftUnitOptions(),
       selectedIndex: this.shiftUnitIndex(),
       selectedText: this.shiftUnitName(),
-      a11yText: this.tr('推算单位', 'Offset unit'),
+      a11yText: appText('dates.offset-unit', this.english),
       onSelected: (index: number): void => {
         const unit: DateShiftUnit | undefined = DATE_SHIFT_UNITS[index];
         if (unit !== undefined) { this.dateShiftUnit = unit.id; }
@@ -446,7 +566,7 @@ export struct DatesPage {
   @Builder private holidayInfo() {
     Column({ space: 4 }) {
       if (!this.holidayLoaded) {
-        Text(this.tr('正在载入节假日数据…', 'Loading holiday data…'))
+        Text(appText('dates.loading-holiday-data', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       } else if (this.holidayTable.loaded && this.holidayUpdatedAt !== '') {
         Text(this.holidayDownloaded ?
@@ -456,7 +576,7 @@ export struct DatesPage {
             'Holiday data ' + this.holidayUpdatedAt + ' · bundled with the app'))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       } else {
-        Text(this.tr('暂无节假日数据，工作日仅排除周末', 'No holiday data; only weekends excluded'))
+        Text(appText('dates.no-holiday-data-only', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
       // 覆盖年份要说出来：查的年份不在范围内时只排除周末，不说明会让人以为算错了（§3.13 新增项）。
@@ -474,7 +594,7 @@ export struct DatesPage {
     Row({ space: 12 }) {
       Toggle({ type: ToggleType.Switch, isOn: this.dateIncludeFirst })
         .onChange((value: boolean) => this.dateIncludeFirst = value)
-      Text(this.tr('计入起始日期', 'Include the start date'))
+      Text(appText('dates.include-the-start-date', this.english))
         .fontSize(16).fontColor(ToolPalette.textPrimary)
     }.width('100%').height(52)
   }
@@ -483,7 +603,7 @@ export struct DatesPage {
     Column({ space: 14 }) {
       this.dateModeSelect()
       if (this.dateMode === 'shift') {
-        Text(this.tr('以起始日期为基准；负数表示往前推', 'Uses the start date; negative numbers go backward'))
+        Text(appText('dates.uses-the-start-date', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         this.dateField('起始日期', 'Start date', 'first')
         MaterialSurface({
@@ -509,7 +629,7 @@ export struct DatesPage {
         Row() {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary, usable: this.shiftPossible(),
-            a11yText: this.tr('复制计算后的日期', 'Copy calculated date'),
+            a11yText: appText('dates.copy-calculated-date', this.english),
             onTap: () => this.onCopy(this.shiftedDate())
           })
         }.width('100%').justifyContent(this.actionAlign)
@@ -569,9 +689,9 @@ export struct DatesPage {
           lightEffect: true
         }) {
           Column({ space: 6 }) {
-            Text(this.lunarText() !== '' ? this.lunarText() : this.tr('农历日期不可用', 'Lunar date unavailable'))
+            Text(this.lunarText() !== '' ? this.lunarText() : appText('dates.lunar-date-unavailable', this.english))
               .fontSize(22).fontWeight(FontWeight.Bold).width('100%')
-            Text(this.tr('农历由系统历法在本机计算', 'Lunar date computed on device'))
+            Text(appText('dates.lunar-date-computed-on', this.english))
               .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
           }.padding(16).width('100%')
         }
@@ -582,7 +702,7 @@ export struct DatesPage {
           lightEffect: true
         }) {
           Column({ space: 6 }) {
-            Text(this.constellationName() !== '' ? this.constellationName() : this.tr('日期无效', 'Invalid date'))
+            Text(this.constellationName() !== '' ? this.constellationName() : appText('dates.invalid-date', this.english))
               .fontSize(22).fontWeight(FontWeight.Bold).width('100%')
             if (this.constellationRange().length > 0) {
               Text(this.constellationRange()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
@@ -590,8 +710,7 @@ export struct DatesPage {
             if (this.constellationDetail().length > 0) {
               Text(this.constellationDetail()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
             }
-            Text(this.tr('按常见的固定日期区间判定，非每年不同的天文入宫时刻',
-              'Based on the common fixed date ranges, not the yearly astronomical ingress moments'))
+            Text(appText('dates.based-on-the-common', this.english))
               .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
           }.padding(16).width('100%')
         }
@@ -608,12 +727,14 @@ export struct DatesPage {
         }) {
           Text(this.timeSpanResultText()).fontSize(22).fontWeight(FontWeight.Bold).padding(16).width('100%')
         }
-        Text(this.tr('按墙上时间计算，不含时区与夏令时；时间未选时按 00:00:00 计算。',
-          'Wall-clock time only, no time zone or DST; unset times count as 00:00:00.'))
+        Text(appText('dates.wall-clock-time-only', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         this.dateField('起始日期', 'Start date', 'first')
         this.dateField('目标日期', 'End date', 'second')
+        // 自定义时区（2026-10-21）：**只影响「今天是哪天」**——倒数日的「已过去 / 还剩」依赖今天，
+        // 而日期间隔/推算/工作日都是纯日历运算，与时刻无关，所以只在这一块放出时区选择。
+        this.dateZoneSelect()
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
           lightEffect: true
@@ -627,6 +748,13 @@ export struct DatesPage {
               Text(this.countdownText()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
             }
           }.padding(16).width('100%')
+        }
+        if (this.dateZone !== LOCAL_ZONE_ID) {
+          Text(this.dateZoneUnsupported ? dateZoneUnsupportedText(this.english) :
+            dateZoneNoteText(this.dateZone, this.todayInZone(), this.english))
+            .fontSize(13)
+            .fontColor(this.dateZoneUnsupported ? ToolPalette.warning : ToolPalette.textMuted)
+            .width('100%')
         }
       }
     }.width('100%')

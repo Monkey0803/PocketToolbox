@@ -2,15 +2,42 @@
 
 ## 当前状态
 
+- **二维码定制：自定义码色 + 居中 Logo（2026-10-22，已完成单测、一致性检查、构建与模拟器渲染复核；**成像与实扫的设备验收未做**）**：**不联网、不落盘、不新增权限**（相册仍走系统选择器的临时授权）。
+  - **变更清单**：① **自定义码色**——`model/QrStyle.ets` 新增联合码色档（三预设 + `QR_CUSTOM_COLOR_ID`）、HEX 解析与判据（`qrCustomColorRgb()`/`qrCustomColorValid()`/`qrCustomColorVerdictText()`/`qrCustomColorErrorText()`/`resolveQrColor()`，门槛 `QR_MIN_CONTRAST_RATIO = 4.5`），背景**恒为纯白**；`QrPage` 选「自定义」后显示 HEX 输入框 + **与颜色工具页同一个** `HdsColorPicker`（`@kit.UIDesignKit`），手输与取色共用 `ColorTools` 的解析链（`ColorTools` 新增 `rgbToNumber()` 供 `0xRRGGBB` 数值输出）；非法/过浅的颜色**在生成之前被拦下**并给出实测对比度。② **居中 Logo**——Scan Kit 生成器无 Logo 参数，改为本机合成：`services/SystemTools.makeQr(content, style, logo?)` 生成底图后读像素、盖白底板、按 alpha 叠加并重建 `PixelMap`；几何与混合在纯逻辑 `QrStyle`（`qrLogoLayout()`/`qrLogoFit()`/`qrLogoDecodeSize()`）与新增 `model/QrCompose.ets`（`fillRectOpaque()`/`blendImageRect()`，处理行 stride、RGBA 换道与越界夹取）；相册选图 `pickQrLogo()` 只留内存 `PixelMap`（不留临时 URI，离开页面释放）；**仅容错 Q/H 可带 Logo**，等级不足时行内警示并拒绝生成；容量提示在带 Logo 时改为「缩短内容或移除 Logo」。③ 文案：`model/AppStrings.ets` 新增 8 条 `qrpage.*`。
+  - **设备核对项（真机，逐条勾选；完整步骤见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的「二维码定制」一节）**：
+    - [ ] 自定义深色码（如 `#0D3B66`，含取色器取色）生成后用**另一台设备实扫**可读出内容，码图保持纯白底。
+    - [ ] 输入过浅颜色（`#EEEEEE`）→ 生成被拒且提示写出实测对比度与 4.5:1 门槛；改成深色后正常生成。
+    - [ ] 容错 Q/H + 相册 Logo 生成后实扫可读；Q 与 H 各验一次；长方形/透明背景图片等比内嵌、无黑块。
+    - [ ] 保存 PNG 与分享出去的图**都带 Logo 与自定义色**（产物拉回核对）。
+    - [ ] 容错 L/M + Logo 时生成被拒并说明怎么改；移除 Logo 后恢复正常。
+    - [ ] 离开二维码页再回来，Logo 回到「未选择图片」（只在内存里，不残留）。
+- **触觉反馈 + 系统分享接收（2026-10-21，已完成单测、一致性检查与构建；**设备验收未做**）**：两项都是「高感知、低风险」的新增，**不联网、不落盘**（除一个开关偏好键），权限由 5 项增至 **6 项**。
+  - **变更清单**：① **触觉反馈**——新增 `ohos.permission.VIBRATE`（第 16 行）、纯逻辑 `model/Haptics.ets`（事件登记表：计时到点 400 ms/通知类、水平到位 80 ms、罗盘对准 60 ms/触感类）、服务 `services/Haptics.ets`（`canIUse('SystemCapability.Sensors.MiscDevice')` 门控、失败只记日志）、持久化开关键 `haptic_feedback`（默认开启）；触发点三处：倒计时到点（`TimersPage.tick()`，与横幅/toast 同一时刻、一次到点只震一次）、水平仪「倾斜 → 水平」跨越（`LevelPage`，第一次读数不震）、罗盘对准锁定方位（`CompassPage`，跨越判定）；设置页「操作方式」卡内新增开关（本机无振动能力时禁用并如实说明）。② **系统分享接收**——`module.json5` 的 `extensionAbilities` 新增 `ShareExtAbility`（`type: "share"`、`exported: true`、`skills.actions = ["ohos.want.action.sendData"]`、`uris = [{ type: "text/plain" }]`），纯逻辑 `model/ShareIntent.ets`（挑文本：优先非 HTML、超长夹到 20000 字符并如实提示、一次性传递）、服务 `services/ShareIntake.ets`（`systemShare.getSharedData()`）、分享详情页 `pages/Share.ets`（已登记进 `main_pages.json`，可生成二维码 / 用文本工具处理 / 复制 / 关闭）、`model/StartupIntent.ets` 增加 `content` 参数与 `consumeStartupIntent()`，由 `Index.applyStartupIntent()` 把内容一次性交给目标工具的 `initialValue`（与历史回填同一条通道）。
+  - **设备核对项（真机，逐条勾选）**：
+    - [ ] 在别的应用里分享一段**纯文本/链接** → 系统分享面板里出现「随身工具箱」；选中后出现分享详情页，内容与分享的文本一致。
+    - [ ] 分享**图片/文件**（不含文字）→ 面板里不出现本应用，或出现时显示「没有文字内容」的说明（不显示假内容）。
+    - [ ] 点「二维码」→ 主应用打开二维码页且输入框已填入分享内容；返回分享面板已收起；点「文本工具」同理。
+    - [ ] 分享**超长文本**（> 20000 字符）→ 详情页出现「只使用前 20000 个字符」的提示。
+    - [ ] 分享到本应用再回到主界面：**下一次正常启动不会被上一次分享的内容污染**（一次性消费）。
+    - [ ] **表示同意前请确认合规文案**：分享内容不落盘、不上传，退出分享会话即清（`PRIVACY.md` 已披露）。
+  - **触觉反馈核对项（真机，逐条勾选）**：
+    - [ ] 倒计时到点时手机轻振一次（与横幅、toast 同时出现，**同一次到点只震一次**）。
+    - [ ] 水平仪从倾斜转到水平时振一次；保持水平**不重复震**；刚进页面平放**不震**。
+    - [ ] 罗盘锁定方位后转到对准时振一次；对准期间不重复震。
+    - [ ] 设置页关掉「触觉反馈」后以上三处**都不震**；重新打开后恢复；重启应用后开关状态保持。
+    - [ ] 「清除本机数据」后开关回到默认（开启）。
+    - [ ] 无振动能力的设备上开关为禁用状态并显示「本机未提供振动能力…」。
+
 - **工具卡片 20 → 24 + 现有工具深挖 + 首次引入联网（2026-10-20，已完成单测与构建，模拟器复验见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 28–32 节；真机未验收）**：本轮新增 4 张工具卡片（`base`「进制与位运算」/`Base & bitwise`、`diff`「文本对比」/`Text diff`、`anniversary`「纪念日」/`Anniversaries`、`net`「网络工具」/`Network tools`），并深挖既有工具、首次为应用引入联网能力。**联网是本轮合规重点**：`entry/src/main/module.json5` 的 `requestPermissions` 由 3 项增至 **5 项**，新增 `ohos.permission.INTERNET` 与 `ohos.permission.GET_NETWORK_INFO`（后者只用于「网络工具」的 DNS 域名解析）；三处联网入口全部用户显式触发、离线优先，HTTP 统一走 `services/HttpClient.ets`（强制 HTTPS、绝不抛出、请求结束即 `destroy()`）。
   - **变更清单**：① 工具卡片 **20 → 24**（`base`/`diff`/`net` 不落盘；`anniversary` 是本轮唯一新增的持久化数据——纪念日清单「名称 + 日期 + 是否每年重复」，键 `anniversaries`，最多 20 条，可在页面里删除）；② 密码页新增「类型（密码 / PIN 码）」与强度预估（仍不落盘，离开页面清空）；③ 个税新增「年终奖单独计税」（本机估算）；④ 日期工具新增第 8 个方式「时间点差值」；⑤ 单位换算新增「货币」类别（汇率来自 `services/FxService.ets` 的 `FX_SOURCES`，缓存键 `fx_rates`）；⑥ 设置页新增「节假日数据」在线更新（`services/HolidayUpdate.ets`，数据源与随包数据同源）；⑦ 文本工具新增摩尔斯编解码（复用 `model/TorchSignal.ets` 的 `MORSE_TABLE`，不新写第二张表）；⑧ 新增 2 项权限。
-  - **权限核对项（5 项，逐项与 `entry/src/main/module.json5` 对齐；发布前逐条只看该文件，不要凭印象）**：
+  - **权限核对项（6 项，逐项与 `entry/src/main/module.json5` 对齐；发布前逐条只看该文件，不要凭印象）**：
     - [ ] `ohos.permission.PUBLISH_AGENT_REMINDER` —— 倒计时到期提醒；`module.json5` 第 11 行。
     - [ ] `ohos.permission.DETECT_GESTURE` —— 智感握姿界面适配；第 12 行。
     - [ ] `ohos.permission.ACCELEROMETER` —— 水平仪读加速度传感器；第 13 行。
-    - [ ] `ohos.permission.INTERNET` —— 网络工具 / 汇率更新 / 节假日更新，**仅用户显式触发时**；第 16 行。
-    - [ ] `ohos.permission.GET_NETWORK_INFO` —— **只用于**网络工具的 DNS 域名解析（`connection.getAddressesByName`）；第 17 行。
-    - [ ] 商店权限说明（`docs/STORE_LISTING.md` 截图清单段）与 `docs/PRIVACY.md` 的权限列表都已改为 5 项，且与上面逐条一致。
+    - [ ] `ohos.permission.VIBRATE` —— 触觉反馈（计时到点 / 水平到位 / 罗盘对准），系统权限、声明即生效不弹授权框，**设置页有开关**（键 `haptic_feedback`，关掉后一次都不震）；第 16 行。
+    - [ ] `ohos.permission.INTERNET` —— 网络工具 / 汇率更新 / 节假日更新，**仅用户显式触发时**；第 19 行。
+    - [ ] `ohos.permission.GET_NETWORK_INFO` —— **只用于**网络工具的 DNS 域名解析（`connection.getAddressesByName`）；第 20 行。
+    - [ ] 商店权限说明（`docs/STORE_LISTING.md` 截图清单段）与 `docs/PRIVACY.md` 的权限列表都已改为 6 项，且与上面逐条一致。
   - **联网专项核对项（2026-10-20 模拟器复验：`127.0.0.1:5555`，Phone376 实例，headless 启动）**：
     - [x] 网络工具：`example.com` → 「解析」得到 `IPv4 172.66.147.243` / `104.20.23.154`、耗时 1030 毫秒（截图 `docs/screenshots/emulator/network-dns-zh.jpeg`），证明 `INTERNET` + `GET_NETWORK_INFO` 与 `connection.getAddressesByName` 链路正常。
     - [x] 汇率：点「更新汇率」后数据时间「刚刚更新」、`1 CNY = 0.149396 USD`；退出重进仍显示（`fx_rates` 缓存 + `units_state` 按币种代码恢复）；**未取过汇率时结果区显示「还没有可用的汇率，请联网后重试」而不是 0**（截图 `docs/screenshots/emulator/units-currency-zh.jpeg`）。
@@ -199,6 +226,14 @@
   ① 已落地：纯逻辑 `model/StartupIntent.ets`（`setStartupTool()`/`consumeStartupTool()`/`peekStartupTool()`/`clearStartupTool()`，`TOOL_IDS` 白名单 + 一次性消费）；`resources/base/profile/shortcuts_config.json`（4 个快捷方式：生成二维码 / 生成条形码 / 科学计算器 / 计时与秒表，标签走 `$string:shortcut_*`，中英各一份）；`module.json5` 的 `metadata` 增加 `{ "name": "ohos.ability.shortcuts", "resource": "$profile:shortcuts_config" }`；`EntryAbility.onCreate` 读 want 参数（`ohos.extra.param.key.shortcutId` 加两个兜底键）后写入意图；`Index.aboutToAppear()` 消费意图并 `navigate()` 直达工具页。`assembleHap` `BUILD SUCCESSFUL`，单测全绿（意图通道 10+ 条断言）。
   ② **端到端未复现（模拟器实测）**：`aa force-stop` 后用 `aa start -b com.example.pockettoolbox -a EntryAbility --ps ohos.extra.param.key.shortcutId science` 启动，应用**停在「工具」页**而不是科学计算器页——说明该键名下参数没有送达 `setStartupTool()`（或 `--ps` 的传递形式与 onCreate 读取方式不匹配）。**因此「长按图标快捷方式直达工具」尚未验收通过**，下一步要先核对华为官方文档里的快捷方式 want 键名与 `shortcuts` 配置字段，再用真机启动器长按验证；在确认之前不要对外宣称该功能可用。
   ③ **文档扫描 OCR 暂不可行**：当前 DevEco SDK（API 26）里检索不到 Core Vision Kit / `textRecognition` 声明（`openharmony/ets/api` 与 `ets/kits` 均无命中）。
+  - **⚠️ 该结论已于 2026-10-22 更正并落地**：当时只检索了 `openharmony/` 那一侧，而 Core Vision Kit 与文档扫描一样是 **HMS 侧**能力——声明在 `C:\Program Files\Huawei\DevEco Studio\sdk\default\hms\ets\kits\@kit.CoreVisionKit.d.ts` 与 `sdk\default\hms\ets\api\@hms.ai.ocr.textRecognition.d.ts`（`@syscap SystemCapability.AI.OCR.TextRecognition`，since API 10，支持 zh-CN/en/ja/ko/zh-TW，**端侧识别、不需要新权限**）。同日的文档扫描升级见下条。
+
+- **文档扫描升级：取字 + 扫描参数 + 结果页管理（2026-10-22，已完成单测/一致性检查，真机验收待跑）**：
+  - **取字**：`services/OcrTools.ets`（`import lazy` 的 `@kit.CoreVisionKit`，`canIUse('SystemCapability.AI.OCR.TextRecognition')` 门控）+ 纯逻辑 `model/OcrText.ets`；扫描结果逐页串行识别，UI 提供复制、送到文本工具、清空；**PDF 结果与不支持识别的设备只给如实说明**（PDF 是单个文档文件，应用侧解不出页面图）。累积文本超过 `TextTools.TEXT_INPUT_MAX` 时**保留已提取的页**并说明停在第几页，不静默截断。
+  - **扫描参数**：`defaultFilterId`（增强/黑白/原图）与 `defaultShootingMode`（手动/自动连拍）此前完全没用上，现在走 `model/DocumentScan.ets` 登记表 + 两张 `OptionSelect`，落盘键 `doc_scan_state`（已在 `LOCAL_KEYS`、导出/导入/清除都覆盖）；`maxShotCount` 改为唯一来源常量 `DOC_SCAN_MAX_SHOT`。
+  - **结果页管理**：逐页删除、继续扫描并追加（超过上限**拒绝并提示**，不静默丢页）、保存 JPG 到系统相册（`saveScannedImagesToGallery()`，走 `showAssetsCreationDialog`，取消与部分成功分开报）、导出文件名统一为 `PocketToolbox-Scan-YYYYMMDD-HHmm-N`。
+  - **结果码如实分流**：新增 `1008601001`（invalid URIs）/`-1`/`200`/其它四条文案（此前除成功与取消外一律「扫描失败或未生成文件」）。
+  - **去真机验收（模拟器没有 DocScan 与 HMS 识别能力）**：识别质量（中/英各一份、多页无丢行）、自动连拍与三种滤镜的实际效果、删页后导出、追加与上限提示、写相册后到相册确认、`1008601001` 与超长提示、退出重进无坏图与无残留文本。清单见 `PHONE_ACCEPTANCE_CHECKLIST.md` §2.7。
 
 - **设备信息（设置页，2026-10-19，已完成构建与模拟器复验）**：设置页新增「设备信息」区块，显示**设备型号、产品名称（与型号不同时）、系统版本、API 版本、应用版本、设备类型**，并注明「只在本机读取并显示，不写入存储、不联网」。**不新增权限**：只用 `@kit.BasicServicesKit` 的 `deviceInfo` 只读属性与 `bundleManager.getBundleInfoForSelfSync()`；取不到的字段返回空串并跳过该行（不臆造值）。取代了原来写死的「版本 1.0.0」文案。
   - **验证**：`assembleHap` `BUILD SUCCESSFUL`；模拟器复验设置页出现 5 行真实值：`emulator`、`OpenHarmony-7.0.0.105`、`1000000`（API 版本）、`1.0.0 (1000000)`、`phone`（[settings-device-info-zh.jpeg](screenshots/emulator/settings-device-info-zh.jpeg)）。
@@ -423,7 +458,7 @@
 | 节假日数据更新入口 | 已移除（应用不再申请网络权限，数据随包内置） | 原 `sourceConfigured()` 置灰逻辑与 `HOLIDAY_ICS_SOURCE_URL` 占位已删除 |
 | 文本统计、去空行、行去重、大小写转换 | 逻辑测试通过；模拟器输入和大写操作通过 | 其余操作真机待测 |
 | 随机整数、名单抽取、无效区间 | 逻辑测试通过；模拟器抽数和名单结果通过 | 真机输入交互待测 |
-| 密码生成、长度与字符选项、显示隐藏、复制 | 逻辑测试和模拟器基础交互通过 | 真机交互待测；不应记录密码明文 |
+| 密码生成、长度与字符选项、显示隐藏、复制；**易混字符开关、批量生成 1/2/3/5/10 条、强度检查（2026-10-22）** | 逻辑测试通过（字符集两档逐字符、批量登记表、检查器 10 个特征码与上限拒绝）；模拟器交互通过，含**长度 65 × 3 条完整换行显示**（真机反馈「显示不全」后的修复复验） | 真机交互待测；三种类型与批量结果**都不落盘、不进历史**，「强度检查」只在本机内存分析且不查泄露库；**结果值行一律换行、不得用省略号**（`BREAK_ALL` + 无 `maxLines`） |
 | 文档扫描、取消、JPG/PDF 导出 | 真机拍摄并分别生成、预览、导出 1 个 JPG 和 1 个 PDF；模拟器扫描直接取消 | PLR-AL00；纸张裁切和真机取消仍待测 |
 | 水平仪读数、水平/倾斜、退后台取消订阅 | 计算测试、模拟器读数与真机实时倾角和气泡显示通过 | PLR-AL00；姿态变化和生命周期待测 |
 | 无闪光灯、退后台自动关闭 | 待测 | 需无闪光灯设备；后台动作另验 |

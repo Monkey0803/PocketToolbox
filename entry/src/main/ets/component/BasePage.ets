@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -15,7 +16,8 @@ import { RadixOption, BASE_RADIXES, radixIndex, radixOption, radixBase, radixInp
  * 解析、换算与位运算全在纯逻辑 `model/BaseTools.ets`，本页只做输入、进制/运算符选择、展示与中英文文案。
  * 结果行按「`@Builder` 只收常量 kind、文本在构建函数体内现取」的方式渲染——值参数不随状态刷新。
  *
- * 结果卡只展示、复制按钮复制**纯值**（不带分组空格）；一次性反馈经 `@Event onStatus` 交回父组件。
+ * 结果卡只展示、复制按钮复制**纯值**（不带分组空格）；**没有一次性提示**——进制换算与位运算的错误
+ * 都是持续性的输入错误，一律行内显示（`inputError()`/`bitwiseError()`），因此不声明 `onStatus`。
  */
 @ComponentV2
 export struct BasePage {
@@ -27,7 +29,6 @@ export struct BasePage {
   // 此前声明了却从没用过，父组件还在传，属于「看起来支持、实际没有任何行在跟随」的死参数
   // （2026-10-21 智感握姿排查）。
   @Event onCopy: (value: string) => void = () => {};
-  @Event onStatus: (message: string) => void = () => {};
 
   @Local input: string = '';
   @Local radixId: string = 'dec';
@@ -94,20 +95,18 @@ export struct BasePage {
   // 进制选择与其它工具页「方式/类别」同一套 UI：选项来自 `BASE_RADIXES` 登记表。
   @Builder private radixSelect() {
     OptionSelect({
-      label: this.tr('输入进制', 'Input base'),
+      label: appText('base.input-base', this.english),
       options: this.radixOptions(),
       selectedIndex: radixIndex(this.radixId),
       selectedText: this.radixLabel(this.radixId),
-      a11yText: this.tr('选择输入的进制', 'Choose the base of the input'),
+      a11yText: appText('base.choose-the-base-of', this.english),
       onSelected: (index: number): void => {
         const option: RadixOption | undefined = BASE_RADIXES[index];
         if (option === undefined) { return; }
         this.radixId = option.id;
-        // 切换进制后原来的一串数字可能不再合法：卡片里也会写，这里再给一次一次性提示。
-        const parsed: RadixParse = parseRadix(this.input, option.radix);
-        if (!parsed.ok && this.input.trim().length > 0) {
-          this.onStatus(baseErrorText(parsed.error, this.english));
-        }
+        // 切换进制后原来的一串数字可能不再合法：卡片里会立刻显示行内错误
+        // （`parsedInput()` 驱动），**不再额外弹 toast**——同一份持续性错误只提示一次
+        // （口径见 AGENTS「错误态口径」）。
       }
     })
   }
@@ -125,7 +124,7 @@ export struct BasePage {
       }.layoutWeight(1)
       IconActionButton({
         icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-        a11yText: this.tr('复制', 'Copy') + this.valueLabel(kind),
+        a11yText: appText('action.copy', this.english) + this.valueLabel(kind),
         boxSize: 44, iconSize: 22, usable: this.rawValue(kind).length > 0,
         onTap: () => this.onCopy(this.rawValue(kind))
       })
@@ -186,9 +185,9 @@ export struct BasePage {
   }
 
   private bitwiseValueLabel(kind: string): string {
-    if (kind === 'dec') { return this.tr('十进制', 'Decimal'); }
-    if (kind === 'hex') { return this.tr('十六进制', 'Hexadecimal'); }
-    return this.tr('二进制', 'Binary');
+    if (kind === 'dec') { return appText('base.decimal', this.english); }
+    if (kind === 'hex') { return appText('base.hexadecimal', this.english); }
+    return appText('base.binary', this.english);
   }
 
   private bitwiseError(): string {
@@ -209,11 +208,11 @@ export struct BasePage {
 
   @Builder private opSelect() {
     OptionSelect({
-      label: this.tr('运算', 'Operation'),
+      label: appText('base.operation', this.english),
       options: this.opOptions(),
       selectedIndex: bitwiseOpIndex(this.opId),
       selectedText: this.opLabel(),
-      a11yText: this.tr('选择位运算', 'Choose a bitwise operation'),
+      a11yText: appText('base.choose-a-bitwise-operation', this.english),
       onSelected: (index: number): void => {
         const op: BitwiseOp | undefined = BITWISE_OPS[index];
         if (op !== undefined) { this.opId = op.id; }
@@ -249,8 +248,8 @@ export struct BasePage {
 
   private operandAccessibility(kind: string): string {
     const base: number = radixBase(this.operandRadix);
-    const which: string = kind === 'a' ? this.tr('第一个操作数', 'First operand')
-      : this.tr('第二个操作数', 'Second operand');
+    const which: string = kind === 'a' ? appText('base.first-operand', this.english)
+      : appText('base.second-operand', this.english);
     return which + this.tr('，' + base.toString() + ' 进制', ', base ' + base.toString());
   }
 
@@ -261,7 +260,7 @@ export struct BasePage {
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
         corner: 16, interactive: true
       }) {
-        TextInput({ text: this.input, placeholder: this.tr('输入数字', 'Enter a number') })
+        TextInput({ text: this.input, placeholder: appText('base.enter-a-number', this.english) })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
@@ -286,16 +285,16 @@ export struct BasePage {
         }.padding(16).width('100%')
       }
 
-      Text(this.tr('位运算（32 位无符号）', 'Bitwise (32-bit unsigned)'))
+      Text(appText('base.bitwise-32-bit-unsigned', this.english))
         .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 操作数进制：与上半部分的进制换算共用同一张 `BASE_RADIXES` 登记表（此前位运算只认十进制，
       // 想算 `0xFF & 0x0F` 得先自己换算，2026-10-20 审计 §3.5②）。
       OptionSelect({
-        label: this.tr('操作数进制', 'Operand base'),
+        label: appText('base.operand-base', this.english),
         options: this.radixOptions(),
         selectedIndex: radixIndex(this.operandRadix),
         selectedText: this.radixLabel(this.operandRadix),
-        a11yText: this.tr('位运算操作数的进制', 'Base of the bitwise operands'),
+        a11yText: appText('base.base-of-the-bitwise', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < BASE_RADIXES.length) { this.operandRadix = BASE_RADIXES[index].id; }
         }
@@ -314,8 +313,7 @@ export struct BasePage {
         this.bitwiseValueRow('hex')
         this.bitwiseValueRow('bin')
       }
-      Text(this.tr('操作数与结果均按 32 位无符号整数处理。',
-        'Operands and results are treated as 32-bit unsigned integers.'))
+      Text(appText('base.operands-and-results-are', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

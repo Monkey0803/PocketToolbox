@@ -98,6 +98,7 @@ export function importKeyLabel(key: string, english: boolean): string {
   if (key === 'anniversaries') { return english ? 'anniversaries' : '纪念日'; }
   if (key === 'fx_rates') { return english ? 'exchange-rate cache' : '汇率缓存'; }
   if (key === 'units_state') { return english ? 'converter state' : '单位换算状态'; }
+  if (key === 'doc_scan_state') { return english ? 'scanner options' : '扫描设置'; }
   if (key === 'language') { return english ? 'language' : '语言偏好'; }
   if (key === 'compass_unit') { return english ? 'compass unit' : '指南针单位'; }
   if (key === 'compass_declination') { return english ? 'compass declination' : '磁偏角'; }

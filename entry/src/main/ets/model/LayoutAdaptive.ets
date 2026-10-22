@@ -72,6 +72,30 @@ export const GRID_COLUMNS_LIMIT: number = 6;
  */
 export const MIN_CARD_WIDTH_VP: number = 150;
 
+/** 工具卡片基准高度（vp）：与 `Index.card()` 的固定高度一致，系统字体放大时按比例增高。 */
+export const CARD_HEIGHT_BASE_VP: number = 128;
+
+/**
+ * 卡片高度跟随字体缩放的**上限**。
+ *
+ * 系统字体最大可放大到 3.2 倍，但卡片若按满倍率长高，一屏只能放下一行、滚动成本远超收益；
+ * 1.75 倍能覆盖「大字体」无障碍档（1.3×/1.75×）里标题两行的常见需求，再大的字号由标题自身的
+ * `maxLines(2)` + 省略号兜底。**不要**改成无上限：Grid 单元格是固定高度，撑高即挤压整屏。
+ */
+export const CARD_FONT_SCALE_MAX: number = 1.75;
+
+/**
+ * 卡片高度（vp）：`基准 × clamp(fontScale, 1, CARD_FONT_SCALE_MAX)`，非法/取不到时按不放大。
+ *
+ * 为什么不用 `constraintSize({ minHeight })`：2026-10-20 实测 Grid 会把单元格拉满整行、卡片被撑到
+ * 约 3 倍高（审计 §3.26② 记过这个回归），所以高度必须由**这里算好的确定值**给出。
+ */
+export function cardHeightVp(fontScale: number): number {
+  const scale: number = (typeof fontScale === 'number' && Number.isFinite(fontScale) && fontScale > 1)
+    ? Math.min(fontScale, CARD_FONT_SCALE_MAX) : 1;
+  return Math.ceil(CARD_HEIGHT_BASE_VP * scale);
+}
+
 /** 窗口尺寸异常（未测量到、非有限值）时的兜底：按常规手机竖屏处理，避免出现 0 列/负边距。 */
 const FALLBACK_WIDTH_VP: number = 390;
 const FALLBACK_HEIGHT_VP: number = 844;
@@ -86,13 +110,17 @@ const FALLBACK_HEIGHT_VP: number = 844;
  * ① 操作手优先于持握手（用户滑屏的手才是要够到按钮的那只手）；
  * ② **宽窗口（MD 及以上）恒返回 0**：平板/展开态双手操作，控件跟着握姿跳来跳去反而更差；
  * ③ 两个信号都未知返回 0，调用方据此保持原布局（不能自己猜左右）；
- * ④ **`holdingFreezes`（系统明确报了「双手持握」或「未持握」）恒返回 0**——见下面那段理由。
+ * ④ **`holdingFreezes`（系统明确报了「双手持握」）恒返回 0**——见下面那段理由。
  *
- * 为什么双手持握要「冻结」而不是跟随操作手：双手持握（或设备平放在桌上）时**两侧一样好够**，
- * 跟随操作手没有任何够不着的收益，却会带来两个真实损失——用户交替用左右拇指时动作行左右横跳
- * （点完一下按钮就跑到另一边，破坏肌肉记忆），以及「按钮位置随我换手变来变去」的不确定感。
- * 注意它与「持握手未知（`holdingFreezes=false` 且 `holdingSide=0`）」是**两件事**：后者是设备没给
- * 握姿信息，这时仍要用操作手兜底（否则老设备/不支持的机型整个功能都失效）。
+ * 为什么双手持握要「冻结」而不是跟随操作手：双手持握时**两侧一样好够**，跟随操作手没有任何够不着的收益，
+ * 却会带来两个真实损失——用户交替用左右拇指时动作行左右横跳（点完一下按钮就跑到另一边，破坏肌肉记忆），
+ * 以及「按钮位置随我换手变来变去」的不确定感。
+ *
+ * **「未持握」（`NOT_HELD`，手机平放或立在桌面上用手指点）不冻结**（2026-10-22 用户决定，原先也冻结）：
+ * 这种形态下用户是单手来点按钮的，「水平仪 / 指南针把手机放着测」正是典型场景，按钮要靠到那只手边；
+ * 代价是平放时交替用左右手点会让按钮换边，用户明确选了这一侧。它与
+ * 「持握手未知（`holdingFreezes=false` 且 `holdingSide=0`）」仍是**两件事**：后者是设备没给握姿信息，
+ * 这时同样只能用操作手兜底（否则老设备/不支持的机型整个功能都失效）。
  */
 export function actionHandSide(operatingSide: number, holdingSide: number, widthBand: number,
   holdingFreezes: boolean = false): number {

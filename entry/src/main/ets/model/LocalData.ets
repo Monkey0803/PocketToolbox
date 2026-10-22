@@ -2,12 +2,11 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { allowedFavorites } from './ToolMeta';
 // `HistoryItem` 定义在纯逻辑 `HistoryKinds` 里（排序/置顶规则要能被单测加载）；这里只读写与字段归一。
-import { HistoryItem, normalizeHistoryItems } from './HistoryKinds';
+import { HistoryItem, HISTORY_MAX, normalizeHistoryItems } from './HistoryKinds';
 // 计时条数与时长上限的单一来源（纯逻辑，可测）：读写两侧都按它过滤/夹取。
 import { timerDurationWithinLimits, TIMER_MAX_COUNT } from './TimerMath';
 
-/** 历史条数上限：读写两侧共用（此前 50 这个字面量在 `getHistory`/`saveHistory` 各写一份）。 */
-const HISTORY_MAX: number = 50;
+/** 历史条数上限：读写两侧共用（单一来源在纯逻辑 `model/HistoryKinds.ets`，页面也引用它）。 */
 
 /**
  * 本应用在 `pocket_toolbox` 偏好库里用到的**全部**键（登记表）。
@@ -37,9 +36,15 @@ export const LOCAL_KEYS: string[] = [
   // 智感握姿开关（`model/HandPosture.ets` 的 `on`/`off`）。放进来才会被「清除本机数据」与
   // 导出/导入信封一起覆盖——设置类偏好漏登记过一次就会在清除后留下残留（见 AGENTS）。
   'hand_posture',
+  // 触觉反馈开关（`model/Haptics.ets` 的 `on`/`off`）。与握姿开关同一套口径：不登记就会在
+  // 「清除本机数据」后留下残留。
+  'haptic_feedback',
   // 工具页 / 收藏页「每行显示几个」（`model/GridColumns.ets` 的 `'auto'` 或 `'1'..'6'`），两页各自独立。
   'tools_columns',
-  'favorites_columns'
+  'favorites_columns',
+  // 文档扫描的默认滤镜与拍摄方式（`model/DocumentScan.ets` 的 `serializeDocScanState()`）。
+  // 与 `units_state` 同一口径：只存登记表 id，读取时逐个校验、非法回退默认值。
+  'doc_scan_state'
 ];
 
 /** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */

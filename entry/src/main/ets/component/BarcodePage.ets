@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { uiMaterial } from '@kit.ArkUI';
@@ -35,6 +36,11 @@ export struct BarcodePage {
   @Local barcodeResult: string = '';
   @Local barcodePixel: image.PixelMap | undefined = undefined;
   @Local barcodeBusy: boolean = false;
+  /**
+   * 生成相关的**持续性错误**（输入校验失败 / 本机生成能力不支持）：行内常驻显示，换码制或下次生成时清除；
+   * 一次性的成功/取消提示仍走 `onStatus`。
+   */
+  @Local genError: string = '';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
@@ -64,7 +70,9 @@ export struct BarcodePage {
     const kind: BarcodeKind = this.barcodeKind;
     let content: string | undefined = barcodeInput(kind, this.barcodeText);
     if (content === undefined) {
-      this.onStatus(barcodeErrorText(kind, this.english));
+      // 校验失败 / 本机生成能力不支持都是**持续性错误**：行内常驻显示，不再只弹一次性 toast
+      // （口径见 AGENTS「错误态口径」）；一次性的成功与取消提示仍走 `onStatus`。
+      this.genError = barcodeErrorText(kind, this.english);
       return;
     }
     this.barcodeBusy = true;
@@ -72,12 +80,14 @@ export struct BarcodePage {
       let pixel: image.PixelMap = await makeBarcode(content, kind);
       this.barcodePixel = pixel;
       this.barcodeResult = barcodeDisplayValue(kind, content);
-      this.onStatus(this.tr('条形码已生成', 'Barcode created'));
+      this.genError = '';
+      this.onStatus(appText('barcode.barcode-created', this.english));
     } catch (error) {
       // 已知错误码（如 804「能力不支持」）给可执行的下一步，其余保留原来的笼统提示——
       // 码图的失败码映射在纯逻辑 `ScanGenErrors.scanGenGuidanceText()`。
+      // 同一台设备上这类失败可复现，因此同样走行内常驻文案。
       const guidance: string = scanGenGuidanceText((error as BusinessError).code, this.english);
-      this.onStatus(guidance.length > 0 ? guidance : this.tr('生成条形码失败', 'Could not create barcode'));
+      this.genError = guidance.length > 0 ? guidance : appText('barcode.could-not-create-barcode', this.english);
     } finally { this.barcodeBusy = false; }
   }
 
@@ -86,11 +96,11 @@ export struct BarcodePage {
     this.barcodeBusy = true;
     try {
       let value: string = await scanOneDimensionalBarcode(this.ctx());
-      if (!value) { this.onStatus(this.tr('未识别到条形码', 'No barcode found')); return; }
+      if (!value) { this.onStatus(appText('barcode.no-barcode-found', this.english)); return; }
       this.barcodePixel = undefined;
       this.barcodeResult = value;
-      this.onStatus(this.tr('识别成功', 'Scan complete'));
-    } catch (_) { this.onStatus(this.tr('扫码已取消或不可用', 'Scan cancelled or unavailable')); }
+      this.onStatus(appText('scan.complete', this.english));
+    } catch (_) { this.onStatus(appText('scan.cancelled', this.english)); }
     finally { this.barcodeBusy = false; }
   }
 
@@ -101,12 +111,11 @@ export struct BarcodePage {
     try {
       let value: string = await decodeCodeFromImage(this.ctx());
       // 取消选图与「图里没有码」都返回空串：文案覆盖两种情况。
-      if (!value) { this.onStatus(this.tr('未识别到条码（或已取消选图）',
-        'No code found (or picking was cancelled)')); return; }
+      if (!value) { this.onStatus(appText('barcode.no-code-found-or', this.english)); return; }
       this.barcodePixel = undefined;
       this.barcodeResult = value;
-      this.onStatus(this.tr('识别成功', 'Scan complete'));
-    } catch (_) { this.onStatus(this.tr('选图已取消或不可用', 'Picking cancelled or unavailable')); }
+      this.onStatus(appText('scan.complete', this.english));
+    } catch (_) { this.onStatus(appText('scan.pickCancelled', this.english)); }
     finally { this.barcodeBusy = false; }
   }
 
@@ -114,14 +123,14 @@ export struct BarcodePage {
     if (!this.barcodePixel) { return; }
     try {
       let saved: boolean = await saveCodeImage(this.ctx(), this.barcodePixel, 'Barcode');
-      this.onStatus(saved ? this.tr('图片已保存', 'Image saved') : this.tr('已取消保存', 'Save cancelled'));
-    } catch (_) { this.onStatus(this.tr('保存已取消或失败', 'Save cancelled or failed')); }
+      this.onStatus(saved ? appText('scan.imageSaved', this.english) : appText('scan.saveCancelled', this.english));
+    } catch (_) { this.onStatus(appText('scan.saveFailed', this.english)); }
   }
 
   private async shareBarcodeImage(): Promise<void> {
     if (!this.barcodePixel) { return; }
     try { await shareCodeImage(this.ctx(), this.barcodePixel, 'barcode'); }
-    catch (_) { this.onStatus(this.tr('无法打开分享面板', 'Could not open sharing')); }
+    catch (_) { this.onStatus(appText('scan.shareFailed', this.english)); }
   }
 
   private async saveBarcodeToGallery(): Promise<void> {
@@ -129,24 +138,26 @@ export struct BarcodePage {
     this.barcodeBusy = true;
     try {
       let saved: boolean = await saveCodeToGallery(this.ctx(), this.barcodePixel);
-      this.onStatus(saved ? this.tr('已保存到相册', 'Saved to gallery') :
-        this.tr('已取消保存', 'Save cancelled'));
-    } catch (_) { this.onStatus(this.tr('保存到相册失败', 'Could not save to gallery')); }
+      this.onStatus(saved ? appText('barcode.saved-to-gallery', this.english) :
+        appText('scan.saveCancelled', this.english));
+    } catch (_) { this.onStatus(appText('barcode.could-not-save-to', this.english)); }
     finally { this.barcodeBusy = false; }
   }
 
   build() {
     Column({ space: 14 }) {
       OptionSelect({
-        label: this.tr('码制', 'Type'),
+        label: appText('barcode.type', this.english),
         options: this.kindOptions(),
         selectedIndex: this.kindIndex(),
         selectedText: this.kindLabel(),
-        a11yText: this.tr('条形码码制', 'Barcode type'),
+        a11yText: appText('barcode.barcode-type', this.english),
         onSelected: (index: number): void => {
           const entry: BarcodeKindEntry | undefined = BARCODE_KINDS[index];
           if (entry === undefined) { return; }
           this.barcodeKind = entry.id; this.barcodePixel = undefined; this.barcodeResult = '';
+          // 换码制后上一次的校验/能力错误不再适用，一并清掉（否则会挂着一个不相干的错误行）。
+          this.genError = '';
         }
       })
       Text(barcodeHint(this.barcodeKind, this.english))
@@ -158,7 +169,7 @@ export struct BarcodePage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.barcodeText, placeholder: this.tr('条形码内容', 'Barcode content') })
+        TextInput({ text: this.barcodeText, placeholder: appText('barcode.barcode-content', this.english) })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
@@ -169,45 +180,49 @@ export struct BarcodePage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.plus'), tintColor: ToolPalette.primary, usable: !this.barcodeBusy,
-          a11yText: this.tr('生成条形码', 'Create barcode'), onTap: () => this.generateBarcodeImage()
+          a11yText: appText('barcode.create-barcode', this.english), onTap: () => this.generateBarcodeImage()
         })
         // 二维码制下不挂「扫描一维码」入口：一维扫码器读不出 Data Matrix/PDF417/Aztec，
         // 这类码图是给其它设备扫的，留着按钮只会让人以为扫不动是坏了。
         if (!barcodeTwoDimensional(this.barcodeKind)) {
           IconActionButton({
             icon: $r('sys.symbol.barcode_viewfinder'), tintColor: ToolPalette.success, usable: !this.barcodeBusy,
-            a11yText: this.tr('扫描一维码或从相册选择', 'Scan a one-dimensional barcode or choose from gallery'),
+            a11yText: appText('barcode.scan-a-one-dimensional', this.english),
             onTap: () => this.scanBarcodeImage()
           })
         }
         // 图片识别对所有码制都可用（Scan Kit 的图片解码支持二维/一维，按 ALL 识别）
         IconActionButton({
           icon: $r('sys.symbol.picture'), tintColor: ToolPalette.accentPurple, usable: !this.barcodeBusy,
-          a11yText: this.tr('从相册图片识别条码', 'Read a barcode from a picture'),
+          a11yText: appText('barcode.read-a-barcode-from', this.english),
           onTap: () => this.decodeFromImage()
         })
       }.width('100%').justifyContent(this.actionAlign)
+      // 持续性错误行内常驻（校验失败 / 本机生成能力不支持），改输入后再生成即更新。
+      if (this.genError.length > 0) {
+        Text(this.genError).fontSize(14).fontColor(ToolPalette.danger).width('100%')
+      }
       if (this.barcodePixel) {
         Image(this.barcodePixel).width('100%').height(190).objectFit(ImageFit.Contain)
           .backgroundColor(Color.White).borderRadius(14)
         Row({ space: 8 }) {
           IconActionButton({
             icon: $r('sys.symbol.square_and_arrow_down'), tintColor: ToolPalette.primary,
-            a11yText: this.tr('保存条形码 PNG', 'Save barcode PNG'), onTap: () => this.saveBarcodeImage()
+            a11yText: appText('barcode.save-barcode-png', this.english), onTap: () => this.saveBarcodeImage()
           })
           IconActionButton({
             icon: $r('sys.symbol.picture'), tintColor: ToolPalette.success, usable: !this.barcodeBusy,
-            a11yText: this.tr('保存条形码到相册', 'Save barcode to gallery'),
+            a11yText: appText('barcode.save-barcode-to-gallery', this.english),
             onTap: () => this.saveBarcodeToGallery()
           })
           IconActionButton({
             icon: $r('sys.symbol.share'), tintColor: ToolPalette.accentPurple,
-            a11yText: this.tr('分享条形码', 'Share barcode'), onTap: () => this.shareBarcodeImage()
+            a11yText: appText('barcode.share-barcode', this.english), onTap: () => this.shareBarcodeImage()
           })
         }.width('100%').justifyContent(this.actionAlign)
       }
       if (this.barcodeResult) {
-        Text(this.tr('条形码内容', 'Barcode value')).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
+        Text(appText('barcode.barcode-value', this.english)).fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 14,
           lightEffect: true
@@ -217,7 +232,7 @@ export struct BarcodePage {
         Row() {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-            a11yText: this.tr('复制条形码内容', 'Copy barcode value'),
+            a11yText: appText('barcode.copy-barcode-value', this.english),
             onTap: () => this.onCopy(this.barcodeResult)
           })
         }.width('100%').justifyContent(this.actionAlign)

@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -65,14 +66,12 @@ export struct SciencePage {
 
   /** 收起状态下的一行摘要（完整说明见 `syntaxFull()`）。 */
   private syntaxSummary(): string {
-    return this.tr('支持 + − × ÷、括号、^ 幂、! 阶乘、mod 取模与常用函数，可省写乘号。',
-      'Supports + − × ÷, parentheses, ^ power, ! factorial, mod and common functions; the multiplication sign may be omitted.');
+    return appText('science.supports-parentheses-power-factorial', this.english);
   }
 
   /** 展开后的完整语法说明（点「完整语法说明」才显示）。 */
   private syntaxFull(): string {
-    return this.tr('支持 + − × ÷、括号、^ 幂、! 阶乘、mod 取模，sin/cos/tan/asin/acos/atan/双曲函数、ln/log/log2/exp/sqrt/cbrt/abs/取整，以及 hypot/gcd/lcm/min/max/ncr/npr 与常量 pi/e；可省写乘号（2pi、2(3+4)），支持 1e3 这类科学计数法，^ 右结合，三角函数按所选角度单位解释。',
-      'Supports + − × ÷, parentheses, ^ power, ! factorial, mod, sin/cos/tan/asin/acos/atan and hyperbolic functions, ln/log/log2/exp/sqrt/cbrt/abs/rounding, plus hypot/gcd/lcm/min/max/ncr/npr and the constants pi/e; the multiplication sign may be omitted (2pi, 2(3+4)) and scientific notation such as 1e3 is accepted; ^ is right-associative and trigonometry follows the selected angle unit.');
+    return appText('science.expression-help', this.english);
   }
 
   /** 设置行摘要：把当前角度与精度写进那一行，收起也能看见（与「完整语法说明」同一套整行入口）。 */
@@ -93,7 +92,7 @@ export struct SciencePage {
 
   /** 结果行文案：成功给数值、失败给双语原因（空输入时给占位提示）。 */
   private resultText(): string {
-    if (this.expression.trim().length === 0) { return this.tr('等待输入', 'Waiting for input'); }
+    if (this.expression.trim().length === 0) { return appText('science.waiting-for-input', this.english); }
     const computed: CalcResult = this.evaluation;
     if (computed.error.length === 0) { return formatResult(computed.value, this.precision); }
     return calcErrorText(computed.error, this.english);
@@ -112,7 +111,7 @@ export struct SciencePage {
   private memoryText(): string {
     const shown: string = memoryDisplayText(this.hasMemory, this.memory, this.precision);
     if (shown.length === 0) { return ''; }
-    return this.tr('内存 ', 'Memory ') + shown;
+    return appText('science.memory', this.english) + shown;
   }
 
   /**
@@ -160,7 +159,7 @@ export struct SciencePage {
   /** `Ans`：把上次结果作为因子插进表达式；还没有结果时给一句提示而不是静默不动。 */
   private insertAns(): void {
     if (!Number.isFinite(this.lastResult)) {
-      this.onStatus(this.tr('先算出一个结果，再用 Ans', 'Calculate a result first, then use Ans'));
+      this.onStatus(appText('science.calculate-a-result-first', this.english));
       return;
     }
     this.expression = insertValueAsFactor(this.expression, formatResult(this.lastResult, this.precision));
@@ -170,7 +169,7 @@ export struct SciencePage {
   private insertMemory(): void {
     const shown: string = memoryDisplayText(this.hasMemory, this.memory, this.precision);
     if (shown.length === 0) {
-      this.onStatus(this.tr('内存是空的', 'Memory is empty'));
+      this.onStatus(appText('science.memory-is-empty', this.english));
       return;
     }
     this.expression = insertValueAsFactor(this.expression, shown);
@@ -184,17 +183,17 @@ export struct SciencePage {
   private applyMemoryKey(id: string): void {
     if (id === 'mc') {
       if (!this.hasMemory) {
-        this.onStatus(this.tr('内存已经是空的', 'Memory is already empty'));
+        this.onStatus(appText('science.memory-is-already-empty', this.english));
         return;
       }
       this.memory = 0;
       this.hasMemory = false;
-      this.onStatus(this.tr('已清空内存', 'Memory cleared'));
+      this.onStatus(appText('science.memory-cleared', this.english));
       return;
     }
     if (id === 'mr') { this.insertMemory(); return; }
     if (!this.resultValid()) {
-      this.onStatus(this.tr('先算出一个结果，再存进内存', 'Calculate a valid result first'));
+      this.onStatus(appText('science.calculate-a-valid-result', this.english));
       return;
     }
     const value: number = this.evaluation.value;
@@ -219,7 +218,7 @@ export struct SciencePage {
     if (key.action === 'equals') {
       const next: string = equalsExpression(this.expression, this.angle, this.precision);
       if (next.length === 0) {
-        this.onStatus(this.tr('表达式还没算得出结果', 'Nothing to evaluate yet'));
+        this.onStatus(appText('science.nothing-to-evaluate-yet', this.english));
         return;
       }
       this.expression = next;
@@ -228,14 +227,14 @@ export struct SciencePage {
 
   @Builder private angleSelect() {
     OptionSelect({
-      label: this.tr('角度', 'Angle'),
+      label: appText('science.angle', this.english),
       options: ANGLE_UNITS.map((entry: AngleEntry): SelectOption => {
         const option: SelectOption = { value: this.english ? entry.en : entry.zh };
         return option;
       }),
       selectedIndex: angleIndex(this.angle),
       selectedText: angleLabel(this.angle, this.english),
-      a11yText: this.tr('三角函数的单位', 'Angle unit for trigonometry'),
+      a11yText: appText('science.angle-unit-for-trigonometry', this.english),
       onSelected: (index: number): void => {
         if (index >= 0 && index < ANGLE_UNITS.length) { this.angle = ANGLE_UNITS[index].id; }
       }
@@ -244,14 +243,14 @@ export struct SciencePage {
 
   @Builder private precisionSelect() {
     OptionSelect({
-      label: this.tr('精度', 'Precision'),
+      label: appText('field.precision', this.english),
       options: PRECISION_OPTIONS.map((value: number): SelectOption => {
         const option: SelectOption = { value: this.precisionLabel(value) };
         return option;
       }),
       selectedIndex: PRECISION_OPTIONS.indexOf(this.precision),
       selectedText: this.precisionLabel(this.precision),
-      a11yText: this.tr('结果的有效数字位数', 'Significant digits of the result'),
+      a11yText: appText('science.significant-digits-of-the', this.english),
       onSelected: (index: number): void => {
         if (index >= 0 && index < PRECISION_OPTIONS.length) { this.precision = PRECISION_OPTIONS[index]; }
       }
@@ -279,12 +278,12 @@ export struct SciencePage {
   private entryAccessibility(kind: string): string {
     if (kind === 'settings') {
       return this.showSettings
-        ? this.tr('收起角度与精度设置', 'Hide angle and precision settings')
-        : this.tr('展开角度与精度设置', 'Show angle and precision settings');
+        ? appText('science.hide-angle-and-precision', this.english)
+        : appText('science.show-angle-and-precision', this.english);
     }
     return this.showSyntax
-      ? this.tr('收起完整语法说明', 'Hide the full syntax help')
-      : this.tr('展开完整语法说明', 'Show the full syntax help');
+      ? appText('science.hide-the-full-syntax', this.english)
+      : appText('science.show-the-full-syntax', this.english);
   }
 
   /**
@@ -296,7 +295,7 @@ export struct SciencePage {
    */
   private entryTitle(kind: string): string {
     if (kind === 'settings') { return this.settingsSummary(); }
-    return this.tr('完整语法说明', 'Full syntax help');
+    return appText('science.full-syntax-help', this.english);
   }
 
   private entryExpanded(kind: string): boolean {
@@ -326,7 +325,7 @@ export struct SciencePage {
       Column({ space: 10 }) {
         // 预览行：把 `*` `/` `-` 润色成 `×` `÷` `−`，让屏幕上的算式与键面符号一致（只显示，不写回）
         if (this.prettyText().length > 0) {
-          Text(this.tr('正在计算 ', 'Computing ') + this.prettyText())
+          Text(appText('science.computing', this.english) + this.prettyText())
             .fontSize(14).fontColor(ToolPalette.textSecondary)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         }
@@ -334,23 +333,23 @@ export struct SciencePage {
         Text(this.resultText()).fontSize(32).fontWeight(FontWeight.Bold)
           .fontColor(this.resultValid() ? ToolPalette.textPrimary : ToolPalette.textMuted)
           .width('100%')
-          .accessibilityText(this.tr('结果 ', 'Result ') + this.resultText())
+          .accessibilityText(appText('science.result', this.english) + this.resultText())
         if (this.resultValid()) {
           Row({ space: 8 }) {
             IconActionButton({
               icon: $r('sys.symbol.arrow_down_to_line'), tintColor: ToolPalette.primary,
               // 没有光标跟踪，只能整串替换：把结果追加到已有表达式后面会与数字粘成一个字面量（`2^100` + `1.26e+30`）
-              a11yText: this.tr('用结果替换表达式', 'Replace the expression with the result'),
+              a11yText: appText('science.replace-the-expression-with', this.english),
               onTap: () => { this.expression = formatResult(this.evaluation.value, this.precision); }
             })
             IconActionButton({
               icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-              a11yText: this.tr('复制结果', 'Copy the result'),
+              a11yText: appText('science.copy-the-result', this.english),
               onTap: () => this.onCopy(formatResult(this.evaluation.value, this.precision))
             })
             IconActionButton({
               icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-              a11yText: this.tr('清空表达式', 'Clear the expression'),
+              a11yText: appText('science.clear-the-expression', this.english),
               onTap: () => { this.expression = ''; }
             })
           }.width('100%').justifyContent(this.actionAlign)
@@ -438,7 +437,7 @@ export struct SciencePage {
       // 3) 更多函数与内存（主键盘放不下的 25 个函数 + 内存键）：标题固定，不随展开变成「收起更多函数」
       Button() {
         Row({ space: 8 }) {
-          Text(this.tr('更多函数与内存键', 'More functions and memory keys'))
+          Text(appText('science.more-functions-and-memory', this.english))
             .fontSize(15).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary).layoutWeight(1)
           SymbolGlyph(this.showMore ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
             .fontSize(20).fontColor([ToolPalette.primaryDeep])
@@ -447,8 +446,8 @@ export struct SciencePage {
       .width('100%').height(48).padding({ left: 16, right: 16 })
       .backgroundColor(ToolPalette.surface).borderRadius(12)
       .accessibilityText(this.showMore
-        ? this.tr('收起更多函数与内存键', 'Hide more functions and memory keys')
-        : this.tr('展开更多函数与内存键', 'Show more functions and memory keys'))
+        ? appText('science.hide-more-functions-and', this.english)
+        : appText('science.show-more-functions-and', this.english))
       .onClick(() => { this.showMore = !this.showMore; })
       if (this.showMore) {
         this.morePanel()
@@ -465,8 +464,7 @@ export struct SciencePage {
       if (this.showSyntax) {
         Text(this.syntaxFull()).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
-        Text(this.tr('求值只在本机进行，不上传任何数据。',
-          'Evaluation happens on this device; nothing is uploaded.'))
+        Text(appText('science.evaluation-happens-on-this', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
       .width('100%')

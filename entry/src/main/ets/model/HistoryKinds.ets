@@ -5,6 +5,7 @@
  * - `generated` / `scanned`：二维码生成与扫码（历史最久的两个类别）
  * - `text` / `units` / `timestamp` / `calculator` / `random`：文本工具、单位换算、时间戳、折扣与均摊、
  *   随机选择的**复制结果**
+ * - `ocr`：文档扫描「提取文字」的复制结果（回填进文本工具，见 `historyTargetRoute()`）
  *
  * 展示规则也在本文件：类别筛选、关键字搜索、时间标签、内容截断，以及「点条目跳回哪个工具、回填什么」。
  *
@@ -35,7 +36,10 @@ export const HISTORY_KINDS: HistoryKindEntry[] = [
   new HistoryKindEntry('units', '换算结果', 'Conversion', true),
   new HistoryKindEntry('timestamp', '时间戳', 'Timestamp', true),
   new HistoryKindEntry('calculator', '计算结果', 'Calculation', true),
-  new HistoryKindEntry('random', '随机结果', 'Random result', true)
+  new HistoryKindEntry('random', '随机结果', 'Random result', true),
+  // 文档扫描的「提取文字」结果（`DocumentsPage` 复制时写入）。它记的是**文本**，因此点条目回填进
+  // 文本工具（见 `historyTargetRoute()`）——与 `text` 的区别只在来源，方便用户在历史里筛出来。
+  new HistoryKindEntry('ocr', '扫描文字', 'Scan text', true)
 ];
 
 /** 筛选下拉用的类别（含「全部」）。 */
@@ -79,6 +83,8 @@ export function historyItemShown(kind: string, content: string, filter: string, 
 export function historyTargetRoute(kind: string): string {
   if (kind === 'generated' || kind === 'scanned') { return 'qr'; }
   if (kind === 'text') { return 'text'; }
+  // 扫描取字的结果就是一段文本：回填进文本工具可以接着整理、去重、编码，比停在展示页有用。
+  if (kind === 'ocr') { return 'text'; }
   if (kind === 'timestamp') { return 'timestamp'; }
   return '';
 }
@@ -150,6 +156,14 @@ export function historyDeleteFilteredConfirmText(count: number, english: boolean
 // ---------------------------------------------------------------------------
 
 /**
+ * 历史记录条数上限（单一来源）。
+ *
+ * 读写两侧（`LocalData.getHistory()/saveHistory()`）与页面（`Index.addHistoryItem()`）都引用它，
+ * 不要再各写一份 `50`——上限一改就会出现「写进去、读不到、文件里还留着」的条目。
+ */
+export const HISTORY_MAX: number = 50;
+
+/**
  * 历史条目。
  *
  * 定义在纯逻辑文件里（而不是含 `@kit` 依赖的 `model/LocalData.ets`），这样排序与置顶规则可以
@@ -165,50 +179,106 @@ export class HistoryItem {
 }
 
 /**
- * 历史条目的**唯一归一化入口**：丢弃不可用条目 → 置顶优先排序 → 截断到 `max`。
+ * 历史条目的**唯一归一化入口**：丢弃不可用条目 → 截断到 `max`（**保持数组顺序**）。
  *
- * 读写两侧共用同一条规则。第 26 轮自查发现读侧（`LocalData.getHistory()`）此前只
- * `filter(...).slice(0, 50)`、**没有先排序**：正常路径上存储里已经是排好序的，所以看不出来；
- * 但导入一份「未排序且超过 50 条」的备份时，落在后面的置顶条目会被静默丢掉——与第 24 轮
- * 纪念日那处「读侧截断没考虑写侧语义」是同一类缺陷。
+ * 顺序口径（2026-10-21 起与收藏页完全一致）：**数组顺序就是显示顺序**。置顶不再靠「显示时排序」
+ * 实现，而是靠写入口维持不变量——置顶时把条目移到头部（`withToggledPin`）、新记录插到置顶区之后
+ * （`insertHistory`），因此「置顶条目排在最前」自然成立，同时用户用排序模式拖拽出来的顺序也能被保存。
  *
- * `max` 非法（非正数）时只做归一化与排序，不截断。
+ * 截断仍然**保护置顶条目**：超出上限时丢掉的是**时间最旧的未置顶条目**，而不是数组尾部（否则一份
+ * 「顺序被打乱且超过上限」的备份会把排在后面的置顶条目挤掉——第 26 轮自查修过这条）。
+ *
+ * 读写两侧共用同一条规则。`max` 非法（非正数）时只做归一化，不截断。
  */
 export function normalizeHistoryItems(items: HistoryItem[], max: number): HistoryItem[] {
   const usable: HistoryItem[] = items.filter((item: HistoryItem): boolean =>
     typeof item.id === 'string' && item.id.length > 0 &&
     typeof item.content === 'string' && item.content.length > 0);
-  const sorted: HistoryItem[] = pinnedFirst(usable);
-  if (!Number.isFinite(max) || max < 1) { return sorted; }
-  return sorted.slice(0, Math.floor(max));
+  if (!Number.isFinite(max) || max < 1) { return usable; }
+  const limit: number = Math.floor(max);
+  if (usable.length <= limit) { return usable; }
+  // 需要丢掉 (usable.length - limit) 条：只从未置顶条目里挑「时间最旧」的那些，且**不改变其余条目的相对顺序**。
+  const removable: HistoryItem[] = usable.filter((item: HistoryItem): boolean => !item.pinned)
+    .slice()
+    .sort((first: HistoryItem, second: HistoryItem): number => first.createdAt - second.createdAt);
+  const drop: Set<string> = new Set<string>();
+  for (let index: number = 0; index < removable.length && drop.size < usable.length - limit; index++) {
+    drop.add(removable[index].id);
+  }
+  return usable.filter((item: HistoryItem): boolean => !drop.has(item.id)).slice(0, limit);
 }
 
 /**
- * 置顶优先、其余按时间倒序（新的在前）；不修改入参顺序。
+ * 插一条新记录并归一化到 `max`。
  *
- * 与收藏页同一套口径：**顺序就是显示顺序**，因此排序结果同时用于渲染与落盘，
- * 这样置顶条目不会因为 50 条上限被新记录挤掉。
+ * 位置口径：**插在最后一条置顶条目之后**（没有置顶条目就是数组最前）——这既保证「置顶条目始终在
+ * 最前」，又让新记录在未置顶区里保持「新的在前」的直觉；用户拖拽出来的相对顺序不受影响。
  */
-export function pinnedFirst(items: HistoryItem[]): HistoryItem[] {
+export function insertHistory(items: HistoryItem[], item: HistoryItem, max: number): HistoryItem[] {
   const copy: HistoryItem[] = items.slice();
-  copy.sort((first: HistoryItem, second: HistoryItem): number => {
-    if (first.pinned !== second.pinned) { return first.pinned ? -1 : 1; }
-    return second.createdAt - first.createdAt;
-  });
+  let insertAt: number = 0;
+  for (let index: number = 0; index < copy.length; index++) {
+    if (copy[index].pinned) { insertAt = index + 1; }
+  }
+  copy.splice(insertAt, 0, item);
+  return normalizeHistoryItems(copy, max);
+}
+
+/**
+ * 拖拽换位（与收藏页 `moveFavorite()` 同一套 `insertIndex` 语义）：先摘除，再插到夹取后的落点。
+ *
+ * 越界/非整数下标原样返回一份副本：界面传进来的下标来自 ArkUI，不做猜测。
+ */
+export function moveHistory(items: HistoryItem[], from: number, to: number): HistoryItem[] {
+  const copy: HistoryItem[] = items.slice();
+  if (!Number.isInteger(from) || !Number.isInteger(to)) { return copy; }
+  if (from < 0 || from >= copy.length) { return copy; }
+  const moved: HistoryItem[] = copy.splice(from, 1);
+  const target: number = Math.max(0, Math.min(copy.length, to));
+  copy.splice(target, 0, moved[0]);
   return copy;
 }
 
-/** 切换某条的置顶状态；id 不存在时原样返回一份副本（不修改入参数组本身）。 */
+/**
+ * 切换某条的置顶状态，并维持「置顶条目在最前」的不变量。
+ *
+ * - 置顶：移到**数组最前**（与收藏页的「置顶」同一观感）；
+ * - 取消置顶：落到**最后一条置顶条目之后**（不是原地不动——否则会夹在其它置顶条目中间，看起来像没生效）。
+ *
+ * id 不存在时原样返回一份副本（不修改入参数组本身）。
+ */
 export function withToggledPin(items: HistoryItem[], id: string): HistoryItem[] {
   const copy: HistoryItem[] = items.slice();
-  for (let index: number = 0; index < copy.length; index++) {
-    if (copy[index].id === id) {
-      copy[index].pinned = !copy[index].pinned;
-      break;
-    }
+  const index: number = copy.findIndex((item: HistoryItem): boolean => item.id === id);
+  if (index < 0) { return copy; }
+  const target: HistoryItem = copy[index];
+  const pinned: boolean = !target.pinned;
+  const moved: HistoryItem[] = copy.splice(index, 1);
+  if (pinned) {
+    moved[0].pinned = true;
+    copy.unshift(moved[0]);
+    return copy;
   }
+  moved[0].pinned = false;
+  let insertAt: number = 0;
+  for (let cursor: number = 0; cursor < copy.length; cursor++) {
+    if (copy[cursor].pinned) { insertAt = cursor + 1; }
+  }
+  copy.splice(insertAt, 0, moved[0]);
   return copy;
 }
+
+/**
+ * 列表展示用的条目：按筛选与搜索过滤，**保持数组顺序**。
+ *
+ * 与 `normalizeHistoryItems()` 同一口径（顺序即显示顺序），因此拖拽排序在筛选/搜索视图里
+ * 也不会和存储顺序打架（历史页在排序模式下只展示完整列表，见 `HistoryPage`）。
+ */
+export function historyShownItems(items: HistoryItem[], filter: string, query: string): HistoryItem[] {
+  return items.filter((item: HistoryItem): boolean =>
+    historyItemShown(item.kind, item.content, filter, query));
+}
+
 
 /** 该条目当前是否置顶（未知 id 返回 false，界面据此决定菜单文案）。 */
 export function historyItemPinned(items: HistoryItem[], id: string): boolean {

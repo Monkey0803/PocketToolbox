@@ -136,6 +136,33 @@ export function zoneDateTimeText(instant: number, offsetMinutes: number): string
     ' ' + pad2(shifted.getUTCHours()) + ':' + pad2(shifted.getUTCMinutes()) + ':' + pad2(shifted.getUTCSeconds());
 }
 
+/**
+ * 把某一瞬间按给定时区偏移换算成该时区的 `YYYY-MM-DD`（日期工具用它算「今天」）。
+ *
+ * 与 `zoneDateTimeText()` 同一实现口径（先加偏移、再取 UTC 字段），偏移非法/瞬间非法时返回空串，
+ * **不要回退成本机日期**——调用方据此走「不支持该时区」的说明，而不是悄悄按本机算。
+ */
+export function zonedDateText(instant: number, offsetMinutes: number): string {
+  const text: string = zoneDateTimeText(instant, offsetMinutes);
+  return text.length === 0 ? '' : text.substring(0, 10);
+}
+
+/**
+ * 日期工具「按所选时区算今天」的说明行；本机时区或日期为空时返回空串（不占界面空间）。
+ */
+export function dateZoneNoteText(zoneId: string, todayText: string, english: boolean): string {
+  if (zoneId === LOCAL_ZONE_ID || todayText.length === 0) { return ''; }
+  const label: string = timeZoneLabel(zoneId, english);
+  return english ? 'Today in ' + label + ': ' + todayText : '按 ' + label + ' 计算：今天是 ' + todayText;
+}
+
+/** 系统给不出该时区偏移时的说明（如实说「仍按本机」，而不是假装换算过）。 */
+export function dateZoneUnsupportedText(english: boolean): string {
+  return english
+    ? 'This device does not report that time zone; dates still use local time.'
+    : '当前设备不支持该时区，日期仍按本机计算。';
+}
+
 /** 与本机时区的快慢文案：`与本机相同` / `比本机快 12 小时` / `比本机慢 5 小时 30 分钟`。 */
 export function offsetDiffText(targetMinutes: number, localMinutes: number, english: boolean): string {
   if (!Number.isFinite(targetMinutes) || !Number.isFinite(localMinutes)) { return ''; }

@@ -11,8 +11,11 @@ import { HolidayTable, parseHolidayIcs } from '../model/HolidayIcs';
 import { netErrorText } from '../model/NetworkTools';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_OPTIONS, LanguageOption, languagePreferenceAt,
   languagePreferenceIndex, languagePreferenceLabel } from '../model/LanguagePreference';
+// 固定文案（设置页区名）集中登记，见 `model/AppStrings.ets`（2026-10-21 C 项「文案外置」第一批）。
+import { appText } from '../model/AppStrings';
 import { InfoRow, appVersionText, deviceInfoRows } from '../services/DeviceInfo';
 import { handPostureA11yText, handPostureNoteText, handPostureTitleEn, handPostureTitleZh } from '../model/HandPosture';
+import { hapticA11yText, hapticNoteText, hapticTitleEn, hapticTitleZh } from '../model/Haptics';
 import { loadHolidayTable, readCachedIcs } from '../services/HolidayData';
 import { HolidayUpdateOutcome, updateHolidayData } from '../services/HolidayUpdate';
 
@@ -34,6 +37,10 @@ export struct SettingsPage {
   @Param handPosture: boolean = true;
   @Param handPostureSupported: boolean = false;
   @Event onHandPostureChange: (enabled: boolean) => void = () => {};
+  // 触觉反馈：开关状态与「本机是否提供振动能力」同样由父组件给（`canIUse('...MiscDevice')`）。
+  @Param hapticFeedback: boolean = true;
+  @Param hapticSupported: boolean = false;
+  @Event onHapticFeedbackChange: (enabled: boolean) => void = () => {};
   // 智感握姿：「清空历史 / 清除本机数据 / 导出 / 导入」数据动作行靠向正在操作的手；
   // 取不到握姿时保持原样（贴左）。顺序不变，「清除本机数据」仍有系统确认框。
   @Param actionAlign: FlexAlign = FlexAlign.Start;
@@ -77,22 +84,22 @@ export struct SettingsPage {
     if (!this.dataReady) { return; }
     try {
       this.getUIContext().showAlertDialog({
-        title: this.tr('清空历史记录', 'Clear all history'),
+        title: appText('dialog.clearTitle', this.english),
         // 与历史页**共用同一份**文案（`HistoryKinds.historyClearConfirmText`）：两处各写一句时，
         // 第 58 轮查到设置页这半边英文在 count=1 时会写出 “1 history entries”（是我第 52 轮新加时带进来的）。
         message: historyClearConfirmText(this.historyCount, this.english),
         primaryButton: {
-          value: this.tr('取消', 'Cancel'),
+          value: appText('dialog.cancel', this.english),
           action: () => {}
         },
         secondaryButton: {
-          value: this.tr('清空', 'Clear'),
+          value: appText('dialog.clear', this.english),
           fontColor: ToolPalette.danger,
           action: () => this.onClearHistory()
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开确认框', 'Could not open the confirmation dialog'));
+      this.onStatus(appText('dialog.noConfirm', this.english));
     }
   }
 
@@ -106,23 +113,20 @@ export struct SettingsPage {
     if (!this.dataReady) { return; }
     try {
       this.getUIContext().showAlertDialog({
-        title: this.tr('清除本机数据', 'Erase on-device data'),
-        message: this.tr(
-          '将删除历史记录、收藏及顺序、计时器与秒表、纪念日、汇率缓存，并把单位、语言与「工具/收藏页每行显示几个」偏好恢复为默认。此操作不可撤销。',
-          'This deletes history, favourites and their order, timers and stopwatch, anniversaries and the rate ' +
-          'cache, and resets unit, language and per-row preferences to defaults. It cannot be undone.'),
+        title: appText('dialog.eraseTitle', this.english),
+        message: appText('settings.eraseMessage', this.english),
         primaryButton: {
-          value: this.tr('取消', 'Cancel'),
+          value: appText('dialog.cancel', this.english),
           action: () => {}
         },
         secondaryButton: {
-          value: this.tr('清除', 'Erase'),
+          value: appText('dialog.erase', this.english),
           fontColor: ToolPalette.danger,
           action: () => this.onClearAllData()
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开确认框', 'Could not open the confirmation dialog'));
+      this.onStatus(appText('dialog.noConfirm', this.english));
     }
   }
 
@@ -149,8 +153,8 @@ export struct SettingsPage {
    */
   private versionFooterText(): string {
     const version: string = appVersionText();
-    if (version.length === 0) { return this.tr('离线优先的工具箱', 'An offline-first toolbox'); }
-    return this.tr('版本 ', 'Version ') + version + this.tr(' · 离线优先', ' · offline-first');
+    if (version.length === 0) { return appText('about.tagline', this.english); }
+    return appText('about.versionPrefix', this.english) + version + appText('about.versionSuffix', this.english);
   }
 
   /**
@@ -163,16 +167,13 @@ export struct SettingsPage {
     if (!this.dataReady) { return; }
     try {
       this.getUIContext().showAlertDialog({
-        title: this.tr('导入本机数据', 'Import on-device data'),
-        message: this.tr(
-          '请选择之前由本应用导出的备份文件。文件里出现过的项会覆盖本机同名数据，其余数据保持不变；此操作不可撤销。',
-          'Choose a backup file previously exported by this app. Items present in the file overwrite the ' +
-          'matching on-device data; everything else stays as it is. This cannot be undone.'),
-        primaryButton: { value: this.tr('取消', 'Cancel'), action: () => {} },
-        secondaryButton: { value: this.tr('选择文件', 'Choose file'), action: () => this.onImportData() }
+        title: appText('dialog.importDataTitle', this.english),
+        message: appText('settings.importMessage', this.english),
+        primaryButton: { value: appText('dialog.cancel', this.english), action: () => {} },
+        secondaryButton: { value: appText('dialog.chooseFile', this.english), action: () => this.onImportData() }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开确认框', 'Could not open the confirmation dialog'));
+      this.onStatus(appText('dialog.noConfirm', this.english));
     }
   }
 
@@ -186,17 +187,13 @@ export struct SettingsPage {
     if (!this.dataReady) { return; }
     try {
       this.getUIContext().showAlertDialog({
-        title: this.tr('导出本机数据', 'Export on-device data'),
-        message: this.tr(
-          '将把历史记录、收藏及顺序、计时器与秒表、纪念日、汇率缓存、单位与语言偏好、工具与收藏页每行显示几个打包成一个 JSON 文件，保存在你选择的位置。不会上传到任何服务器。',
-          'Packages history, favourites and their order, timers and stopwatch, anniversaries, the rate cache, ' +
-          'unit and language preferences, and the per-row settings of the tools and favourites tabs into one ' +
-          'JSON file saved wherever you choose. Nothing is uploaded.'),
-        primaryButton: { value: this.tr('取消', 'Cancel'), action: () => {} },
-        secondaryButton: { value: this.tr('导出', 'Export'), action: () => this.onExportData() }
+        title: appText('dialog.exportDataTitle', this.english),
+        message: appText('settings.exportMessage', this.english),
+        primaryButton: { value: appText('dialog.cancel', this.english), action: () => {} },
+        secondaryButton: { value: appText('dialog.export', this.english), action: () => this.onExportData() }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开确认框', 'Could not open the confirmation dialog'));
+      this.onStatus(appText('dialog.noConfirm', this.english));
     }
   }
 
@@ -223,7 +220,7 @@ export struct SettingsPage {
   // 取不到日期时显示「随包数据」/`Bundled data` 占位，而不是假装有一个日期。
   private holidayDateText(): string {
     if (this.holidayTable.loaded && this.holidayUpdatedAt !== '') { return this.holidayUpdatedAt; }
-    return this.tr('随包数据', 'Bundled data');
+    return appText('settings.holidayBundled', this.english);
   }
 
   // 用户显式触发：一次 GET，校验通过才落盘；失败保留随包数据，提示里说清这一点。
@@ -240,21 +237,20 @@ export struct SettingsPage {
     this.holidayUpdating = false;
     if (outcome.ok) {
       await this.refreshHolidayTable();
-      this.onStatus(this.tr('节假日数据已更新', 'Holiday data updated'));
+      this.onStatus(appText('settings.holidayUpdated', this.english));
       return;
     }
     const reason: string = netErrorText(outcome.error, this.english);
     // `stale` 不是网络错误：远端给的是比本地更早的快照，如实说明并保留本地数据。
     if (outcome.error === 'stale') {
-      this.onStatus(this.tr('远端数据比本地更旧，已保留当前数据',
-        'Remote data is older than the local copy; keeping the current data'));
+      this.onStatus(appText('settings.staleHoliday', this.english));
       return;
     }
     if (reason === '') {
-      this.onStatus(this.tr('更新失败，仍使用随包数据', 'Update failed; still using bundled data'));
+      this.onStatus(appText('settings.holidayFailed', this.english));
       return;
     }
-    this.onStatus(reason + this.tr('，仍使用随包数据', '; still using bundled data'));
+    this.onStatus(reason + appText('settings.holidayStillBundled', this.english));
   }
 
   /**
@@ -289,7 +285,7 @@ export struct SettingsPage {
   // 行内文字（日期、无障碍名）都必须在构建函数体内现取，不能当 `@Builder` 参数传进去。
   @Builder private holidaySection() {
     Column({ space: 10 }) {
-      Text(this.tr('节假日数据', 'Holiday data')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('settings.holiday', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel,
         fallback: ToolPalette.surface, corner: 16,
@@ -297,19 +293,18 @@ export struct SettingsPage {
       }) {
         Column({ space: 8 }) {
           Row({ space: 12 }) {
-            Text(this.tr('当前数据日期', 'Current data date')).fontSize(13)
+            Text(appText('settings.holidayDate', this.english)).fontSize(13)
               .fontColor(ToolPalette.textMuted).layoutWeight(1)
             Text(this.holidayDateText()).fontSize(15).fontWeight(FontWeight.Medium)
               .fontColor(ToolPalette.textPrimary)
             IconActionButton({
               icon: $r('sys.symbol.cloud_and_arrow_down'), tintColor: ToolPalette.primary,
-              a11yText: this.tr('检查节假日数据更新', 'Check for holiday data updates'),
+              a11yText: appText('settings.holidayCheckA11y', this.english),
               usable: !this.holidayUpdating,
               onTap: () => { this.checkHolidayUpdate(); }
             })
           }.width('100%')
-          Text(this.tr('更新只在你点击时发起；失败时保留随包数据。',
-            'Updates start only when you tap; the bundled data is kept on failure.'))
+          Text(appText('settings.holidayNote', this.english))
             .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         }.padding(16).width('100%')
       }
@@ -329,7 +324,7 @@ export struct SettingsPage {
    */
   @Builder private interactionSection() {
     Column({ space: 10 }) {
-      Text(this.tr('操作方式', 'Interaction')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('settings.interaction', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel,
         fallback: ToolPalette.surface, corner: 16,
@@ -348,6 +343,21 @@ export struct SettingsPage {
               .accessibilityText(handPostureA11yText(this.handPosture, this.english))
               .onChange((value: boolean) => this.onHandPostureChange(value))
           }.width('100%')
+          // 触觉反馈：与握姿开关同处一张卡（都是「操作方式」），但**互不影响**——握姿关掉后
+          // 震动仍然按本开关执行。本机没有马达时禁用开关并如实说明。
+          Divider().color(ToolPalette.borderSoft)
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text(this.tr(hapticTitleZh(), hapticTitleEn()))
+                .fontSize(16).fontColor(ToolPalette.textPrimary).width('100%')
+              Text(hapticNoteText(this.hapticFeedback, this.hapticSupported, this.english))
+                .fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.hapticFeedback })
+              .enabled(this.hapticSupported)
+              .accessibilityText(hapticA11yText(this.hapticFeedback, this.english))
+              .onChange((value: boolean) => this.onHapticFeedbackChange(value))
+          }.width('100%')
         }.padding(16).width('100%')
       }
     }.width('100%')
@@ -355,7 +365,7 @@ export struct SettingsPage {
 
   @Builder private deviceSection() {
     Column({ space: 10 }) {
-      Text(this.tr('设备信息', 'Device info')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('settings.device', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel,
         fallback: ToolPalette.surface, corner: 16,
@@ -365,8 +375,7 @@ export struct SettingsPage {
           ForEach(this.infoRows, (row: InfoRow) => {
             this.infoLine(row.zh, row.en, row.value)
           }, (row: InfoRow) => row.zh + row.value)
-          Text(this.tr('这些信息只在本机读取并显示，不写入存储、不联网。',
-            'Read and shown on this device only; nothing is stored or uploaded.'))
+          Text(appText('settings.deviceNote', this.english))
             .fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
         }.padding(16).width('100%')
       }
@@ -384,19 +393,19 @@ export struct SettingsPage {
    */
   @Builder private aboutSection() {
     Column({ space: 10 }) {
-      Text(this.tr('关于', 'About')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('settings.about', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel,
         fallback: ToolPalette.surface, corner: 16, lightEffect: true
       }) {
         Column({ space: 8 }) {
           Row({ space: 12 }) {
-            Text(this.tr('隐私政策', 'Privacy policy')).fontSize(15)
+            Text(appText('settings.privacy', this.english)).fontSize(15)
               .fontColor(ToolPalette.textPrimary).layoutWeight(1)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([ToolPalette.textMuted])
           }
           .width('100%').height(44)
-          .accessibilityText(this.tr('打开隐私政策', 'Open the privacy policy'))
+          .accessibilityText(appText('settings.privacyOpenA11y', this.english))
           .onClick(() => { this.openPrivacyPolicy(); })
           Text(privacyEntryNoteText(this.english))
             .fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
@@ -408,7 +417,7 @@ export struct SettingsPage {
               Text(PRIVACY_POLICY_URL.trim()).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
               IconActionButton({
                 icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-                a11yText: this.tr('复制隐私政策地址', 'Copy the privacy policy address'),
+                a11yText: appText('settings.privacyCopyA11y', this.english),
                 boxSize: 44, iconSize: 22, usable: true,
                 onTap: () => this.onCopy(PRIVACY_POLICY_URL.trim())
               })
@@ -445,21 +454,21 @@ export struct SettingsPage {
     })
     .enabled(this.iconReady && !this.iconBusy)
     .accessibilityText(this.tr(zh, en) + (this.iconReady && this.activeIconName === name ?
-      this.tr('，已选择', ', selected') : ''))
+      appText('settings.iconSelectedSuffix', this.english) : ''))
     .onClick(() => this.onChooseIcon(name))
   }
 
   build() {
     Column({ space: 18 }) {
       OptionSelect({
-        label: this.tr('语言', 'Language'),
+        label: appText('settings.language', this.english),
         options: this.languageOptions(),
         selectedIndex: languagePreferenceIndex(this.languagePreference),
         selectedText: languagePreferenceLabel(this.languagePreference, this.english),
-        a11yText: this.tr('界面语言', 'App language'),
+        a11yText: appText('settings.languageA11y', this.english),
         onSelected: (index: number): void => this.onLanguagePreference(languagePreferenceAt(index))
       })
-      Text(this.tr('应用图标', 'App icon')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('settings.icons', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 一行放不下时自动换行（窄屏 3 个一行、宽屏 5 个一行），只显示图标本身。
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(12), cross: LengthMetrics.vp(12) } }) {
         this.iconChoice('', $r('app.media.toolbox_icon'), '默认图标', 'Default icon')
@@ -471,35 +480,35 @@ export struct SettingsPage {
       this.interactionSection()
       this.deviceSection()
       this.holidaySection()
-      Text(this.tr('隐私', 'Privacy')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('settings.privacySection', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 这段必须与 `docs/PRIVACY.md` 同步：它曾停留在「3 项权限、无联网」的旧版本，漏了纪念日清单、
-      // 汇率缓存与指南针/水平仪的上次单位（2026-10-20 审计 P0）。
-      Text(this.tr('历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、工具收藏及其顺序、语言偏好、智感握姿开关、工具与收藏页的「每行显示几个」、单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；文档扫描结果只在本次运行保留，由你主动导出。应用申请 5 项权限（代理提醒、握姿、加速度传感器、网络、网络信息），联网只有三处且全部由你点击触发：网络工具探测、单位换算「更新汇率」、设置页「检查更新」；启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
-        'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), timers and stopwatch laps, favourites and their order, language preference, the adaptive hand posture switch, the per-row setting of the tools and favourites tabs, the converter’s last category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; document scans stay in memory until you export them. The app requests five permissions (reminder agent, gesture, accelerometer, internet, network info). Network access happens in exactly three places, each triggered by your tap: Network tools probes, the converter’s Update rates, and Settings’ Check for updates; app start-up, the background and the home-screen widget never go online. Tax is computed on-device and official links open only when you tap them. No accounts, ads, analytics or cloud sync.'))
+      // 汇率缓存与指南针/水平仪的上次单位（2026-10-20 审计 P0）。文案已外置到 `model/AppStrings.ets`
+      // 的 `settings.storageDisclosure`（2026-10-21 C1 第三批），**改它时同时改 PRIVACY.md**。
+      Text(appText('settings.storageDisclosure', this.english))
         .fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-          a11yText: this.tr('清空历史记录', 'Clear all history'),
+          a11yText: appText('dialog.clearTitle', this.english),
           usable: this.historyCount > 0, onTap: () => this.confirmClearHistory()
         })
         // 「清除本机数据」比清空历史更进一步：收藏、计时、纪念日、汇率缓存、单位与语言偏好一起清掉。
         // 这类不可逆操作先弹系统确认框（`showAlertDialog`），不做「点一下就没了」。
         IconActionButton({
           icon: $r('sys.symbol.exclamationmark_circle'), tintColor: ToolPalette.warning,
-          a11yText: this.tr('清除本机数据', 'Erase on-device data'), usable: this.dataReady,
+          a11yText: appText('dialog.eraseTitle', this.english), usable: this.dataReady,
           onTap: () => this.confirmClearAll()
         })
         // 导出本机数据：与「历史导出」共用同一套系统保存器，导出的是带版本的信封 JSON。
         IconActionButton({
           icon: $r('sys.symbol.arrowshape_up_to_line'), tintColor: ToolPalette.primaryDeep,
-          a11yText: this.tr('导出本机数据', 'Export on-device data'), usable: this.dataReady,
+          a11yText: appText('dialog.exportDataTitle', this.english), usable: this.dataReady,
           onTap: () => this.confirmExportData()
         })
         // 导入本机数据：只认本应用导出的信封 JSON，只覆盖文件里出现过的键（合并语义）。
         IconActionButton({
           icon: $r('sys.symbol.arrowshape_down_to_line_fill'), tintColor: ToolPalette.success,
-          a11yText: this.tr('导入本机数据', 'Import on-device data'), usable: this.dataReady,
+          a11yText: appText('dialog.importDataTitle', this.english), usable: this.dataReady,
           onTap: () => this.confirmImportData()
         })
       }.width('100%').justifyContent(this.actionAlign)

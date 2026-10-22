@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { HdsColorPicker } from '@kit.UIDesignKit';
 import { IconActionButton } from './IconActionButton';
@@ -61,11 +62,11 @@ export struct ColorPage {
   // 新增颜色能力只需在 COLOR_MODES 加登记项 + 在 build() 加一个分支。
   @Builder private modeSelect() {
     OptionSelect({
-      label: this.tr('方式', 'Method'),
+      label: appText('field.method', this.english),
       options: this.modeOptions(),
       selectedIndex: this.colorModeIndex(),
       selectedText: this.colorModeLabel(),
-      a11yText: this.tr('颜色工具方式', 'Colour tool'),
+      a11yText: appText('color.colour-tool', this.english),
       onSelected: (index: number): void => {
         const mode: ColorMode | undefined = COLOR_MODES[index];
         if (mode !== undefined) { this.colorMode = mode.id; }
@@ -152,10 +153,10 @@ export struct ColorPage {
   private pickerAccessibility(id: string): string {
     if (id === 'color') {
       return this.colorMode === 'contrast' ?
-        this.tr('用系统颜色选择器选择前景色', 'Pick a foreground colour with the system colour picker') :
-        this.tr('用系统颜色选择器选择颜色', 'Pick a colour with the system colour picker');
+        appText('color.pick-a-foreground-colour', this.english) :
+        appText('color.pick-a-colour-with', this.english);
     }
-    return this.tr('用系统颜色选择器选择对比背景色', 'Pick a background colour with the system colour picker');
+    return appText('color.pick-a-background-colour', this.english);
   }
 
   /**
@@ -187,8 +188,7 @@ export struct ColorPage {
 
   // 颜色转换：一个颜色输入 → 色块预览 + HEX/RGB/HSL 三行（各带复制）。
   @Builder private convertPanel() {
-    Text(this.tr('支持 #RGB、#RRGGBB 与 rgb(r, g, b) 三种写法，也可点右侧色轮用系统颜色选择器取色。',
-      'Accepts #RGB, #RRGGBB and rgb(r, g, b); tap the colour wheel to pick with the system colour picker.'))
+    Text(appText('color.accepts-rgb-rrggbb-and', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     this.inputBlock('color', '颜色', 'Colour', '#0D3B66 或 rgb(13, 59, 102)')
     MaterialSurface({
@@ -212,8 +212,7 @@ export struct ColorPage {
   }
 
   // 对比度检查：前景色 + 对比背景色 → 实叠示例、比值、两档判定与建议前景色。
-  @Builder private contrastPanel() {    Text(this.tr('对比度按 WCAG 2.x 计算：普通文字 AA 需 4.5、AAA 需 7，大号文字 AA 需 3、AAA 需 4.5。',
-      'Contrast follows WCAG 2.x: body text needs 4.5 for AA and 7 for AAA; large text needs 3 and 4.5.'))
+  @Builder private contrastPanel() {    Text(appText('color.contrast-follows-wcag-2', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     this.inputBlock('color', '前景色', 'Foreground', '#0D3B66')
     this.inputBlock('background', '对比背景色', 'Background', '#FFFFFF')
@@ -222,14 +221,14 @@ export struct ColorPage {
       lightEffect: true
     }) {
       Column({ space: 12 }) {
-        Text(this.tr('对比度', 'Contrast')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+        Text(appText('color.contrast', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
         if (!Number.isFinite(this.ratio())) {
           Text(colorErrorText(this.english)).fontSize(15).fontColor(ToolPalette.warning).width('100%')
         } else {
           // 用两色实际叠一次，肉眼确认是否看得清。这行是**纯视觉示例**，读屏用户拿不到任何信息，
           // 因此补无障碍名说明「哪种颜色写在哪种底色上」（2026-10-20 审计 §3.11）。
           Stack() {
-            Text(this.tr('示例文字 Sample', 'Sample text'))
+            Text(appText('color.sample-text', this.english))
               .fontSize(20).fontWeight(FontWeight.Bold)
               .fontColor(this.color() === undefined ? Color.Black : toHex(this.color() as RgbColor))
           }.width('100%').height(72).borderRadius(12)
@@ -238,13 +237,13 @@ export struct ColorPage {
             .accessibilityText(this.contrastSampleAccessibility())
           this.valueRow('对比度比值', 'Ratio', 'ratio')
           Row({ space: 12 }) {
-            Text(this.tr('普通文字', 'Body text')).fontSize(13).fontColor(ToolPalette.textMuted)
+            Text(appText('color.body-text', this.english)).fontSize(13).fontColor(ToolPalette.textMuted)
               .layoutWeight(1)
             Text(contrastVerdictText(contrastVerdict(this.ratio(), false), this.english))
               .fontSize(17).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
           }.width('100%')
           Row({ space: 12 }) {
-            Text(this.tr('大号文字', 'Large text')).fontSize(13).fontColor(ToolPalette.textMuted)
+            Text(appText('color.large-text', this.english)).fontSize(13).fontColor(ToolPalette.textMuted)
               .layoutWeight(1)
             Text(contrastVerdictText(contrastVerdict(this.ratio(), true), this.english))
               .fontSize(17).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
@@ -267,8 +266,7 @@ export struct ColorPage {
       } else {
         this.convertPanel()
       }
-      Text(this.tr('转换与对比度都在本机计算，不上传任何数据。',
-        'Conversion and contrast are calculated on this device.'))
+      Text(appText('color.conversion-and-contrast-are', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

@@ -38,7 +38,9 @@ export function handPostureTitleEn(): string { return 'Adaptive hand posture'; }
  * 开关下方的说明：**必须如实区分三种状态**——开关打开的说明、关掉的说明、
  * 以及**本机不支持**（系统握姿识别不可用）时的说明，不能让用户以为开关坏了。
  *
- * 打开的说明还要写清「什么时候不动」：双手持握、设备没被握住（平放在桌上）、宽窗口都保持默认版式。
+ * 打开的说明还要写清「什么时候不动」：**只有双手持握**（两手都在手机上，跟随只会让按钮横跳）与宽窗口
+ * 保持默认版式；手机**平放或立在桌面上**（系统报 `NOT_HELD`）时仍按正在操作的那只手靠边
+ * （2026-10-22 用户决定，原先这种形态也冻结在中位；水平仪这类「放着测、单手点」的页面正需要跟随）。
  */
 export function handPostureNoteText(enabled: boolean, supported: boolean, english: boolean): string {
   if (!supported) {
@@ -52,8 +54,9 @@ export function handPostureNoteText(enabled: boolean, supported: boolean, englis
       : '已关闭：动作按钮固定在原位，不随握持的手移动。';
   }
   return english
-    ? 'Moves action buttons toward the hand operating the phone; the default layout is kept when both hands hold the phone, when it is not held, and on wide windows.'
-    : '把动作按钮靠近正在操作的那只手；双手持握、设备未持握（平放）与宽窗口时保持默认版式。';
+    ? 'Moves action buttons toward the hand operating the phone; the default layout is kept only when both hands ' +
+      'are on the phone and on wide windows — a phone resting on a surface still follows the hand you use.'
+    : '把动作按钮靠近正在操作的那只手；只有双手持握与宽窗口保持默认版式——手机平放或立在桌面上时仍按正在操作的那只手靠边。';
 }
 
 /** 开关的无障碍文字：读屏要先听到「这是什么」再听到「当前是开还是关」。 */

@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -121,9 +122,9 @@ export struct LoanPage {
     const computed: LoanResult | undefined = this.result;
     if (computed === undefined) { return ''; }
     return loanMethodLabel(computed.method, this.english) + ' · ' +
-      this.tr('月供', 'Monthly') + ' ' + formatMoney(computed.monthlyPaymentCents) + ' · ' +
-      this.tr('总利息', 'Total interest') + ' ' + formatMoney(computed.totalInterestCents) + ' · ' +
-      this.tr('总还款', 'Total payment') + ' ' + formatMoney(computed.totalPaymentCents);
+      appText('loan.monthly', this.english) + ' ' + formatMoney(computed.monthlyPaymentCents) + ' · ' +
+      appText('loan.total-interest', this.english) + ' ' + formatMoney(computed.totalInterestCents) + ' · ' +
+      appText('loan.total-payment', this.english) + ' ' + formatMoney(computed.totalPaymentCents);
   }
 
   /**
@@ -153,8 +154,8 @@ export struct LoanPage {
               selectedIndex: optionIndex(this.pickOptions(id), this.fieldText(id)),
               immersiveSupported: this.immersiveSupported,
               materialLevel: this.materialLevel,
-              a11yText: id === 'years' ? this.tr('从列表选择期限年数', 'Pick the term in years') :
-                this.tr('从列表选择期限月数', 'Pick the extra months'),
+              a11yText: id === 'years' ? appText('loan.pick-the-term-in', this.english) :
+                appText('loan.pick-the-extra-months', this.english),
               onPicked: (value: string): void => this.setFieldText(id, value),
               onStatus: (message: string): void => this.onStatus(message)
             })
@@ -220,15 +221,15 @@ export struct LoanPage {
    */
   @Builder private scheduleTable() {
     if (this.scheduleRows().length === 0) {
-      Text(this.tr('先点「计算」生成计划表。', 'Tap Calculate to build the schedule.'))
+      Text(appText('loan.tap-calculate-to-build', this.english))
         .fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
     } else {
       Row({ space: 4 }) {
-        Text(this.tr('期', 'No.')).fontSize(12).fontColor(ToolPalette.textMuted).width(48)
-        Text(this.tr('月供', 'Payment')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
-        Text(this.tr('本金', 'Principal')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
-        Text(this.tr('利息', 'Interest')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
-        Text(this.tr('剩余', 'Balance')).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(appText('loan.period-no', this.english)).fontSize(12).fontColor(ToolPalette.textMuted).width(48)
+        Text(appText('loan.payment', this.english)).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(appText('loan.principal', this.english)).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(appText('loan.interest', this.english)).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
+        Text(appText('loan.balance', this.english)).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
       }.width('100%')
       List({ space: 2 }) {
         ForEach(this.scheduleRows(), (row: LoanScheduleRow) => {
@@ -254,7 +255,7 @@ export struct LoanPage {
 
   @Builder private resultCard() {
     Column({ space: 10 }) {
-      Text(this.tr('估算结果', 'Estimate')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('field.estimate', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       if (this.result !== undefined) {
         this.moneyLine(this.result.method === 'equalPrincipal' ? '首月月供' : '每月月供',
           this.result.method === 'equalPrincipal' ? 'First month' : 'Monthly payment', 'monthly', true)
@@ -270,19 +271,19 @@ export struct LoanPage {
         Row({ space: 8 }) {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-            a11yText: this.tr('复制结果摘要', 'Copy the summary'), onTap: () => this.onCopy(this.summary())
+            a11yText: appText('action.copySummary', this.english), onTap: () => this.onCopy(this.summary())
           })
         }.width('100%')
         // 还款计划表：默认收起（360 期一次铺开会很长），展开后最多显示前 SCHEDULE_VIEW_MAX 期。
         Row({ space: 8 }) {
-          Text(this.tr('还款计划表', 'Repayment schedule')).fontSize(15).layoutWeight(1)
+          Text(appText('loan.repayment-schedule', this.english)).fontSize(15).layoutWeight(1)
             .fontColor(ToolPalette.textSecondary)
           IconActionButton({
             // 指示箭头：未展开 ▶、展开 ▼（与科学计算器、个税、文本工具菜单入口同一套约定）
             icon: this.scheduleOpen ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'),
             tintColor: ToolPalette.primaryDeep,
-            a11yText: this.scheduleOpen ? this.tr('收起还款计划表', 'Hide the schedule')
-              : this.tr('展开还款计划表', 'Show the schedule'),
+            a11yText: this.scheduleOpen ? appText('loan.hide-the-schedule', this.english)
+              : appText('loan.show-the-schedule', this.english),
             boxSize: 44, iconSize: 22,
             onTap: () => { this.scheduleOpen = !this.scheduleOpen; }
           })
@@ -291,8 +292,7 @@ export struct LoanPage {
           this.scheduleTable()
         }
       } else {
-        Text(this.tr('填入本金、年利率与期限后点「计算」。',
-          'Fill in the amount, annual rate and term, then tap Calculate.'))
+        Text(appText('loan.fill-in-the-amount', this.english))
           .fontSize(14).fontColor(ToolPalette.textMuted).width('100%')
       }
     }.padding(16).width('100%')
@@ -300,8 +300,7 @@ export struct LoanPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('等额本息每月还款额相同；等额本金每月本金相同、利息递减，前期压力更大但总利息更少。结果为估算值，实际以银行为准。',
-        'Equal installment keeps the monthly payment flat; equal principal keeps the principal flat with falling interest — higher early payments, less total interest. Figures are estimates; your bank’s rounding may differ.'))
+      Text(appText('loan.equal-installment-keeps-the', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       this.inputField('principal', '贷款金额（元）', 'Loan amount', '如 1000000', 'e.g. 1000000', false)
       this.inputField('rate', '年利率（%）', 'Annual rate (%)', '如 4.9', 'e.g. 4.9', false)
@@ -313,11 +312,11 @@ export struct LoanPage {
         Text(this.termText()).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
       }
       OptionSelect({
-        label: this.tr('还款方式', 'Method'),
+        label: appText('loan.method', this.english),
         options: this.methodOptions(),
         selectedIndex: loanMethodIndex(this.method),
         selectedText: loanMethodLabel(this.method, this.english),
-        a11yText: this.tr('贷款还款方式', 'Loan repayment method'),
+        a11yText: appText('loan.loan-repayment-method', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < LOAN_METHODS.length) {
             this.method = LOAN_METHODS[index].id;
@@ -328,11 +327,11 @@ export struct LoanPage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.percent_coupon'), tintColor: ToolPalette.primary,
-          a11yText: this.tr('计算', 'Calculate'), onTap: () => this.compute()
+          a11yText: appText('action.calculate', this.english), onTap: () => this.compute()
         })
         IconActionButton({
           icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-          a11yText: this.tr('清空输入', 'Clear inputs'),
+          a11yText: appText('action.clearInputs', this.english),
           onTap: () => {
             this.principal = ''; this.annualRate = ''; this.years = ''; this.extraMonths = '';
             this.result = undefined;

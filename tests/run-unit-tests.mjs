@@ -41,6 +41,7 @@ const dates = await loadEts('../entry/src/main/ets/model/DateTools.ets');
 const textTools = await loadEts('../entry/src/main/ets/model/TextTools.ets');
 const randomTools = await loadEts('../entry/src/main/ets/model/RandomTools.ets');
 const passwords = await loadEts('../entry/src/main/ets/model/PasswordTools.ets');
+const passwordAudit = await loadEts('../entry/src/main/ets/model/PasswordAudit.ets');
 const levels = await loadEts('../entry/src/main/ets/model/LevelMath.ets');
 const barcodes = await loadEts('../entry/src/main/ets/model/BarcodeTools.ets');
 const calculators = await loadEts('../entry/src/main/ets/model/QuickCalculators.ets');
@@ -55,7 +56,11 @@ const hashTools = await loadEts('../entry/src/main/ets/model/HashTools.ets');
 const historyKinds = await loadEts('../entry/src/main/ets/model/HistoryKinds.ets');
 const timeZones = await loadEts('../entry/src/main/ets/model/TimeZoneTools.ets');
 const qrStyle = await loadEts('../entry/src/main/ets/model/QrStyle.ets');
+const qrCompose = await loadEts('../entry/src/main/ets/model/QrCompose.ets');
 const scanGenErrors = await loadEts('../entry/src/main/ets/model/ScanGenErrors.ets');
+// 文档扫描模块（2026-10-22）：扫描参数登记表/状态/结果码文案 + 端侧取字的拼装与错误文案。
+const documentScan = await loadEts('../entry/src/main/ets/model/DocumentScan.ets');
+const ocrText = await loadEts('../entry/src/main/ets/model/OcrText.ets');
 const loans = await loadEts('../entry/src/main/ets/model/LoanMath.ets');
 const colors = await loadEts('../entry/src/main/ets/model/ColorTools.ets');
 const recents = await loadEts('../entry/src/main/ets/model/RecentTools.ets');
@@ -64,6 +69,7 @@ const dataImport = await loadEts('../entry/src/main/ets/model/DataImport.ets');
 const health = await loadEts('../entry/src/main/ets/model/HealthMath.ets');
 const science = await loadEts('../entry/src/main/ets/model/ScientificCalc.ets');
 const startup = await loadEts('../entry/src/main/ets/model/StartupIntent.ets');
+const shareIntent = await loadEts('../entry/src/main/ets/model/ShareIntent.ets');
 const compass = await loadEts('../entry/src/main/ets/model/CompassMath.ets');
 const sensorAccuracy = await loadEts('../entry/src/main/ets/model/SensorAccuracy.ets');
 const kinship = await loadEts('../entry/src/main/ets/model/KinshipMath.ets');
@@ -76,6 +82,8 @@ const language = await loadEts('../entry/src/main/ets/model/LanguagePreference.e
 const widgetCards = await loadEts('../entry/src/main/ets/model/WidgetCards.ets');
 const layout = await loadEts('../entry/src/main/ets/model/LayoutAdaptive.ets');
 const handPosture = await loadEts('../entry/src/main/ets/model/HandPosture.ets');
+const haptics = await loadEts('../entry/src/main/ets/model/Haptics.ets');
+const appStrings = await loadEts('../entry/src/main/ets/model/AppStrings.ets');
 const gridColumns = await loadEts('../entry/src/main/ets/model/GridColumns.ets');
 const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets');
 const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
@@ -1507,7 +1515,8 @@ assert.deepEqual(randomTools.groupCountChoices(20), [2, 3, 4, 5, 6, 8, 10]);
 assert.deepEqual(randomTools.groupSizeChoices(5), [2, 3, 4, 5]);
 assert.deepEqual(randomTools.groupSizeChoices(1), []);
 // 第 26 轮自查：历史归一化必须是「丢弃不可用 → 置顶优先排序 → 截断」，读侧同样如此。
-// 用一个「未排序且超过上限、置顶条目排在最后」的列表证明：置顶条目不会被 slice 丢掉。
+// 用一个「顺序与时间相反、超过上限、置顶条目排在最后」的列表证明：① 顺序不被重排；
+// ② 超出上限时丢掉的是**时间最旧的未置顶条目**，置顶条目不会被 slice 丢掉（第 26 轮自查的那条）。
 const histRaw = [];
 for (let index = 0; index < 55; index++) {
   const item = new historyKinds.HistoryItem();
@@ -1521,11 +1530,16 @@ histRaw[54].pinned = true;   // 时间最新但排在数组末尾
 histRaw[0].pinned = true;    // 时间最旧且排在最前
 const histNorm = historyKinds.normalizeHistoryItems(histRaw, 50);
 assert.equal(histNorm.length, 50);
-assert.equal(histNorm[0].pinned, true);
-assert.equal(histNorm[1].pinned, true);
-assert.equal(histNorm[0].id, 'h54');
-assert.equal(histNorm[1].id, 'h0');
-assert.equal(histNorm.indexOf(histRaw[54]) >= 0, true);
+assert.equal(histNorm[0].id, 'h0', '顺序即存储顺序（不再按时间重排）');
+assert.equal(histNorm[1].id, 'h6', '被丢掉的是时间最旧的未置顶条目（h1–h5）');
+assert.equal(histNorm.indexOf(histRaw[54]) >= 0, true, '置顶条目不会被上限挤掉');
+assert.equal(histNorm.indexOf(histRaw[0]) >= 0, true);
+assert.equal(histNorm.some((item) => item.id === 'h1'), false);
+// 未超上限时原样保留顺序（顺序就是存储顺序）
+const histOrder = [new historyKinds.HistoryItem(), new historyKinds.HistoryItem()];
+histOrder[0].id = 'b'; histOrder[0].content = 'b'; histOrder[0].createdAt = 300;
+histOrder[1].id = 'a'; histOrder[1].content = 'a'; histOrder[1].createdAt = 100;
+assert.equal(historyKinds.normalizeHistoryItems(histOrder, 50).map((item) => item.id).join(''), 'ba');
 // 不可用条目被丢弃（缺 id / 缺内容 / 字段类型不对都不该让整表崩掉）
 const histBad = [];
 const noId = new historyKinds.HistoryItem();
@@ -2939,10 +2953,10 @@ for (const length of [1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 1000]) {
 }
 
 // --- 统一历史：类别文案、筛选与时间/长度处理 ---
-assert.equal(historyKinds.HISTORY_KINDS.length, 8);
-assert.equal(historyKinds.historyFilters().length, 8);
+assert.equal(historyKinds.HISTORY_KINDS.length, 9);
+assert.equal(historyKinds.historyFilters().length, 9);
 assert.equal(historyKinds.historyFilters()[0].id, 'all');
-assert.equal(new Set(historyKinds.HISTORY_KINDS.map((entry) => entry.id)).size, 8);
+assert.equal(new Set(historyKinds.HISTORY_KINDS.map((entry) => entry.id)).size, 9);
 for (const entry of historyKinds.HISTORY_KINDS) {
   assert.ok(entry.zh.length > 0 && entry.en.length > 0, `incomplete history kind ${entry.id}`);
 }
@@ -2955,6 +2969,9 @@ assert.equal(historyKinds.historyKindLabel('calculator', false), '计算结果')
 assert.equal(historyKinds.historyKindLabel('calculator', true), 'Calculation');
 assert.equal(historyKinds.historyKindLabel('random', false), '随机结果');
 assert.equal(historyKinds.historyKindLabel('random', true), 'Random result');
+// 文档扫描取字（2026-10-22 新增类别）：它记的是文本，因此点条目回填进文本工具。
+assert.equal(historyKinds.historyKindLabel('ocr', false), '扫描文字');
+assert.equal(historyKinds.historyKindLabel('ocr', true), 'Scan text');
 assert.equal(historyKinds.historyKindLabel('all', false), '记录');
 assert.equal(historyKinds.historyKindLabel('nope', true), 'Record');
 assert.equal(historyKinds.historyItemVisible('text', 'all'), true);
@@ -2997,6 +3014,8 @@ assert.equal(historyKinds.historyTargetRoute('units'), '');
 // 计算结果与换算结果一样是整句文案，没有唯一可回填的字段 → 不回填（随机结果同口径）
 assert.equal(historyKinds.historyTargetRoute('calculator'), '');
 assert.equal(historyKinds.historyTargetRoute('random'), '');
+// 扫描取字的结果是一段文本 → 回填进文本工具（与 `text` 同类，来源不同）。
+assert.equal(historyKinds.historyTargetRoute('ocr'), 'text');
 assert.equal(historyKinds.historyTargetRoute('nope'), '');
 
 // 回填内容：截断过的条目不回填；时间戳取「最后一个 · 之后」的部分（那是实际复制、可再次解析的值）
@@ -3018,33 +3037,87 @@ assert.equal(historyKinds.historyRefill('timestamp', 'zone · 2026-10-19 16:30:4
 assert.equal(historyKinds.historyRefill('timestamp', '2026-10-19 15:48:01'), '2026-10-19 15:48:01');
 assert.equal(historyKinds.historyRefill('timestamp', 'sec · 1792396081…'), '');
 
-// --- 历史置顶（2026-10-20 审计 P1）：置顶优先、其余按时间倒序，顺序即落盘顺序 ---
+// --- 历史顺序（2026-10-21 起与收藏页同口径）：**数组顺序即显示顺序**，置顶靠写入口维持不变量 ---
 const pinnedSample = [
   new historyKinds.HistoryItem(), new historyKinds.HistoryItem(), new historyKinds.HistoryItem()
 ];
-pinnedSample[0].id = 'a'; pinnedSample[0].createdAt = 100;
-pinnedSample[1].id = 'b'; pinnedSample[1].createdAt = 300;
-pinnedSample[2].id = 'c'; pinnedSample[2].createdAt = 200;
-assert.equal(historyKinds.pinnedFirst(pinnedSample).map((item) => item.id).join(''), 'bca');
-// 置顶后跑到最前，其余相对顺序不变
+pinnedSample[0].id = 'a'; pinnedSample[0].createdAt = 100; pinnedSample[0].content = 'a';
+pinnedSample[1].id = 'b'; pinnedSample[1].createdAt = 300; pinnedSample[1].content = 'b';
+pinnedSample[2].id = 'c'; pinnedSample[2].createdAt = 200; pinnedSample[2].content = 'c';
+assert.equal(historyKinds.HISTORY_MAX, 50, '上限的单一来源（读写与页面都引用它）');
+// 归一化**不动顺序**（不再按置顶/时间重排）：显示顺序就是存储顺序
+assert.equal(historyKinds.normalizeHistoryItems(pinnedSample, 50).map((item) => item.id).join(''), 'abc');
+// 置顶：移到最前（与收藏页「置顶」同一观感）
 const pinToggled = historyKinds.withToggledPin(pinnedSample, 'c');
-assert.equal(pinToggled.map((item) => item.id).join(''), 'abc');
-assert.equal(historyKinds.pinnedFirst(pinToggled).map((item) => item.id).join(''), 'cba');
+assert.equal(pinToggled.map((item) => item.id).join(''), 'cab');
 assert.equal(historyKinds.historyItemPinned(pinToggled, 'c'), true);
 assert.equal(historyKinds.historyItemPinned(pinToggled, 'a'), false);
-// 再点一次取消置顶
+// 再点一次取消置顶：没有其它置顶条目时回到最前（「置顶区之后」= 最前）
 const unpinned = historyKinds.withToggledPin(pinToggled, 'c');
 assert.equal(historyKinds.historyItemPinned(unpinned, 'c'), false);
-assert.equal(historyKinds.pinnedFirst(unpinned).map((item) => item.id).join(''), 'bca');
-// 未知 id 不改变任何东西；空列表安全
+assert.equal(unpinned.map((item) => item.id).join(''), 'cab');
+// 取消置顶**不是原地不动**：落到最后一条置顶条目之后（否则会夹在其它置顶条目中间，看起来像没生效）。
+// 这里用独立样本，避免上面几处调用共享同一个 HistoryItem 对象而互相影响置顶标记。
+const twoPinned = [
+  new historyKinds.HistoryItem(), new historyKinds.HistoryItem(), new historyKinds.HistoryItem()
+];
+twoPinned[0].id = 'p1'; twoPinned[0].content = 'p1'; twoPinned[0].pinned = true;
+twoPinned[1].id = 'p2'; twoPinned[1].content = 'p2'; twoPinned[1].pinned = true;
+twoPinned[2].id = 'n1'; twoPinned[2].content = 'n1'; twoPinned[2].pinned = false;
+assert.equal(historyKinds.withToggledPin(twoPinned, 'p1').map((item) => item.id).join(''), 'p2p1n1');
+// 最近置顶的在前（再置顶一个）
+assert.equal(historyKinds.withToggledPin(twoPinned, 'n1').map((item) => item.id).join(''), 'n1p1p2');
+// 未知 id 不改变任何东西；空列表安全；入参不被修改
 assert.equal(historyKinds.withToggledPin(pinnedSample, 'zzz').map((item) => item.id).join(''), 'abc');
-assert.equal(historyKinds.pinnedFirst([]).length, 0);
+assert.equal(pinnedSample.map((item) => item.id).join(''), 'abc', '不修改入参数组');
+assert.equal(historyKinds.withToggledPin([], 'a').length, 0);
 assert.equal(historyKinds.historyItemPinned([], 'a'), false);
-// 同一个时间戳（同一次复制里的多条）也必须是稳定顺序，不能来回跳
-const sameTime = [new historyKinds.HistoryItem(), new historyKinds.HistoryItem()];
-sameTime[0].id = 'x'; sameTime[0].createdAt = 500;
-sameTime[1].id = 'y'; sameTime[1].createdAt = 500;
-assert.equal(historyKinds.pinnedFirst(sameTime).map((item) => item.id).join(''), 'xy');
+
+// --- 新记录插入位置：插在**最后一条置顶条目之后**（置顶始终在最前，未置顶区新的在前）---
+// 样本遵守不变量（置顶条目连在最前）：[pinned, pinned, 未置顶]
+const insertTarget = [
+  new historyKinds.HistoryItem(), new historyKinds.HistoryItem(), new historyKinds.HistoryItem()
+];
+insertTarget[0].id = 'p'; insertTarget[0].pinned = true; insertTarget[0].createdAt = 10; insertTarget[0].content = 'p';
+insertTarget[1].id = 'r'; insertTarget[1].pinned = true; insertTarget[1].createdAt = 30; insertTarget[1].content = 'r';
+insertTarget[2].id = 'q'; insertTarget[2].pinned = false; insertTarget[2].createdAt = 20; insertTarget[2].content = 'q';
+const fresh = new historyKinds.HistoryItem();
+fresh.id = 'new'; fresh.content = 'new'; fresh.createdAt = 40;
+assert.equal(historyKinds.insertHistory(insertTarget, fresh, 50).map((item) => item.id).join(''), 'prnewq',
+  '插到最后一条置顶条目之后');
+assert.equal(historyKinds.insertHistory(insertTarget, fresh, 50)[2].pinned, false, '新记录不会被置顶');
+// 没有置顶条目时插到最前
+const noPin = [new historyKinds.HistoryItem()];
+noPin[0].id = 'only'; noPin[0].content = 'only'; noPin[0].createdAt = 1;
+assert.equal(historyKinds.insertHistory(noPin, fresh, 50).map((item) => item.id).join(''), 'newonly');
+// 空列表也能插
+assert.equal(historyKinds.insertHistory([], fresh, 50).map((item) => item.id).join(''), 'new');
+
+// --- 拖拽换位（`insertIndex` 语义：先摘除再插到夹取后的落点）---
+const dragSample = [new historyKinds.HistoryItem(), new historyKinds.HistoryItem(), new historyKinds.HistoryItem()];
+dragSample[0].id = 'a'; dragSample[1].id = 'b'; dragSample[2].id = 'c';
+dragSample.forEach((item) => { item.content = item.id; });
+assert.equal(historyKinds.moveHistory(dragSample, 0, 2).map((item) => item.id).join(''), 'bca');
+assert.equal(historyKinds.moveHistory(dragSample, 2, 0).map((item) => item.id).join(''), 'cab');
+// 落点越界夹取；同位置移动等于不变；非法下标/非整数原样返回副本
+assert.equal(historyKinds.moveHistory(dragSample, 0, 99).map((item) => item.id).join(''), 'bca');
+assert.equal(historyKinds.moveHistory(dragSample, 1, 1).map((item) => item.id).join(''), 'abc');
+assert.equal(historyKinds.moveHistory(dragSample, -1, 1).map((item) => item.id).join(''), 'abc');
+assert.equal(historyKinds.moveHistory(dragSample, 9, 1).map((item) => item.id).join(''), 'abc');
+assert.equal(historyKinds.moveHistory(dragSample, 0.5, 1).map((item) => item.id).join(''), 'abc');
+assert.equal(historyKinds.moveHistory(dragSample, 0, 1).length, 3, '移动不改变条数');
+assert.equal(dragSample.map((item) => item.id).join(''), 'abc', '不修改入参数组');
+
+// --- 展示过滤（`historyShownItems`）：筛选/搜索只过滤、**不重排** ---
+const shownSample = [new historyKinds.HistoryItem(), new historyKinds.HistoryItem()];
+shownSample[0].id = 'x'; shownSample[0].kind = 'text'; shownSample[0].content = 'hello';
+shownSample[1].id = 'y'; shownSample[1].kind = 'units'; shownSample[1].content = 'world';
+assert.equal(historyKinds.historyShownItems(shownSample, 'all', '').map((item) => item.id).join(''), 'xy');
+assert.equal(historyKinds.historyShownItems(shownSample, 'text', '').map((item) => item.id).join(''), 'x');
+assert.equal(historyKinds.historyShownItems(shownSample, 'all', 'wor').map((item) => item.id).join(''), 'y');
+assert.equal(historyKinds.historyShownItems(shownSample, 'all', 'nothing').length, 0);
+// 顺序与传入数组一致（即使传入的先后与时间相反，也不会被重排）
+assert.equal(historyKinds.historyShownItems(shownSample.slice().reverse(), 'all', '').map((item) => item.id).join(''), 'yx');
 
 // --- 时区换算：登记表、偏移文案、按偏移换算瞬间、与本机差值 ---
 assert.ok(timeZones.TIME_ZONES.length >= 15, 'time zone registry is too small');
@@ -3121,6 +3194,26 @@ assert.equal(timeZones.offsetDiffText(330, 0, false), '比本机快 5 小时 30 
 assert.equal(timeZones.offsetDiffText(0, 30, true), 'Behind local time by 30 minutes');
 assert.equal(timeZones.offsetDiffText(60, 30, false), '比本机快 30 分钟');
 assert.equal(timeZones.offsetDiffText(NaN, 0, false), '');
+
+// --- 日期工具的「自定义时区」（2026-10-21，C 项）：只影响「今天是哪天」 ---
+// 日期部分与 zoneDateTimeText 同源（先加偏移再取 UTC 字段），非法输入返回空串而不是本机日期
+assert.equal(timeZones.zonedDateText(instant, 480), '2026-10-19');
+assert.equal(timeZones.zonedDateText(instant, 0), '2026-10-19');
+assert.equal(timeZones.zonedDateText(Date.UTC(2026, 9, 19, 20, 0, 0), 720), '2026-10-20', '跨日按目标时区算');
+assert.equal(timeZones.zonedDateText(Date.UTC(2026, 9, 19, 2, 0, 0), -480), '2026-10-18', '向西跨回前一天');
+assert.equal(timeZones.zonedDateText(NaN, 480), '', '非法瞬间返回空串（调用方据此说「不支持」）');
+assert.equal(timeZones.zonedDateText(instant, NaN), '');
+// 说明行：本机时区不占地方；其它时区写清「按哪个时区算、今天是哪天」
+assert.equal(timeZones.dateZoneNoteText(timeZones.LOCAL_ZONE_ID, '2026-10-19', false), '');
+assert.equal(timeZones.dateZoneNoteText('Asia/Tokyo', '', false), '', '没有日期时不显示');
+assert.equal(timeZones.dateZoneNoteText('Asia/Tokyo', '2026-10-20', false), '按 东京 计算：今天是 2026-10-20');
+assert.equal(timeZones.dateZoneNoteText('Asia/Tokyo', '2026-10-20', true), 'Today in Tokyo: 2026-10-20');
+assert.notEqual(timeZones.dateZoneNoteText('Asia/Tokyo', '2026-10-20', true),
+  timeZones.dateZoneNoteText('Asia/Tokyo', '2026-10-20', false));
+// 不支持的时区：如实说「仍按本机」，不假装换算过
+assert.equal(timeZones.dateZoneUnsupportedText(false), '当前设备不支持该时区，日期仍按本机计算。');
+assert.notEqual(timeZones.dateZoneUnsupportedText(false), timeZones.dateZoneUnsupportedText(true));
+assert.ok(timeZones.dateZoneUnsupportedText(true).length > 0);
 
 // --- 二维码生成选项：容错等级与码色 ---
 assert.equal(qrStyle.QR_LEVELS.length, 4);
@@ -3244,6 +3337,289 @@ for (const entry of qrStyle.QR_COLORS) {
 }
 assert.equal(new Set(qrStyle.QR_COLORS.map((entry) => entry.id)).size, qrStyle.QR_COLORS.length);
 assert.equal(new Set(qrStyle.QR_COLORS.map((entry) => entry.foreground)).size, qrStyle.QR_COLORS.length);
+
+// --- 二维码定制之自定义码色（2026-10-22）---
+// 为什么要有断言：自定义色是**用户任意输入**，浅色前景会让码「洗淡」——出图能生成但扫不出来，
+// 这种失败在界面上看不出来（码图看着"有东西"），所以「能解析 + 对白底对比度达标」必须钉成判据。
+assert.equal(qrStyle.QR_CUSTOM_COLOR_ID, 'custom');
+assert.equal(qrStyle.QR_CUSTOM_COLOR_DEFAULT, '#0D3B66');
+assert.equal(qrStyle.QR_MIN_CONTRAST_RATIO, 4.5);
+// 下拉顺序 = 三个预设 + 自定义，且不重复；未知 id 回退 0（绝不把非法下标交给 Select）
+assert.deepEqual(qrStyle.qrColorIdList(), ['classic', 'blue', 'green', 'custom']);
+assert.equal(new Set(qrStyle.qrColorIdList()).size, qrStyle.qrColorIdList().length);
+assert.equal(qrStyle.qrColorOptionIndex('classic'), 0);
+assert.equal(qrStyle.qrColorOptionIndex('green'), 2);
+assert.equal(qrStyle.qrColorOptionIndex('custom'), 3);
+assert.equal(qrStyle.qrColorOptionIndex('nope'), 0);
+assert.equal(qrStyle.qrColorOptionIndex(''), 0);
+assert.equal(qrStyle.qrColorOptionLabel('custom', false), '自定义');
+assert.equal(qrStyle.qrColorOptionLabel('custom', true), 'Custom');
+assert.notEqual(qrStyle.qrColorOptionLabel('custom', false), qrStyle.qrColorOptionLabel('custom', true));
+assert.equal(qrStyle.qrColorOptionLabel('blue', true), 'Deep blue');
+assert.equal(qrStyle.qrColorOptionLabel('nope', false), '经典黑白');
+// 解析与颜色工具页共用一条链：`#RRGGBB`、缩写 `#RGB`、`rgb(r, g, b)` 都吃
+assert.equal(colors.rgbToNumber(qrStyle.qrCustomColorRgb('#0D3B66')), 0x0D3B66);
+assert.equal(colors.rgbToNumber(qrStyle.qrCustomColorRgb('0d3b66')), 0x0D3B66);
+assert.equal(colors.rgbToNumber(qrStyle.qrCustomColorRgb('rgb(13, 59, 102)')), 0x0D3B66);
+assert.equal(colors.rgbToNumber(qrStyle.qrCustomColorRgb('#FFF')), 0xFFFFFF);
+assert.equal(qrStyle.qrCustomColorRgb('#GGGGGG'), undefined);
+assert.equal(qrStyle.qrCustomColorRgb('rgb(300, 0, 0)'), undefined);
+assert.equal(qrStyle.qrCustomColorRgb(''), undefined);
+assert.equal(qrStyle.qrCustomColorRgb('  '), undefined);
+// 判据：深色可用、浅色/垃圾不可用
+assert.equal(qrStyle.qrCustomColorValid('#0D3B66'), true);
+assert.equal(qrStyle.qrCustomColorValid('rgb(13, 59, 102)'), true);
+assert.equal(qrStyle.qrCustomColorValid('#14532D'), true);
+assert.equal(qrStyle.qrCustomColorValid('#000000'), true);
+assert.equal(qrStyle.qrCustomColorValid('#FFFFFF'), false);
+assert.equal(qrStyle.qrCustomColorValid('#EEEEEE'), false);
+assert.equal(qrStyle.qrCustomColorValid('#FFEEDD'), false);
+assert.equal(qrStyle.qrCustomColorValid('nope'), false);
+assert.equal(qrStyle.qrCustomColorValid(''), false);
+// 完整提示：合法为空串；格式错说清写法与示例；过浅说清实测比值与门槛（两个数都要有）
+assert.equal(qrStyle.qrCustomColorErrorText('#0D3B66', false), '');
+assert.equal(qrStyle.qrCustomColorErrorText('#0D3B66', true), '');
+assert.equal(qrStyle.qrCustomColorErrorText('rgb(13, 59, 102)', false), '');
+assert.equal(qrStyle.qrCustomColorErrorText('', false).includes('#RRGGBB'), true);
+assert.equal(qrStyle.qrCustomColorErrorText('', true).includes('#RRGGBB'), true);
+assert.notEqual(qrStyle.qrCustomColorErrorText('', false), qrStyle.qrCustomColorErrorText('', true));
+const customLightText = qrStyle.qrCustomColorErrorText('#EEEEEE', false);
+assert.equal(customLightText.includes('4.5'), true, '过浅提示要写明 4.5:1 门槛');
+assert.equal(customLightText.includes('对比度'), true);
+assert.equal(qrStyle.qrCustomColorErrorText('#FFFFFF', true).includes('4.5'), true);
+assert.equal(qrStyle.qrCustomColorErrorText('#FFFFFF', true).includes('scans'), true);
+// 行内短判据：合法给实测比值、非法给提示，中英不同
+const customVerdict = qrStyle.qrCustomColorVerdictText('#0D3B66', false);
+assert.equal(customVerdict.startsWith('对比度'), true);
+assert.equal(customVerdict.includes(' : 1'), true, '深蓝对白底要给出实测比值');
+assert.equal(qrStyle.qrCustomColorVerdictText('#0D3B66', true).startsWith('Contrast'), true);
+assert.equal(qrStyle.qrCustomColorVerdictText('#FFFFFF', false).includes('偏低'), true);
+assert.equal(qrStyle.qrCustomColorVerdictText('#FFFFFF', true).includes('low'), true);
+assert.equal(qrStyle.qrCustomColorVerdictText('nope', false), '请输入颜色');
+assert.equal(qrStyle.qrCustomColorVerdictText('nope', true), 'Enter a colour');
+// 解析成实际色值：预设按 id、自定义走 HEX；背景**恒为纯白**；未知/非法回退默认档
+assert.equal(qrStyle.resolveQrColor('classic', '').background, 0xFFFFFF);
+assert.equal(qrStyle.resolveQrColor('classic', '').foreground, 0x000000);
+assert.equal(qrStyle.resolveQrColor('blue', '').foreground, 0x0D3B66);
+assert.equal(qrStyle.resolveQrColor('green', '').foreground, 0x14532D);
+assert.equal(qrStyle.resolveQrColor('custom', '#14532D').foreground, 0x14532D);
+assert.equal(qrStyle.resolveQrColor('custom', '#14532D').background, 0xFFFFFF);
+assert.equal(qrStyle.resolveQrColor('custom', 'rgb(13, 59, 102)').foreground, 0x0D3B66);
+// 越界的自定义色（过浅/无法解析）绝不外传，回退默认档的黑白
+assert.equal(qrStyle.resolveQrColor('custom', '#FFFFFF').foreground, 0x000000);
+assert.equal(qrStyle.resolveQrColor('custom', '#EEEEEE').foreground, 0x000000);
+assert.equal(qrStyle.resolveQrColor('custom', 'nope').foreground, 0x000000);
+assert.equal(qrStyle.resolveQrColor('custom', '').foreground, 0x000000);
+assert.equal(qrStyle.resolveQrColor('nope', '').background, 0xFFFFFF);
+assert.equal(qrStyle.resolveQrColor('nope', '#14532D').foreground, 0x000000);
+assert.equal(qrStyle.resolveQrColor('', '').background, 0xFFFFFF);
+// 每一档（含自定义）的背景都必须纯白：AGENTS 明确代码图必须白底
+for (const id of qrStyle.qrColorIdList()) {
+  assert.equal(qrStyle.resolveQrColor(id, '#0D3B66').background, 0xFFFFFF, `${id} 必须保持纯白底`);
+  assert.equal(qrStyle.resolveQrColor(id, '').background, 0xFFFFFF, `${id} 必须保持纯白底`);
+}
+// 未知容错等级不该被判成「可以带 Logo」
+assert.equal(qrStyle.QR_LOGO_MIN_LEVEL, 'Q');
+assert.equal(qrStyle.qrLogoLevelOk('L'), false);
+assert.equal(qrStyle.qrLogoLevelOk('M'), false);
+assert.equal(qrStyle.qrLogoLevelOk('Q'), true);
+assert.equal(qrStyle.qrLogoLevelOk('H'), true);
+assert.equal(qrStyle.qrLogoLevelOk('nope'), false);
+assert.equal(qrStyle.qrLogoLevelOk(''), false);
+// 带 Logo 的容量提示不能建议「降低容错等级」（降了就带不了 Logo），但仍要说清两个数
+const capacityWithLogo = qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false, true);
+assert.equal(capacityWithLogo.includes('1273'), true);
+assert.equal(capacityWithLogo.includes('1274'), true);
+assert.equal(capacityWithLogo.includes('移除 Logo'), true);
+assert.equal(capacityWithLogo.includes('降低容错等级'), false);
+const capacityWithLogoEn = qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', true, true);
+assert.equal(capacityWithLogoEn.includes('limit 1273'), true);
+assert.equal(capacityWithLogoEn.includes('remove the logo'), true);
+assert.equal(capacityWithLogoEn.includes('lower the error correction'), false);
+// 默认参数保持旧行为（既有调用与断言不受影响），且未超限时一律空串
+assert.equal(qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false, false),
+  qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false));
+assert.equal(qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false).includes('降低容错等级'), true);
+assert.equal(qrStyle.qrCapacityErrorText('abc', 'H', false, true), '');
+assert.equal(qrStyle.qrCapacityErrorText('abc', 'H', true, true), '');
+
+// --- 居中 Logo 的几何（2026-10-22）---
+// 为什么要有断言：几何算错的后果是**越界写像素**（画面撕裂/花屏）或 Logo 偏出码心；
+// 这些都是纯算术，能在单测里钉住，就不该靠真机截图去发现。
+{
+  const side = 800;
+  const layout = qrStyle.qrLogoLayout(side);
+  assert.equal(layout.size, Math.round(side * qrStyle.QR_LOGO_RATIO));
+  assert.equal(layout.plateSize >= layout.size, true, '白底板必须包住 Logo');
+  assert.equal(layout.x, Math.floor((side - layout.size) / 2));
+  assert.equal(layout.y, layout.x, '正方形画布上两个方向同值');
+  assert.equal(layout.plateX, Math.floor((side - layout.plateSize) / 2));
+  assert.equal(layout.plateY, layout.plateX);
+  assert.equal(layout.plateX <= layout.x, true);
+  assert.equal(layout.x + layout.size <= layout.plateX + layout.plateSize, true, 'Logo 必须落在底板内');
+  assert.equal(layout.plateX >= 0 && layout.plateX + layout.plateSize <= side, true, '底板必须落在画布内');
+  // 各种边长（含 0/负数/NaN/Infinity）都不产生负数或越界矩形
+  for (const probe of [1, 2, 5, 7, 8, 13, 100, 799, 800, 801, 0, -5, Number.NaN,
+    Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const item = qrStyle.qrLogoLayout(probe);
+    for (const value of [item.x, item.y, item.size, item.plateX, item.plateY, item.plateSize]) {
+      assert.equal(Number.isFinite(value) && value >= 0, true, `qrLogoLayout(${probe}) 必须非负有限`);
+      assert.equal(Number.isInteger(value), true, `qrLogoLayout(${probe}) 必须是整数（像素）`);
+    }
+    if (Number.isFinite(probe) && probe > 0) {
+      assert.equal(item.x + item.size <= probe, true, `qrLogoLayout(${probe}) Logo 不得越界`);
+      assert.equal(item.plateX + item.plateSize <= probe, true, `qrLogoLayout(${probe}) 底板不得越界`);
+      assert.equal(item.plateSize >= item.size, true, `qrLogoLayout(${probe}) 底板要包住 Logo`);
+      assert.equal(item.size >= 1, true, `qrLogoLayout(${probe}) Logo 至少 1 px`);
+    }
+  }
+  assert.deepEqual([qrStyle.qrLogoLayout(0).size, qrStyle.qrLogoLayout(0).plateSize], [0, 0]);
+}
+// 解码尺寸：长边不超过上限且保持比例；宽高非正时回退上限正方形
+{
+  const big = qrStyle.qrLogoDecodeSize(4000, 3000);
+  assert.deepEqual([big.width, big.height], [512, 384]);
+  const tall = qrStyle.qrLogoDecodeSize(3000, 4000);
+  assert.deepEqual([tall.width, tall.height], [384, 512]);
+  const alreadySmall = qrStyle.qrLogoDecodeSize(300, 500);
+  assert.deepEqual([alreadySmall.width, alreadySmall.height], [300, 500]);
+  const degenerateSize = qrStyle.qrLogoDecodeSize(0, 0);
+  assert.deepEqual([degenerateSize.width, degenerateSize.height], [512, 512]);
+  assert.deepEqual([qrStyle.qrLogoDecodeSize(Number.NaN, 100).width,
+    qrStyle.qrLogoDecodeSize(Number.NaN, 100).height], [512, 512]);
+  assert.deepEqual([qrStyle.qrLogoDecodeSize(-3, 50).width, qrStyle.qrLogoDecodeSize(-3, 50).height], [512, 512]);
+  const extreme = qrStyle.qrLogoDecodeSize(10000, 10);
+  assert.equal(extreme.width <= 512, true);
+  assert.equal(extreme.height >= 1, true);
+}
+// 等比内嵌：正方形填满方块；宽/高按较小比例内嵌并居中，且完全落在方块内
+{
+  const square = qrStyle.qrLogoFit(200, 200, 100, 120, 160);
+  assert.deepEqual([square.x, square.y, square.width, square.height], [100, 120, 160, 160]);
+  const wide = qrStyle.qrLogoFit(400, 100, 0, 0, 160);
+  assert.deepEqual([wide.x, wide.y, wide.width, wide.height], [0, 60, 160, 40]);
+  const tall = qrStyle.qrLogoFit(100, 400, 10, 20, 160);
+  assert.deepEqual([tall.x, tall.y, tall.width, tall.height], [70, 20, 40, 160]);
+  for (const item of [square, wide, tall]) {
+    assert.equal(item.x >= 0 && item.y >= 0, true);
+    assert.equal(item.width <= 160 && item.height <= 160, true);
+  }
+  // 退化输入回退「填满方块」（宁可略微变形也不留空），方块为 0 时给出空矩形
+  const degenerateFit = qrStyle.qrLogoFit(0, Number.NaN, 5, 6, 160);
+  assert.deepEqual([degenerateFit.x, degenerateFit.y, degenerateFit.width, degenerateFit.height], [5, 6, 160, 160]);
+  const zeroBox = qrStyle.qrLogoFit(10, 10, 5, 5, 0);
+  assert.deepEqual([zeroBox.width, zeroBox.height], [0, 0]);
+}
+
+// --- 居中 Logo 的像素合成（QrCompose，2026-10-22）---
+// 为什么要有断言：这一步直接改像素缓冲，三种错法都**不会抛错**、只会画错——行 stride 错会整幅串行、
+// 通道顺序错会红蓝互串、边界夹取错会写到相邻行。用 2×2 / 3×1 / 4×4 小夹具逐像素钉住最省事。
+function bgraFixture(width, height, b, g, r, a) {
+  const buffer = new Uint8Array(width * height * 4);
+  for (let index = 0; index < width * height; index++) {
+    buffer[index * 4] = b;
+    buffer[index * 4 + 1] = g;
+    buffer[index * 4 + 2] = r;
+    buffer[index * 4 + 3] = a;
+  }
+  return buffer;
+}
+function pixelAt(buffer, width, x, y) {
+  const offset = (y * width + x) * 4;
+  return Array.from(buffer.slice(offset, offset + 4));
+}
+{
+  // 白底板：只写目标矩形内部
+  const canvas = bgraFixture(4, 4, 10, 20, 30, 255);
+  qrCompose.fillRectOpaque(canvas, 4, 4, new qrCompose.PixelRect(1, 1, 2, 2), 255, 255, 255);
+  assert.deepEqual(pixelAt(canvas, 4, 0, 0), [10, 20, 30, 255]);
+  assert.deepEqual(pixelAt(canvas, 4, 1, 1), [255, 255, 255, 255]);
+  assert.deepEqual(pixelAt(canvas, 4, 2, 2), [255, 255, 255, 255]);
+  assert.deepEqual(pixelAt(canvas, 4, 3, 3), [10, 20, 30, 255]);
+  assert.deepEqual(pixelAt(canvas, 4, 1, 2), [255, 255, 255, 255], '(1,2) 也在矩形内');
+  assert.deepEqual(pixelAt(canvas, 4, 2, 1), [255, 255, 255, 255], '(2,1) 也在矩形内');
+  // 越界矩形被夹取：不抛错、不越出画布
+  qrCompose.fillRectOpaque(canvas, 4, 4, new qrCompose.PixelRect(3, 3, 10, 10), 1, 2, 3);
+  assert.deepEqual(pixelAt(canvas, 4, 3, 3), [1, 2, 3, 255]);
+  assert.deepEqual(pixelAt(canvas, 4, 0, 0), [10, 20, 30, 255]);
+  // 完全在画布外：整幅不变
+  const untouched = Array.from(canvas);
+  qrCompose.fillRectOpaque(canvas, 4, 4, new qrCompose.PixelRect(9, 9, 4, 4), 0, 0, 0);
+  assert.deepEqual(Array.from(canvas), untouched);
+  // 缓冲放不下整幅画布：直接返回，不越界写
+  const tiny = new Uint8Array(8);
+  qrCompose.fillRectOpaque(tiny, 4, 4, new qrCompose.PixelRect(0, 0, 4, 4), 255, 0, 0);
+  assert.deepEqual(Array.from(tiny), [0, 0, 0, 0, 0, 0, 0, 0]);
+  // 负坐标矩形：只写落在画布内的那一部分
+  const negative = bgraFixture(3, 3, 0, 0, 0, 255);
+  qrCompose.fillRectOpaque(negative, 3, 3, new qrCompose.PixelRect(-1, -1, 2, 2), 9, 9, 9);
+  assert.deepEqual(pixelAt(negative, 3, 0, 0), [9, 9, 9, 255]);
+  assert.deepEqual(pixelAt(negative, 3, 1, 1), [0, 0, 0, 255], '(1,1) 在矩形外');
+}
+{
+  // alpha 三条路径：255 覆盖、0 保持、中间值混合（128 → 黑白各半，允许 ±1 舍入）
+  const canvas = bgraFixture(2, 2, 0, 0, 0, 255);
+  const source = new Uint8Array([
+    0, 0, 255, 255,      // (0,0) 不透明红（BGRA）
+    255, 255, 255, 128,  // (1,0) 半透明白
+    7, 8, 9, 0,          // (0,1) 全透明：不得改动画布
+    0, 255, 0, 255       // (1,1) 不透明绿
+  ]);
+  qrCompose.blendImageRect(canvas, 2, 2, source, 8, 2, 2, new qrCompose.PixelRect(0, 0, 2, 2), false);
+  assert.deepEqual(pixelAt(canvas, 2, 0, 0), [0, 0, 255, 255]);
+  assert.deepEqual(pixelAt(canvas, 2, 1, 0), [128, 128, 128, 255]);
+  assert.deepEqual(pixelAt(canvas, 2, 0, 1), [0, 0, 0, 255], 'alpha=0 必须保持画布原值');
+  assert.deepEqual(pixelAt(canvas, 2, 1, 1), [0, 255, 0, 255]);
+}
+{
+  // 行 stride：源图每行带 4 字节填充（2 px = 8 字节 + 4 字节填充 = stride 12）。
+  // 若按 `width * 4` 读，第二行会从第一行的填充字节开始读——整幅串行就是这样发生的。
+  const canvas = bgraFixture(2, 2, 0, 0, 0, 255);
+  const padded = new Uint8Array(12 * 2);
+  padded.set([0, 0, 255, 255, 0, 255, 0, 255, 99, 99, 99, 99], 0);
+  padded.set([10, 20, 30, 255, 40, 50, 60, 255, 99, 99, 99, 99], 12);
+  qrCompose.blendImageRect(canvas, 2, 2, padded, 12, 2, 2, new qrCompose.PixelRect(0, 0, 2, 2), false);
+  assert.deepEqual(pixelAt(canvas, 2, 0, 0), [0, 0, 255, 255]);
+  assert.deepEqual(pixelAt(canvas, 2, 1, 0), [0, 255, 0, 255]);
+  assert.deepEqual(pixelAt(canvas, 2, 0, 1), [10, 20, 30, 255], '第二行要按 stride 取，不能读成填充字节');
+  assert.deepEqual(pixelAt(canvas, 2, 1, 1), [40, 50, 60, 255]);
+}
+{
+  // 通道顺序：同一串字节按 RGBA 解释时应交换红蓝
+  const asBgra = bgraFixture(1, 1, 0, 0, 0, 255);
+  const asRgba = bgraFixture(1, 1, 0, 0, 0, 255);
+  const pixel = new Uint8Array([255, 0, 0, 255]); // RGBA 里是纯红；BGRA 里会读成纯蓝
+  qrCompose.blendImageRect(asBgra, 1, 1, pixel, 4, 1, 1, new qrCompose.PixelRect(0, 0, 1, 1), false);
+  qrCompose.blendImageRect(asRgba, 1, 1, pixel, 4, 1, 1, new qrCompose.PixelRect(0, 0, 1, 1), true);
+  assert.deepEqual(pixelAt(asBgra, 1, 0, 0), [255, 0, 0, 255], 'BGRA 解释：蓝色通道 255');
+  assert.deepEqual(pixelAt(asRgba, 1, 0, 0), [0, 0, 255, 255], 'RGBA 解释：红色通道 255');
+}
+{
+  // 落点与夹取：源图比目标矩形小（只覆盖左上）；dest 起点为负时源图右侧落入画布
+  const small = bgraFixture(4, 4, 0, 0, 0, 255);
+  const onePixel = new Uint8Array([0, 0, 255, 255]);
+  qrCompose.blendImageRect(small, 4, 4, onePixel, 4, 1, 1, new qrCompose.PixelRect(0, 0, 4, 4), false);
+  assert.deepEqual(pixelAt(small, 4, 0, 0), [0, 0, 255, 255]);
+  assert.deepEqual(pixelAt(small, 4, 1, 0), [0, 0, 0, 255], '源图只有 1 px，不该被拉伸重复');
+  assert.deepEqual(pixelAt(small, 4, 0, 1), [0, 0, 0, 255]);
+  const clipped = bgraFixture(2, 1, 0, 0, 0, 255);
+  const twoPixels = new Uint8Array([0, 0, 255, 255, 0, 255, 0, 255]);
+  qrCompose.blendImageRect(clipped, 2, 1, twoPixels, 8, 2, 1, new qrCompose.PixelRect(-1, 0, 2, 1), false);
+  assert.deepEqual(pixelAt(clipped, 2, 0, 0), [0, 255, 0, 255], '夹取后落进来的是源图第 2 列');
+  assert.deepEqual(pixelAt(clipped, 2, 1, 0), [0, 0, 0, 255]);
+}
+{
+  // 退化输入：源图/目标为空、缓冲不够时一律不动画布（宁可没有 Logo，也不能写坏缓冲）
+  const canvas = bgraFixture(2, 2, 0, 0, 0, 255);
+  const before = Array.from(canvas);
+  const onePixel = new Uint8Array([0, 0, 255, 255]);
+  qrCompose.blendImageRect(canvas, 2, 2, onePixel, 4, 0, 0, new qrCompose.PixelRect(0, 0, 2, 2), false);
+  qrCompose.blendImageRect(canvas, 2, 2, onePixel, 4, 1, 1, new qrCompose.PixelRect(0, 0, 0, 0), false);
+  qrCompose.blendImageRect(canvas, 2, 2, onePixel, 4, 1, 1, new qrCompose.PixelRect(9, 9, 1, 1), false);
+  qrCompose.blendImageRect(canvas, 2, 2, new Uint8Array(2), 4, 1, 1, new qrCompose.PixelRect(0, 0, 1, 1), false);
+  qrCompose.blendImageRect(canvas, 2, 2, onePixel, Number.NaN, 4, 4, new qrCompose.PixelRect(0, 0, 4, 4), false);
+  assert.deepEqual(Array.from(canvas), before);
+}
 
 // --- 贷款计算：登记表、输入解析、等额本息、等额本金、边界 ---
 assert.equal(loans.LOAN_METHODS.length, 2);
@@ -4259,6 +4635,144 @@ for (const id of ['qr', 'barcode', 'science', 'timers']) {
   assert.equal(startup.peekStartupTool(), 'qr', '组合链路应能取回已知工具（含去空白）');
   startup.clearStartupTool();
 }
+
+// --- 启动意图带上内容（分享接收交回主应用）：tool + content 一次性消费，未知工具连内容一起丢 ---
+assert.equal(startup.STARTUP_CONTENT_PARAM_KEY, 'content');
+assert.equal(startup.pickStartupContent(undefined), '');
+assert.equal(startup.pickStartupContent({}), '');
+assert.equal(startup.pickStartupContent({ content: 'https://example.com' }), 'https://example.com');
+// 只收字符串：数字/布尔/对象一律当作没有内容（want 里只允许字符串）
+assert.equal(startup.pickStartupContent({ content: 42 }), '');
+assert.equal(startup.pickStartupContent({ content: true }), '');
+// 内容不做 trim：换行与首尾空白原样交给下游工具（那是文本工具的职责）
+assert.equal(startup.pickStartupContent({ content: '  a b  ' }), '  a b  ');
+startup.clearStartupTool();
+startup.setStartupIntent('qr', 'hello');
+{
+  const intent = startup.consumeStartupIntent();
+  assert.equal(intent.tool, 'qr');
+  assert.equal(intent.content, 'hello');
+  // 一次消费即清空（工具与内容都不留）
+  assert.equal(startup.peekStartupIntent().tool, '');
+  assert.equal(startup.peekStartupIntent().content, '');
+  assert.equal(startup.consumeStartupTool(), '');
+}
+// 未知工具：内容一并丢弃，避免「没有工具却有内容」的残留状态
+startup.setStartupIntent('not-a-tool', 'hello');
+assert.equal(startup.peekStartupIntent().tool, '');
+assert.equal(startup.peekStartupIntent().content, '', '工具非法时内容必须一起丢');
+// 只取工具的旧入口同样会把内容清掉（不会漏给下一次启动）
+startup.setStartupIntent('text', 'payload');
+assert.equal(startup.consumeStartupTool(), 'text');
+assert.equal(startup.peekStartupIntent().content, '');
+// 后一次意图覆盖前一次（与「连续记录以最后一次为准」同一口径）
+startup.setStartupIntent('qr', 'first');
+startup.setStartupIntent('text', 'second');
+assert.equal(startup.consumeStartupIntent().content, 'second');
+// clearStartupTool 工具与内容一起清
+startup.setStartupIntent('qr', 'x');
+startup.clearStartupTool();
+assert.equal(startup.peekStartupIntent().tool, '');
+assert.equal(startup.peekStartupIntent().content, '');
+// StartupIntentValue 是纯逻辑值对象：字段直接可读
+{
+  const value = new startup.StartupIntentValue('qr', 'abc');
+  assert.equal(value.tool, 'qr');
+  assert.equal(value.content, 'abc');
+}
+
+// --- 分享接收（model/ShareIntent.ets）：挑文本、上限、一次性传递 ---
+// 挑文本口径：优先第一条非空**非 HTML** 记录（保持分享面板里的顺序）
+assert.equal(shareIntent.SHARE_TEXT_MAX, 20000);
+assert.equal(shareIntent.isHtmlRecord('general.html'), true);
+assert.equal(shareIntent.isHtmlRecord('general.plain-text'), false);
+assert.equal(shareIntent.isHtmlRecord(''), false);
+assert.equal(shareIntent.pickSharedText([]), '');
+assert.equal(shareIntent.pickSharedText(undefined), '', '非法入参不抛异常、返回空串');
+{
+  const records = [
+    new shareIntent.ShareRecord('general.html', '<p>hello</p>'),
+    new shareIntent.ShareRecord('general.plain-text', 'hello'),
+  ];
+  assert.equal(shareIntent.pickSharedText(records), 'hello', 'HTML 不能优先于纯文本');
+}
+{
+  // 只有 HTML 时退回它（总比告诉用户「没有内容」有用），并去掉首尾空白
+  const records = [new shareIntent.ShareRecord('general.html', '  <b>x</b>  ')];
+  assert.equal(shareIntent.pickSharedText(records), '<b>x</b>');
+}
+{
+  // 纯文本里有空串：跳过后取第一条非空
+  const records = [
+    new shareIntent.ShareRecord('general.plain-text', '   '),
+    new shareIntent.ShareRecord('general.hyperlink', 'https://example.com'),
+  ];
+  assert.equal(shareIntent.pickSharedText(records), 'https://example.com');
+}
+{
+  // content 缺省（只分享了文件/图片）→ 空内容，页面据此给说明
+  const records = [new shareIntent.ShareRecord('general.file', '')];
+  assert.equal(shareIntent.pickSharedText(records), '');
+}
+// 上限：夹到 SHARE_TEXT_MAX，并且能如实报告是否发生过截断
+assert.equal(shareIntent.clampSharedText('abc'), 'abc');
+assert.equal(shareIntent.clampSharedText(undefined), '');
+assert.equal(shareIntent.clampSharedText('a'.repeat(shareIntent.SHARE_TEXT_MAX)).length,
+  shareIntent.SHARE_TEXT_MAX);
+assert.equal(shareIntent.clampSharedText('a'.repeat(shareIntent.SHARE_TEXT_MAX + 5)).length,
+  shareIntent.SHARE_TEXT_MAX, '超出上限必须夹取');
+assert.equal(shareIntent.shareTextTruncated('a'.repeat(shareIntent.SHARE_TEXT_MAX)), false);
+assert.equal(shareIntent.shareTextTruncated('a'.repeat(shareIntent.SHARE_TEXT_MAX + 1)), true);
+assert.equal(shareIntent.shareTextTruncated(undefined), false);
+// 一次性传递：扩展收到内容 → 页面取走即清空（不污染下一次分享）
+shareIntent.clearSharedText();
+assert.equal(shareIntent.peekSharedValue().text, '');
+assert.equal(shareIntent.consumeSharedText().text, '');
+shareIntent.setSharedText('hello');
+assert.equal(shareIntent.peekSharedValue().text, 'hello');
+assert.equal(shareIntent.peekSharedValue().truncated, false);
+{
+  const taken = shareIntent.consumeSharedText();
+  assert.equal(taken.text, 'hello');
+  assert.equal(taken.truncated, false);
+}
+assert.equal(shareIntent.peekSharedValue().text, '', '取走即清空');
+// 超长内容：取到的是夹取后的文本，同时带上「发生过截断」的标记
+shareIntent.setSharedText('b'.repeat(shareIntent.SHARE_TEXT_MAX + 3));
+{
+  const taken = shareIntent.consumeSharedText();
+  assert.equal(taken.text.length, shareIntent.SHARE_TEXT_MAX);
+  assert.equal(taken.truncated, true, '截断必须如实标记');
+}
+// 后一次分享覆盖前一次；显式清除同样把截断标记一起清掉
+shareIntent.setSharedText('first');
+shareIntent.setSharedText('second');
+assert.equal(shareIntent.consumeSharedText().text, 'second');
+shareIntent.setSharedText('c'.repeat(shareIntent.SHARE_TEXT_MAX + 1));
+shareIntent.clearSharedText();
+assert.equal(shareIntent.peekSharedValue().text, '');
+assert.equal(shareIntent.peekSharedValue().truncated, false);
+// SharedTextValue 值对象
+{
+  const value = new shareIntent.SharedTextValue('t', true);
+  assert.equal(value.text, 't');
+  assert.equal(value.truncated, true);
+}
+// 文案：空内容 / 截断提示必须区分，且写清上限来自常量（不另写一份数字）
+{
+  const emptyZh = shareIntent.shareEmptyText(false);
+  const emptyEn = shareIntent.shareEmptyText(true);
+  assert.ok(emptyZh.length > 0 && emptyEn.length > 0);
+  assert.notEqual(emptyZh, emptyEn);
+  const noteZh = shareIntent.shareTruncationNoteText(false);
+  const noteEn = shareIntent.shareTruncationNoteText(true);
+  assert.ok(noteZh.indexOf(String(shareIntent.SHARE_TEXT_MAX)) >= 0, '截断提示要写出真实上限');
+  assert.ok(noteEn.indexOf(String(shareIntent.SHARE_TEXT_MAX)) >= 0);
+  assert.notEqual(noteZh, noteEn);
+  assert.equal(shareIntent.shareTitleZh().length > 0, true);
+  assert.equal(shareIntent.shareTitleEn().length > 0, true);
+  assert.notEqual(shareIntent.shareTitleZh(), shareIntent.shareTitleEn());
+}
 // 第 75 轮：语言偏好「下拉下标 ↔ 偏好 id」必须**互逆**（上面是点断言；这里扫全表 + 未知 id 归默认）
 {
   for (let index = 0; index < language.LANGUAGE_OPTIONS.length; index++) {
@@ -5007,9 +5521,61 @@ assert.equal(layout.actionHandSide(0, -1, layout.WIDTH_SM, false), -1);
 assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_SM, false), 1, '持握手未知时用操作手兜底');
 assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM, false), 0);
 
+// 固定文案登记表（model/AppStrings.ets，2026-10-21 C 项「文案外置」第一批）
+assert.ok(appStrings.APP_STRINGS.length >= 15, '登记表至少有第一批的条目');
+for (const entry of appStrings.APP_STRINGS) {
+  assert.ok(entry.id.length > 0, 'id 不能为空');
+  assert.ok(entry.id.includes('.'), `id 用「域.名字」形式：${entry.id}`);
+  assert.ok(entry.zh.length > 0, `${entry.id} 缺中文`);
+  assert.ok(entry.en.length > 0, `${entry.id} 缺英文`);
+  assert.notEqual(entry.zh, entry.en, `${entry.id} 中英相同，疑似忘了翻译`);
+}
+// id 唯一：重复会让 find() 永远只命中第一条，另一处的修改静默失效
+const appStringIds = appStrings.APP_STRINGS.map((entry) => entry.id);
+assert.equal(new Set(appStringIds).size, appStringIds.length, 'id 必须唯一');
+// 取值：中英分别取到，未知 id **原样返回**（界面会露出 id，便于发现拼错），不返回空串
+assert.equal(appStrings.appText('tab.tools', false), '工具');
+assert.equal(appStrings.appText('tab.tools', true), 'Tools');
+assert.equal(appStrings.appText('search.toolsHint', false).includes('二维码'), true);
+assert.equal(appStrings.appText('nope.missing', false), 'nope.missing');
+assert.equal(appStrings.appText('nope.missing', true), 'nope.missing');
+// 外壳文案必须成对存在（页面按这些 id 取值，缺一个就会在界面上露出 id）
+const appStringIdSet = new Set(appStringIds);
+for (const id of ['tab.tools', 'tab.favorites', 'tab.settings', 'search.tools', 'search.toolsHint',
+  'search.history', 'tools.empty', 'favorites.empty', 'favorites.browse', 'recent.title',
+  'settings.language', 'settings.icons', 'settings.interaction', 'settings.device', 'settings.about',
+  // 第二批：对话框、排序模式、收藏与历史页 chrome
+  'dialog.cancel', 'dialog.delete', 'dialog.importTitle', 'dialog.import', 'dialog.noImportConfirm',
+  'sort.finishA11y', 'grid.perRow', 'grid.perRowA11y', 'route.history',
+  'fav.pin', 'fav.remove', 'fav.a11y.add', 'fav.a11y.reorder', 'fav.hint.idle', 'fav.hint.sorting',
+  'history.filter.all', 'history.empty', 'history.empty.search', 'history.empty.category',
+  'history.category', 'history.categoryA11y', 'history.pin', 'history.unpin', 'history.copyA11y',
+  'history.deleteA11y', 'history.deleteFiltered', 'history.reorderA11y', 'history.exportA11y',
+  'history.clearA11y', 'history.hint.sorting', 'history.noConfirmDelete',
+  // 第三批：设置页全部固定文案（含数据与隐私披露正文）
+  'settings.privacySection', 'settings.holiday', 'settings.holidayDate', 'settings.holidayCheckA11y',
+  'settings.holidayBundled', 'settings.holidayUpdated', 'settings.holidayFailed',
+  'settings.holidayStillBundled', 'settings.holidayNote', 'settings.deviceNote', 'settings.staleHoliday',
+  'settings.privacy', 'settings.privacyOpenA11y', 'settings.privacyCopyA11y', 'settings.languageA11y',
+  'settings.iconSelectedSuffix', 'settings.eraseMessage', 'settings.importMessage', 'settings.exportMessage',
+  'settings.storageDisclosure',
+  'about.tagline', 'about.versionPrefix', 'about.versionSuffix',
+  'dialog.clearTitle', 'dialog.clear', 'dialog.eraseTitle', 'dialog.erase', 'dialog.importDataTitle',
+  'dialog.exportDataTitle', 'dialog.chooseFile', 'dialog.export', 'dialog.noConfirm',
+  // 第四批：跨页重复的固定文案（工具页字段标签、动作、扫码/保存/分享状态）
+  'field.method', 'field.type', 'field.unit', 'field.result', 'field.precision', 'field.estimate',
+  'field.pickTime', 'action.copy', 'action.copyResult', 'action.copySummary', 'action.calculate',
+  'action.clearInputs', 'scan.complete', 'scan.cancelled', 'scan.pickCancelled', 'scan.imageSaved',
+  'scan.saveCancelled', 'scan.saveFailed', 'scan.shareFailed', 'status.editCancelled',
+  'status.datePickerFailed']) {
+  assert.equal(appStringIdSet.has(id), true, `缺登记项：${id}`);
+}
+// 生产代码真的在用（防止「登记了但没人取」——一致性检查也会拦，这里提前给出更直接的报错）
+for (const id of ['tab.tools', 'search.toolsHint', 'favorites.browse', 'recent.title', 'settings.about']) {
+  assert.notEqual(appStrings.appText(id, false), id, `${id} 必须能取到文案`);
+}
 // 智感握姿开关（model/HandPosture.ets）：默认开启、只认 on/off、未知值回退默认
-assert.equal(handPosture.DEFAULT_HAND_POSTURE, true, '默认开启');
-assert.equal(handPosture.HAND_POSTURE_ON, 'on');
+assert.equal(handPosture.DEFAULT_HAND_POSTURE, true, '默认开启');assert.equal(handPosture.HAND_POSTURE_ON, 'on');
 assert.equal(handPosture.HAND_POSTURE_OFF, 'off');
 assert.equal(handPosture.parseHandPosture(''), true, '没写过 → 默认开启');
 assert.equal(handPosture.parseHandPosture('on'), true);
@@ -5033,6 +5599,11 @@ assert.ok(postureUnsupportedZh.indexOf('不') >= 0, '不支持的说明要写清
 assert.ok(postureOnZh.indexOf('双手') >= 0, '打开的说明要写清双手持握时保持默认版式');
 assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('both hands') >= 0,
   '英文说明同样要写清双手持握');
+// 2026-10-22 口径变更：「未持握（平放/立在桌上）」**不再**冻结，说明文案必须跟着改（不能还写「未持握保持默认版式」）
+assert.ok(postureOnZh.indexOf('平放') >= 0, '打开的说明要写清「平放/立在桌上时仍跟随」');
+assert.equal(postureOnZh.indexOf('未持握'), -1, '不能再说「未持握时保持默认版式」');
+assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('resting on a surface') >= 0,
+  '英文说明要写清「放着时仍跟随」');
 assert.ok(handPosture.handPostureNoteText(false, false, true).length > 0);
 assert.ok(handPosture.handPostureNoteText(true, true, true) !== postureOnZh, '英文与中文说明不同');
 assert.equal(handPosture.handPostureTitleZh().length > 0, true);
@@ -5041,6 +5612,68 @@ assert.ok(handPosture.handPostureA11yText(true, false).indexOf('已开启') >= 0
 assert.ok(handPosture.handPostureA11yText(false, false).indexOf('已关闭') >= 0);
 assert.ok(handPosture.handPostureA11yText(true, true).indexOf('on') >= 0);
 assert.ok(handPosture.handPostureA11yText(false, true).indexOf('off') >= 0);
+
+// ---- 触觉反馈（model/Haptics.ets）：事件登记表 + 开关偏好 + 文案，与握姿开关同一套口径 ----
+// 默认开启（震动只发生在用户主动操作的节点）；只认 `on`/`off`，未知值回退默认而不是当关闭。
+assert.equal(haptics.DEFAULT_HAPTIC_FEEDBACK, true, '默认开启');
+assert.equal(haptics.HAPTIC_ON, 'on');
+assert.equal(haptics.HAPTIC_OFF, 'off');
+assert.equal(haptics.parseHapticFeedback(''), true, '没写过 → 默认开启');
+assert.equal(haptics.parseHapticFeedback('on'), true);
+assert.equal(haptics.parseHapticFeedback('off'), false);
+assert.equal(haptics.parseHapticFeedback(' OFF '), false, '大小写与空白不敏感');
+assert.equal(haptics.parseHapticFeedback('yes'), true, '未知值回退默认（不是当关闭）');
+assert.equal(haptics.parseHapticFeedback(undefined), true, '旧数据缺键 → 默认');
+assert.equal(haptics.serializeHapticFeedback(true), 'on');
+assert.equal(haptics.serializeHapticFeedback(false), 'off');
+assert.equal(haptics.parseHapticFeedback(haptics.serializeHapticFeedback(false)), false);
+assert.equal(haptics.parseHapticFeedback(haptics.serializeHapticFeedback(true)), true);
+// 三个事件必须都在登记表里、id 唯一、时长落在 SDK 允许的 (0, 1800000] 且远小于建议的 10 s 上限
+assert.equal(haptics.HAPTIC_EVENTS.length >= 3, true, '至少登记计时/水平/罗盘三类事件');
+assert.equal(haptics.HAPTIC_EVENT_IDS.indexOf(haptics.HAPTIC_EVENT_TIMER_DONE) >= 0, true);
+assert.equal(haptics.HAPTIC_EVENT_IDS.indexOf(haptics.HAPTIC_EVENT_LEVEL_REACHED) >= 0, true);
+assert.equal(haptics.HAPTIC_EVENT_IDS.indexOf(haptics.HAPTIC_EVENT_COMPASS_ALIGNED) >= 0, true);
+assert.equal(new Set(haptics.HAPTIC_EVENT_IDS).size, haptics.HAPTIC_EVENT_IDS.length, '事件 id 唯一');
+assert.equal(haptics.HAPTIC_EVENT_IDS.length, haptics.HAPTIC_EVENTS.length);
+for (const event of haptics.HAPTIC_EVENTS) {
+  assert.equal(typeof event.id === 'string' && event.id.length > 0, true, 'id 非空');
+  assert.equal(event.durationMs > 0 && event.durationMs <= 10000, true,
+    '时长在 (0, 10000] ms（SDK 建议单次 ≤10 s）');
+  assert.equal(typeof event.usage === 'string' && event.usage.length > 0, true, 'usage 非空');
+}
+// 计时到点必须是最明显的一次（比「手上对准」的两类触感反馈更长）
+assert.equal(haptics.hapticDurationMs(haptics.HAPTIC_EVENT_TIMER_DONE) >
+  haptics.hapticDurationMs(haptics.HAPTIC_EVENT_LEVEL_REACHED), true, '计时到点比水平到位更明显');
+assert.equal(haptics.hapticDurationMs(haptics.HAPTIC_EVENT_TIMER_DONE) >
+  haptics.hapticDurationMs(haptics.HAPTIC_EVENT_COMPASS_ALIGNED), true, '计时到点比罗盘对准更明显');
+// 未知事件必须「不震」（时长 0），不能拿默认时长顶替；场景退回系统最低优先级
+assert.equal(haptics.hapticDurationMs('nope'), 0, '未知事件不震');
+assert.equal(haptics.hapticUsage('nope'), 'unknown', '未知事件退回最低优先级');
+assert.equal(haptics.hapticEventById('nope'), undefined);
+assert.equal(haptics.hapticEventById(haptics.HAPTIC_EVENT_TIMER_DONE).durationMs,
+  haptics.hapticDurationMs(haptics.HAPTIC_EVENT_TIMER_DONE), '按 id 查与按时长查一致');
+assert.equal(haptics.hapticUsage(haptics.HAPTIC_EVENT_TIMER_DONE), 'notification',
+  '计时到点算通知类（比触摸类更明显）');
+assert.equal(haptics.hapticUsage(haptics.HAPTIC_EVENT_LEVEL_REACHED), 'physicalFeedback');
+assert.equal(haptics.hapticUsage(haptics.HAPTIC_EVENT_COMPASS_ALIGNED), 'physicalFeedback');
+// 文案：开 / 关 / 本机不支持三种状态必须区分，且写清「哪些动作会震」
+const hapticOnZh = haptics.hapticNoteText(true, true, false);
+const hapticOffZh = haptics.hapticNoteText(false, true, false);
+const hapticUnsupportedZh = haptics.hapticNoteText(true, false, false);
+assert.ok(hapticOnZh.length > 0 && hapticOffZh.length > 0 && hapticUnsupportedZh.length > 0);
+assert.notEqual(hapticOnZh, hapticOffZh, '开/关说明不能同一句');
+assert.notEqual(hapticOnZh, hapticUnsupportedZh, '不支持时要单独说明');
+assert.ok(hapticUnsupportedZh.indexOf('不') >= 0, '不支持的说明要写清「开关暂时不生效」');
+assert.ok(hapticOnZh.indexOf('倒计时') >= 0 && hapticOnZh.indexOf('水平') >= 0, '写清哪些动作会震');
+assert.ok(haptics.hapticNoteText(true, true, true).indexOf('compass') >= 0, '英文说明同样写清动作');
+assert.ok(haptics.hapticNoteText(false, false, true).length > 0);
+assert.ok(haptics.hapticNoteText(true, true, true) !== hapticOnZh, '英文与中文说明不同');
+assert.equal(haptics.hapticTitleZh().length > 0, true);
+assert.equal(haptics.hapticTitleEn().length > 0, true);
+assert.ok(haptics.hapticA11yText(true, false).indexOf('已开启') >= 0);
+assert.ok(haptics.hapticA11yText(false, false).indexOf('已关闭') >= 0);
+assert.ok(haptics.hapticA11yText(true, true).indexOf('on') >= 0);
+assert.ok(haptics.hapticA11yText(false, true).indexOf('off') >= 0);
 
 // ---- 工具页 / 收藏页「每行显示几个」（model/GridColumns.ets，两页各一份偏好）----
 // 只认 `'auto'` 与 `'1'..'6'`：手改备份、旧版本残留、越界值都必须回退默认（不是静默按某个数字渲染）。
@@ -5220,6 +5853,22 @@ assert.equal(layout.resolveGridColumns(4, 5, 892), 5);
 assert.equal(layout.resolveGridColumns(5, 6, 1200), 6, '上限仍是 6');
 assert.equal(layout.resolveGridColumns(5, 9, 1200), 6);
 assert.equal(layout.resolveGridColumns(2, Number.NaN, 336), 2, '非有限手选值 → 自动');
+
+// 卡片高度跟随系统字体缩放（基准 128 vp、上限 1.75 倍）：非法/取不到时按不放大，绝不比基准更矮
+assert.equal(layout.CARD_HEIGHT_BASE_VP, 128, '卡片基准高度与页面的固定高度同源');
+assert.equal(layout.CARD_FONT_SCALE_MAX, 1.75, '放大上限是常量，不是散落的魔数');
+assert.equal(layout.cardHeightVp(1), 128, '不放大 → 基准高度');
+assert.equal(layout.cardHeightVp(1.3), Math.ceil(128 * 1.3), '1.3× 无障碍档按比例增高');
+assert.equal(layout.cardHeightVp(1.75), Math.ceil(128 * 1.75), '1.75× 用满上限');
+assert.equal(layout.cardHeightVp(3.2), Math.ceil(128 * 1.75), '超过上限按上限夹取（不能无限长高）');
+assert.equal(layout.cardHeightVp(0.8), 128, '小于 1 的缩放不缩小卡片');
+assert.equal(layout.cardHeightVp(0), 128);
+assert.equal(layout.cardHeightVp(-2), 128);
+assert.equal(layout.cardHeightVp(Number.NaN), 128);
+assert.equal(layout.cardHeightVp(Number.POSITIVE_INFINITY), 128, '非有限值按不放大处理');
+assert.equal(layout.cardHeightVp(undefined), 128);
+// 单调性：字越大卡片越高（同一区间内不出现「更大反而更矮」）
+assert.ok(layout.cardHeightVp(1.2) <= layout.cardHeightVp(1.5), '高度随字体缩放单调不减');
 assert.equal(layout.resolveGridColumns(2, -3, 336), 2, '负数手选值 → 自动');
 assert.equal(layout.resolveGridColumns(Number.NaN, 0, 336), 1, '非有限自动值 → 1 列兜底');
 
@@ -5490,12 +6139,16 @@ function byteSequence(values) {
   let index = 0;
   return () => values[index++ % values.length];
 }
-assert.equal(passwords.PASSWORD_MODES.length, 2);
-assert.deepEqual(passwords.PASSWORD_MODES.map((mode) => mode.id), ['password', 'pin']);
+assert.equal(passwords.PASSWORD_MODES.length, 3);
+assert.deepEqual(passwords.PASSWORD_MODES.map((mode) => mode.id), ['password', 'pin', 'analyze']);
 assert.equal(passwords.passwordModeIndex('password'), 0);
 assert.equal(passwords.passwordModeIndex('pin'), 1);
+assert.equal(passwords.passwordModeIndex('analyze'), 2);
 assert.equal(passwords.passwordModeIndex('nope'), -1);
 assert.equal(passwords.passwordModeById('pin').zh, 'PIN 码');
+// 2026-10-22 新增第三种类型「强度检查」（页面按 id 分支、与生成两种类型共用同一个下拉）
+assert.equal(passwords.passwordModeById('analyze').zh, '强度检查');
+assert.equal(passwords.passwordModeById('analyze').en, 'Strength check');
 assert.equal(passwords.passwordModeById('nope'), undefined);
 // --- §3.12 健康页复制摘要的输入上下文（纯逻辑，可测）---
 assert.equal(health.healthContextText('', '', '', 'male', false), '');
@@ -5764,6 +6417,135 @@ assert.equal(passwords.generatePin(13, () => 0), undefined);
 // §3.23② 熵估算口径说明必须存在且中英各一
 assert.ok(passwords.entropyNoteText(false).includes('理论熵'));
 assert.ok(passwords.entropyNoteText(true).includes('character-set entropy'));
+
+// --- 2026-10-22 密码三项：易混字符开关 / 批量生成登记表 / 强度检查 ---
+// ① 「排除易混字符」：默认开启 → 既有（审计第 82 轮核对过的）行为一字不变
+const safeOptions = new passwords.PasswordOptions();
+assert.equal(safeOptions.excludeLookalikes, true, '默认必须排除易混字符（向后兼容）');
+const safeChars = passwords.passwordGroups(safeOptions).join('');
+for (const ch of ['I', 'O', 'l', '0', '1']) {
+  assert.equal(safeChars.includes(ch), false, `默认档不应含易混字符 ${ch}`);
+}
+// 关掉后改为全集：26+26+10 个字母数字（符号集两档相同，本就不含易混字符）
+const fullOptions = new passwords.PasswordOptions();
+fullOptions.excludeLookalikes = false;
+const fullChars = passwords.passwordGroups(fullOptions).join('');
+for (const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789') {
+  assert.equal(fullChars.includes(ch), true, `全集应包含 ${ch}`);
+}
+assert.equal(fullChars.length - safeChars.length, 5, 'I/O + l + 0/1 共 5 个字符的差');
+assert.equal(passwords.entropyBits(fullOptions) > passwords.entropyBits(safeOptions), true);
+// 开关**只作用于完整密码**：PIN 的字符集与熵固定，不受它影响
+assert.equal(passwords.pinEntropyBits(6), 6 * Math.log2(8));
+assert.equal(passwords.generatePin(4, () => 0), '2222');
+// 关掉开关后真的能生成到易混字符（确定性字节流扫过整个字符集）
+const fullSample = passwords.generatePassword(fullOptions,
+  (() => { let n = 0; return () => (n = (n * 37 + 11) % 256); })());
+assert.equal(fullSample.length, 16);
+assert.equal(/^[A-Za-z0-9!@#$%^&*()\-_=+?]+$/.test(fullSample), true);
+
+// ② 批量生成的登记表：页面下拉与服务层校验共用同一份
+assert.deepEqual(passwords.PASSWORD_BATCH_COUNTS, [1, 2, 3, 5, 10]);
+assert.equal(passwords.DEFAULT_BATCH_COUNT, 1);
+assert.equal(passwords.batchCountIndex(1), 0);
+assert.equal(passwords.batchCountIndex(3), 2);
+assert.equal(passwords.batchCountIndex(10), 4);
+assert.equal(passwords.batchCountIndex(4), -1);
+assert.equal(passwords.batchCountIndex(0), -1);
+assert.equal(passwords.validBatchCount(1), true);
+assert.equal(passwords.validBatchCount(10), true);
+assert.equal(passwords.validBatchCount(4), false);
+assert.equal(passwords.validBatchCount(0), false);
+assert.equal(passwords.validBatchCount(2.5), false);
+assert.equal(passwords.validBatchCount(Number.NaN), false);
+// 批量 = 同一条字节流上反复调用 `generatePassword()`（服务层的实现口径），逐条独立
+const batchBytes = (() => { let n = 7; return () => (n = (n * 41 + 13) % 256); })();
+const batchFirst = passwords.generatePassword(safeOptions, batchBytes);
+const batchSecond = passwords.generatePassword(safeOptions, batchBytes);
+assert.equal(batchFirst.length, 16);
+assert.equal(batchSecond.length, 16);
+assert.notEqual(batchFirst, batchSecond, '同一条字节流上连续两次生成必须是两条不同的密码');
+
+// ③ 强度检查（`model/PasswordAudit.ets`）——只在本机内存分析，不给「安全」结论
+assert.equal(passwordAudit.PASSWORD_AUDIT_MAX, 1024);
+assert.equal(passwordAudit.auditInputTooLong(''), false);
+assert.equal(passwordAudit.auditInputTooLong('a'.repeat(passwordAudit.PASSWORD_AUDIT_MAX)), false);
+assert.equal(passwordAudit.auditInputTooLong('a'.repeat(passwordAudit.PASSWORD_AUDIT_MAX + 1)), true);
+// 类别登记表与判定（判定一律用全集，与生成器是否排除易混字符无关）
+assert.deepEqual(passwordAudit.AUDIT_CLASSES.map((entry) => entry.id),
+  ['upper', 'lower', 'digit', 'symbol', 'other']);
+assert.equal(passwordAudit.AUDIT_CLASSES.length, 5);
+assert.equal(passwordAudit.AUDIT_CLASSES[0].zh, '大写字母');
+assert.equal(passwordAudit.AUDIT_CLASSES[0].en, 'uppercase');
+assert.equal(passwordAudit.AUDIT_CLASSES[3].size, 33, '符号 = 空格 + 四段可打印非字母数字 ASCII');
+assert.equal(passwordAudit.AUDIT_CLASSES[3].zh, '符号');
+assert.deepEqual(passwordAudit.passwordCharClasses(''), []);
+assert.deepEqual(passwordAudit.passwordCharClasses('Ab1!'), ['upper', 'lower', 'digit', 'symbol']);
+assert.deepEqual(passwordAudit.passwordCharClasses('中'), ['other']);
+assert.deepEqual(passwordAudit.passwordCharClasses(' '), ['symbol'], '空格计入符号');
+// 熵：长度 × log2(出现类别的字符集大小之和)
+assert.equal(passwordAudit.auditEntropyBits(''), 0);
+assert.equal(passwordAudit.auditEntropyBits('aaaaaaaa'), 8 * Math.log2(26));
+assert.equal(passwordAudit.auditEntropyBits('中'), Math.log2(64), '非 ASCII 按保守的 64 估算');
+assert.equal(passwordAudit.auditEntropyBits('Ab1!'), 4 * Math.log2(26 + 26 + 10 + 33));
+// 特征清单：空输入不给结论
+assert.deepEqual(passwordAudit.auditFindings(''), []);
+assert.deepEqual(passwordAudit.auditFindings('Tr0ub4dor&3xKp'), [], '干净样本不应命中任何特征');
+assert.equal(passwordAudit.auditFindings('password').includes('common_fragment'), true);
+assert.equal(passwordAudit.auditFindings('password').includes('short'), true, '正好 8 位算「偏短」而不是「太短」');
+assert.equal(passwordAudit.auditFindings('pass').includes('too_short'), true);
+assert.equal(passwordAudit.auditFindings('PASSWORD123').includes('common_fragment'), true, '片段匹配大小写不敏感');
+assert.equal(passwordAudit.auditFindings('Abc!xyzw').includes('short'), true, '8 位 → 偏短提示');
+assert.equal(passwordAudit.auditFindings('Abc!xyzw').includes('too_short'), false);
+assert.equal(passwordAudit.auditFindings('aaaaaaaaaa').includes('repeat_run'), true);
+assert.equal(passwordAudit.auditFindings('aaaaaaaaaa').includes('single_class'), true);
+assert.equal(passwordAudit.auditFindings('abcd1234').includes('consecutive'), true);
+assert.equal(passwordAudit.auditFindings('4321abcd').includes('consecutive'), true, '递减同样算连续');
+assert.equal(passwordAudit.auditFindings('abcd1234').includes('few_classes'), true);
+assert.equal(passwordAudit.auditFindings('asdfgh').includes('keyboard_run'), true);
+assert.equal(passwordAudit.auditFindings('poiuyt').includes('keyboard_run'), true, '反序键盘走位同样要提示');
+assert.equal(passwordAudit.auditFindings('Abc1990!xyz').includes('year'), true);
+assert.equal(passwordAudit.auditFindings('中文密码').includes('non_ascii'), true);
+// 十个特征码都必须真的会被产出（清单与实现不脱节），且每条都有中英说明
+const auditedCodes = new Set();
+for (const sample of ['password', 'Abc!xyzw', 'aaaaaaaaaa', 'abcd1234', 'asdfgh', 'Abc1990!xyz', '中文密码']) {
+  for (const code of passwordAudit.auditFindings(sample)) { auditedCodes.add(code); }
+}
+assert.equal(auditedCodes.size, 10, `特征码应全部可产出，实际 ${[...auditedCodes].join(',')}`);
+for (const code of ['too_short', 'short', 'single_class', 'few_classes', 'repeat_run', 'consecutive',
+  'keyboard_run', 'year', 'common_fragment', 'non_ascii']) {
+  assert.equal(auditedCodes.has(code), true, `${code} 必须能由某个样本产出`);
+  assert.notEqual(passwordAudit.auditFindingText(code, false), code, `${code} 必须有中文说明`);
+  assert.notEqual(passwordAudit.auditFindingText(code, true), code, `${code} 必须有英文说明`);
+  assert.notEqual(passwordAudit.auditFindingText(code, false), passwordAudit.auditFindingText(code, true));
+}
+assert.equal(passwordAudit.auditFindingText('nope', false), 'nope', '未知码原样返回（与 appText 同口径）');
+assert.equal(passwordAudit.auditFindingText('nope', true), 'nope');
+assert.equal(passwordAudit.auditFindingWarning('too_short'), true);
+assert.equal(passwordAudit.auditFindingWarning('common_fragment'), true);
+assert.equal(passwordAudit.auditFindingWarning('short'), false);
+assert.equal(passwordAudit.auditFindingWarning('few_classes'), false);
+assert.equal(passwordAudit.auditFindingWarning('non_ascii'), false);
+assert.equal(passwordAudit.auditFindingWarning('nope'), false);
+// 摘要：长度、类别点名（登记表的中英名真的被用上）与熵数字三处都要对得上
+assert.ok(passwordAudit.auditSummaryText('Ab1!', false).includes('长度 4'));
+assert.ok(passwordAudit.auditSummaryText('Ab1!', false).includes('4 类字符'));
+assert.ok(passwordAudit.auditSummaryText('Ab1!', false).includes('大写字母'));
+assert.ok(passwordAudit.auditSummaryText('Ab1!', false)
+  .includes(Math.round(passwordAudit.auditEntropyBits('Ab1!')).toString()));
+assert.ok(passwordAudit.auditSummaryText('Ab1!', true).includes('Length 4'));
+assert.ok(passwordAudit.auditSummaryText('Ab1!', true).includes('character classes'));
+assert.ok(passwordAudit.auditSummaryText('Ab1!', true).includes('uppercase'));
+// 「未发现特征」与「超限」两句都必须把边界写清
+assert.ok(passwordAudit.auditCleanText(false).includes('不等于'));
+assert.ok(passwordAudit.auditCleanText(true).includes('does not mean it is safe'));
+assert.ok(passwordAudit.auditLimitText(false).includes(String(passwordAudit.PASSWORD_AUDIT_MAX)));
+assert.ok(passwordAudit.auditLimitText(true).includes(String(passwordAudit.PASSWORD_AUDIT_MAX)));
+// 关键词：新能力要能被搜到（标题里没有「强度检查」「批量生成」）
+assert.deepEqual(toolMeta.matchTools('强度检查'), ['password']);
+assert.deepEqual(toolMeta.matchTools('密码强度'), ['password']);
+assert.deepEqual(toolMeta.matchTools('批量生成'), ['password']);
+assert.deepEqual(toolMeta.matchTools('strength'), ['password']);
 
 // --- 个税：年终奖单独计税（奖金 ÷ 12 定档 + 临界点提示）---
 // §3.8 速算扣除数只有一处定档实现（页面不再自己写循环），且政策复核日期可被界面读取
@@ -8544,6 +9326,28 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   assert.ok(passwords.passwordLengthErrorText(passwords.PASSWORD_MIN_LENGTH - 1, false).length > 0);
   assert.ok(passwords.passwordLengthErrorText(passwords.PASSWORD_MAX_LENGTH + 1, false).length > 0);
 
+  // 批量生成个数：登记表、下标与校验同源（`batchCountIndex()` 只决定滚轮停在哪一项，
+  // `validBatchCount()` 才是接受/拒绝的判据；非法值必须返回 -1 而不是 0——0 会把滚轮
+  // 悄悄拨到「1 个」，用户看到的落点与真实值不一致）。
+  assert.deepEqual(passwords.PASSWORD_BATCH_COUNTS, [1, 2, 3, 5, 10]);
+  assert.equal(passwords.DEFAULT_BATCH_COUNT, 1);
+  assert.equal(new Set(passwords.PASSWORD_BATCH_COUNTS).size, passwords.PASSWORD_BATCH_COUNTS.length);
+  for (const count of passwords.PASSWORD_BATCH_COUNTS) {
+    assert.equal(passwords.validBatchCount(count), true, `${count} 个必须合法`);
+  }
+  assert.equal(passwords.batchCountIndex(1), 0);
+  assert.equal(passwords.batchCountIndex(3), 2);
+  assert.equal(passwords.batchCountIndex(10), 4);
+  assert.equal(passwords.batchCountIndex(4), -1);
+  assert.equal(passwords.batchCountIndex(0), -1);
+  assert.equal(passwords.batchCountIndex(Number.NaN), -1);
+  assert.equal(passwords.validBatchCount(4), false);
+  assert.equal(passwords.validBatchCount(0), false);
+  assert.equal(passwords.validBatchCount(-1), false);
+  assert.equal(passwords.validBatchCount(2.5), false);
+  assert.equal(passwords.validBatchCount(Number.NaN), false);
+  assert.equal(passwords.validBatchCount(Number.POSITIVE_INFINITY), false);
+
   // 年龄：滚轮列与 `healthFieldValid('age', …)` 同源
   const ageLabels = health.ageOptions();
   assert.equal(ageLabels.length, 120);
@@ -8594,6 +9398,176 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   // 选择器失败文案：中英都要有，且不假装用户取消了选择
   assert.equal(numberOptions.pickerFailureText(false), '无法打开选择器');
   assert.equal(numberOptions.pickerFailureText(true), 'Could not open the picker');
+}
+
+// --- 文档扫描：参数登记表、偏好状态、结果码文案与结果页操作（2026-10-22）---
+{
+  // ① 登记表完整性：id 唯一、中英都有且确实翻译过
+  assert.equal(documentScan.DOC_SCAN_FILTERS.length, 3);
+  assert.equal(documentScan.DOC_SCAN_SHOOTING_MODES.length, 2);
+  for (const table of [documentScan.DOC_SCAN_FILTERS, documentScan.DOC_SCAN_SHOOTING_MODES]) {
+    assert.equal(new Set(table.map((option) => option.id)).size, table.length, '选项 id 必须唯一');
+    for (const option of table) {
+      assert.ok(option.zh.length > 0 && option.en.length > 0, option.id + ' 的中英文案都不能为空');
+      assert.notEqual(option.zh, option.en, option.id + ' 的中英必须真的翻译过');
+    }
+  }
+  assert.ok(documentScan.docScanOptionIndex(documentScan.DOC_SCAN_FILTERS,
+    documentScan.DEFAULT_DOC_SCAN_FILTER) >= 0, '默认滤镜必须在登记表里');
+  assert.ok(documentScan.docScanOptionIndex(documentScan.DOC_SCAN_SHOOTING_MODES,
+    documentScan.DEFAULT_DOC_SCAN_SHOOTING) >= 0, '默认拍摄方式必须在登记表里');
+  assert.equal(documentScan.docScanOptionIndex(documentScan.DOC_SCAN_FILTERS, 'NOPE'), -1);
+  assert.equal(documentScan.docScanOptionIndex(documentScan.DOC_SCAN_FILTERS, ''), -1);
+  assert.equal(documentScan.docScanFilterIndex('ORIGINAL'), 2);
+  assert.equal(documentScan.docScanFilterIndex('nope'),
+    documentScan.docScanFilterIndex(documentScan.DEFAULT_DOC_SCAN_FILTER), '未知滤镜回退默认');
+  assert.equal(documentScan.docScanShootingIndex('AUTO'), 1);
+  assert.equal(documentScan.docScanShootingIndex('nope'),
+    documentScan.docScanShootingIndex(documentScan.DEFAULT_DOC_SCAN_SHOOTING));
+  assert.equal(documentScan.docScanOptionIdAt(documentScan.DOC_SCAN_FILTERS, 0), 'STRENGTHEN');
+  for (const badIndex of [-1, 3, 1.5, Number.NaN]) {
+    assert.equal(documentScan.docScanOptionIdAt(documentScan.DOC_SCAN_FILTERS, badIndex), '',
+      '越界下标不能猜一个 id');
+  }
+
+  // ② 页数上限：必须落在 SDK 允许的 1..50 且是整数（系统配置与界面文案共用它）
+  assert.ok(documentScan.DOC_SCAN_MAX_SHOT >= 1 && documentScan.DOC_SCAN_MAX_SHOT <= 50);
+  assert.equal(Number.isInteger(documentScan.DOC_SCAN_MAX_SHOT), true);
+
+  // ③ 偏好状态：空串/坏 JSON/类型不对/未知 id 一律回退默认值，绝不抛
+  const docDefaults = documentScan.parseDocScanState('');
+  assert.equal(docDefaults.filter, documentScan.DEFAULT_DOC_SCAN_FILTER);
+  assert.equal(docDefaults.shooting, documentScan.DEFAULT_DOC_SCAN_SHOOTING);
+  for (const raw of ['{', '[]', 'null', '{"filter":123,"shooting":false}',
+    '{"filter":"NOPE","shooting":"NOPE"}', '{"filter":null}']) {
+    const parsed = documentScan.parseDocScanState(raw);
+    assert.equal(parsed.filter, documentScan.DEFAULT_DOC_SCAN_FILTER, raw + ' 的滤镜必须回退默认');
+    assert.equal(parsed.shooting, documentScan.DEFAULT_DOC_SCAN_SHOOTING, raw + ' 的拍摄方式必须回退默认');
+  }
+  const wantedScan = new documentScan.DocScanState();
+  wantedScan.filter = 'MONOCHROME';
+  wantedScan.shooting = 'AUTO';
+  const scanRoundTrip = documentScan.parseDocScanState(documentScan.serializeDocScanState(wantedScan));
+  assert.equal(scanRoundTrip.filter, 'MONOCHROME');
+  assert.equal(scanRoundTrip.shooting, 'AUTO');
+  // 序列化时非法 id 被归到默认值 → 手改备份也写不出坏状态
+  const brokenScan = new documentScan.DocScanState();
+  brokenScan.filter = 'NOPE';
+  brokenScan.shooting = 'NOPE';
+  const brokenRoundTrip = documentScan.parseDocScanState(documentScan.serializeDocScanState(brokenScan));
+  assert.equal(brokenRoundTrip.filter, documentScan.DEFAULT_DOC_SCAN_FILTER);
+  assert.equal(brokenRoundTrip.shooting, documentScan.DEFAULT_DOC_SCAN_SHOOTING);
+
+  // ④ 结果码文案：四条分支互不相同（成功 / 取消 / 图片不合要求 / 其它失败）
+  const scanCodes = [200, -1, documentScan.DOC_SCAN_INVALID_URIS_CODE, 12345];
+  const scanZh = scanCodes.map((code) => documentScan.docScanResultText(code, false));
+  const scanEn = scanCodes.map((code) => documentScan.docScanResultText(code, true));
+  assert.equal(new Set(scanZh).size, scanCodes.length, '四个结果码的中文必须互不相同');
+  assert.equal(new Set(scanEn).size, scanCodes.length, '四个结果码的英文必须互不相同');
+  for (const text of scanZh.concat(scanEn)) { assert.ok(text.length > 0); }
+  assert.equal(documentScan.docScanResultText(documentScan.DOC_SCAN_INVALID_URIS_CODE, false),
+    '有图片不符合扫描要求，请重新选择', '1008601001 不能被说成笼统的失败');
+
+  // ⑤ 上限与计数文案：数字必须来自常量（页面不再手写一份）
+  assert.ok(documentScan.docScanPagesLimitText(false).includes(documentScan.DOC_SCAN_MAX_SHOT.toString()));
+  assert.ok(documentScan.docScanPagesLimitText(true).includes(documentScan.DOC_SCAN_MAX_SHOT.toString()));
+  assert.equal(documentScan.docScanReadyText(1, false, false), '已生成 1 个 JPG 文件');
+  assert.equal(documentScan.docScanReadyText(2, true, false), '已生成 2 个 PDF 文件');
+  assert.equal(documentScan.docScanReadyText(1, true, true), '1 PDF file ready');
+  assert.equal(documentScan.docScanReadyText(3, false, true), '3 JPG files ready');
+  assert.equal(documentScan.docScanReadyText(Number.NaN, false, false), '已生成 0 个 JPG 文件');
+
+  // ⑥ 文件名：日期补零、序号从 1 开始、非法时间戳不写出 NaN
+  const scanMoment = new Date(2026, 9, 22, 9, 5, 3).getTime();
+  assert.equal(documentScan.docScanFileBaseName(scanMoment, 0, false),
+    'PocketToolbox-Scan-20261022-0905-1.jpg');
+  assert.equal(documentScan.docScanFileBaseName(scanMoment, 9, true),
+    'PocketToolbox-Scan-20261022-0905-10.pdf');
+  assert.equal(documentScan.docScanFileBaseName(Number.NaN, 0, false), 'PocketToolbox-Scan-1.jpg');
+  assert.equal(documentScan.docScanFileBaseName(-1, 2, true), 'PocketToolbox-Scan-3.pdf');
+  const scanNames = documentScan.docScanFileNames(3, false, 0);
+  assert.equal(scanNames.length, 3);
+  assert.equal(scanNames[0], 'PocketToolbox-Scan-1.jpg');
+  assert.equal(documentScan.docScanFileNames(0, false, 0).length, 0);
+  const stampedNames = documentScan.docScanFileNames(2, false, scanMoment);
+  assert.ok(stampedNames[0].startsWith('PocketToolbox-Scan-20261022-0905-'));
+  assert.ok(stampedNames[1].startsWith('PocketToolbox-Scan-20261022-0905-'),
+    '同一批文件必须共享同一个时间段前缀');
+
+  // ⑦ 结果页操作：删页与追加（越界、超上限、空输入都不猜、不改入参）
+  assert.deepEqual(documentScan.removePageAt(['a', 'b', 'c'], 1), ['a', 'c']);
+  assert.deepEqual(documentScan.removePageAt(['a'], 0), []);
+  for (const badIndex of [-1, 2, 1.5, Number.NaN]) {
+    assert.deepEqual(documentScan.removePageAt(['a', 'b'], badIndex), ['a', 'b']);
+  }
+  assert.deepEqual(documentScan.appendPages(['a'], ['b'], 5), ['a', 'b']);
+  assert.deepEqual(documentScan.appendPages(['a'], [], 5), ['a']);
+  assert.deepEqual(documentScan.appendPages(['a', 'b'], ['c'], 2), ['a', 'b'], '超过上限必须拒绝追加');
+  assert.deepEqual(documentScan.appendPages(['a'], ['b'], 2), ['a', 'b'], '正好到上限允许');
+  assert.deepEqual(documentScan.appendPages(['a'], ['b'], Number.NaN), ['a', 'b'], '上限非法时不拦');
+  const keepOriginal = ['a', 'b'];
+  documentScan.appendPages(keepOriginal, ['c'], 5);
+  documentScan.removePageAt(keepOriginal, 0);
+  assert.deepEqual(keepOriginal, ['a', 'b'], '纯函数不得修改入参数组');
+}
+
+// --- 端侧取字：解码尺寸、块/页拼装与错误文案（2026-10-22）---
+{
+  assert.equal(ocrText.OCR_MAX_SIDE_PX, 2400);
+
+  // ① 解码尺寸：只缩不放、长边夹取、非法尺寸原样返回
+  const ocrLarge = ocrText.ocrDecodeSize(4000, 3000);
+  assert.equal(Math.max(ocrLarge.width, ocrLarge.height), ocrText.OCR_MAX_SIDE_PX);
+  assert.equal(Math.round(ocrLarge.width / ocrLarge.height * 1000), Math.round(4000 / 3000 * 1000), '必须等比缩放');
+  const ocrSmall = ocrText.ocrDecodeSize(800, 600);
+  assert.equal(ocrSmall.width, 800);
+  assert.equal(ocrSmall.height, 600, '小图不放大');
+  const ocrTall = ocrText.ocrDecodeSize(1000, 9000);
+  assert.equal(ocrTall.height, ocrText.OCR_MAX_SIDE_PX);
+  assert.equal(ocrTall.width, Math.round(1000 * ocrText.OCR_MAX_SIDE_PX / 9000));
+  for (const badSize of [[0, 100], [-3, 50], [Number.NaN, 10], [10, Number.POSITIVE_INFINITY]]) {
+    const size = ocrText.ocrDecodeSize(badSize[0], badSize[1]);
+    assert.equal(size.width, badSize[0]);
+    assert.equal(size.height, badSize[1], '非法尺寸原样返回，调用方能看出数据本来就坏');
+  }
+
+  // ② 块拼装：行内换行、块间空行、行尾空白裁掉、空块丢弃
+  assert.equal(ocrText.ocrPageTextFromBlocks([]), '');
+  assert.equal(ocrText.ocrPageTextFromBlocks([new ocrText.OcrBlockText(['A', 'B '])]), 'A\nB');
+  assert.equal(ocrText.ocrPageTextFromBlocks([new ocrText.OcrBlockText([''])]), '');
+  assert.equal(ocrText.ocrPageTextFromBlocks(
+    [new ocrText.OcrBlockText(['  ']), new ocrText.OcrBlockText(['X'])]), 'X');
+  assert.equal(ocrText.ocrPageTextFromBlocks(
+    [new ocrText.OcrBlockText(['A']), new ocrText.OcrBlockText(['B'])]), 'A\n\nB', '块之间留一个空行');
+  assert.equal(ocrText.ocrPageTextFromBlocks([new ocrText.OcrBlockText(['', 'A', ''])]), 'A');
+  assert.equal(ocrText.ocrPageTextFromBlocks([new ocrText.OcrBlockText(['A\u3000'])]), 'A', '全角空格也要裁');
+
+  // ③ 多页拼装：页码按原下标、空页跳过、只剩一页不加标记
+  assert.equal(ocrText.ocrJoinPages([], false), '');
+  assert.equal(ocrText.ocrJoinPages(['A'], false), 'A');
+  assert.equal(ocrText.ocrJoinPages(['A', ''], false), 'A', '只剩一页时不加页码标记');
+  assert.equal(ocrText.ocrJoinPages(['A', '', 'C'], false),
+    '—— 第 1 页 ——\nA\n\n—— 第 3 页 ——\nC', '空页跳过但页码仍按原下标');
+  assert.equal(ocrText.ocrJoinPages(['A', 'B'], true), '— Page 1 —\nA\n\n— Page 2 —\nB');
+  assert.equal(ocrText.ocrJoinPages(['  ', '\n'], false), '');
+
+  // ④ 空判定
+  assert.equal(ocrText.ocrTextIsEmpty(''), true);
+  assert.equal(ocrText.ocrTextIsEmpty('   \n '), true);
+  assert.equal(ocrText.ocrTextIsEmpty('a'), false);
+
+  // ⑤ 错误文案：每种失败互不相同、非空；未知 id 如实写「未知原因」
+  const ocrIds = ['init', 'decode', 'ocr', 'timeout'];
+  const ocrZh = ocrIds.map((id) => ocrText.ocrErrorText(id, false));
+  const ocrEn = ocrIds.map((id) => ocrText.ocrErrorText(id, true));
+  assert.equal(new Set(ocrZh).size, ocrIds.length, '四种失败的文案必须互不相同');
+  assert.equal(new Set(ocrEn).size, ocrIds.length);
+  for (const note of ocrZh.concat(ocrEn)) { assert.ok(note.length > 0); }
+  assert.equal(ocrText.ocrErrorText('nope', false), '文字识别因未知原因中止');
+  assert.equal(ocrText.ocrErrorText('nope', true), 'Text recognition stopped for an unknown reason');
+  assert.ok(ocrText.ocrTooLongText(false).includes('100000'), '超限文案必须写明真实上限');
+  assert.notEqual(ocrText.ocrTooLongText(false), ocrText.ocrTooLongText(true));
+  assert.equal(ocrText.ocrTooLongText(true).includes('100000'), true);
 }
 
 console.log('All toolbox model assertions passed');

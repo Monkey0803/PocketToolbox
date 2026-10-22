@@ -2596,4 +2596,249 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 
 **未覆盖 / 待复核**：① **宽窗口的档位（4/5/6 列）**没有在设备上量到——本轮模拟器只能同时跑一个实例，启动 `PuraXMax` 时失败（`GLib: failed to allocate 63488 bytes`，宿主内存不足），因此「平板横屏选 5 列 / 640 vp 以上给到 6 列」目前只有单测覆盖（`maxGridColumns(892)===5`、`(1200)===6`）；在 PuraXMax / 三折叠全展开 / 平板实例上应按上表同样走一遍。② **跨断点夹取**（宽窗选 5 列后折叠到窄窗）同样需要能在同一实例里切换形态的设备（单测已断言 `resolveGridColumns(5, 6, 1200)===6` 与 `(2, 4, 336)===2`）。③ 英文文案（`Per row` / `Auto (N per row)` / `N per row`）只过了单测，未在设备上切语言核对。
 
+## 追加：C 项优化之六 —— 固定文案外置（C1，五批完成，2026-10-21）
+
+**来源**：C 项里的「文案外置」（竞品矩阵：二期未做项之一）。
+
+**先说一个改法上的坑（决定了本项怎么做）**：最初的想法是「把固定文案搬进 `resources/{base,en_US}/element/string.json`，用 `$r('app.string.x')` 取」。**这与本应用的语言模型冲突**——资源解析跟随**系统/应用语言**，而应用有自己的语言偏好（设置页「跟随系统 / 中文 / English」→ `language_preference` → `english: boolean`）。用户把应用语言设成 English、系统仍是中文时，`$r` 取到的还是中文；要修正就得在切换时调 `System.setAppPreferredLanguage()`，等于把「应用语言」交给系统，而且仍需与满屏 `this.tr()` 混用两套机制。**因此采用「代码侧登记表」**：`model/AppStrings.ets`（纯逻辑、可单测）集中固定文案 + `appText(id, english)` 取值；`string.json` 只保留平台级字符串（应用名、分享扩展名/描述等由系统按资源读取的项）。
+
+**已完成五批（C1 收口）**（`APP_STRINGS` 共 **686** 条 / **775** 个调用点）：
+
+| 批次 | 域 | id |
+| --- | --- | --- |
+| 第一批（外壳） | 页签/标题 | `tab.tools`、`tab.favorites`、`tab.settings` |
+| | 搜索占位 | `search.tools`（窄窗短版）、`search.toolsHint`、`search.history` |
+| | 空态 | `tools.empty`、`favorites.empty`、`favorites.browse` |
+| | 其它外壳 | `recent.title`、`grid.perRow`、`grid.perRowA11y`、`route.history` |
+| | 设置页区名 | `settings.language`、`settings.icons`、`settings.interaction`、`settings.device`、`settings.about` |
+| 第二批（列表页与对话框） | 通用 | `dialog.cancel`、`dialog.delete`、`dialog.importTitle`、`dialog.import`、`dialog.noImportConfirm`、`sort.finishA11y` |
+| | 收藏页 | `fav.pin`、`fav.remove`、`fav.a11y.add`、`fav.a11y.reorder`、`fav.hint.idle`、`fav.hint.sorting` |
+| | 历史页 | `history.filter.all`、`history.empty`、`history.empty.search`、`history.empty.category`、`history.category`、`history.categoryA11y`、`history.pin`、`history.unpin`、`history.copyA11y`、`history.deleteA11y`、`history.deleteFiltered`、`history.reorderA11y`、`history.exportA11y`、`history.clearA11y`、`history.hint.sorting`、`history.noConfirmDelete` |
+| 第三批（**设置页整页**） | 确认框 | `dialog.clearTitle`、`dialog.clear`、`dialog.eraseTitle`、`dialog.erase`、`dialog.importDataTitle`、`dialog.exportDataTitle`、`dialog.chooseFile`、`dialog.export`、`dialog.noConfirm` |
+| | 正文说明 | `settings.eraseMessage`、`settings.importMessage`、`settings.exportMessage`、`settings.storageDisclosure` |
+| | 节假日 | `settings.holiday`、`settings.holidayDate`、`settings.holidayCheckA11y`、`settings.holidayBundled`、`settings.holidayUpdated`、`settings.holidayFailed`、`settings.holidayStillBundled`、`settings.holidayNote`、`settings.staleHoliday` |
+| | 关于/隐私/其它 | `settings.privacySection`、`settings.privacy`、`settings.privacyOpenA11y`、`settings.privacyCopyA11y`、`settings.languageA11y`、`settings.iconSelectedSuffix`、`settings.deviceNote`、`about.tagline`、`about.versionPrefix`、`about.versionSuffix` |
+| 第四批（**跨页重复的固定文案**） | 字段标签 | `field.method`（5 页）、`field.type`（3 页）、`field.unit`（3 页）、`field.result`（3 页）、`field.precision`（2 页）、`field.estimate`、`field.pickTime` |
+| | 动作 | `action.copy`、`action.copyResult`（2 页）、`action.copySummary`（2 页）、`action.calculate`（2 页）、`action.clearInputs`（2 页） |
+| | 扫码链路状态 | `scan.complete`（4 处）、`scan.saveCancelled`（3 处）、`scan.cancelled`、`scan.pickCancelled`、`scan.imageSaved`、`scan.saveFailed`、`scan.shareFailed`（二维码页与条形码页共用） |
+| | 其它状态 | `status.editCancelled`、`status.datePickerFailed` |
+| 第五批（**其余全部固定文案，收口**） | 26 个组件页/入口页 | 617 处替换，新增 582 条 id：工具页的字段标签、按钮、错误码、说明行与 `Index` 的固定 toast 提示 |
+| | 单字标签补齐 | `calc.multiply`、`kin.me`、`loan.period-no`、`units.from`、`units.to` |
+
+**第五批怎么做的（可复现）**：`629` 处固定文案分布在 26 个文件，逐条手写 id 不现实，于是用**生成式**做法——脚本（`.cache/migrate-batch5.mjs`）用正则整段匹配 `this.tr('中', '英')`，按「域前缀（`DOMAINS`）+ 英文 slug」生成 id（跨页相同文案**共用一个 id**、已在登记表里的复用原 id、同域 slug 冲突自动加 `-2` 并打印出来供人工改名），再做**整段字面量替换**。三条硬约束：① 中英任一侧短于 2 字符或没有中英文字 → 跳过（标点不做登记项）；② 每个文件校验「`this.tr(` 调用减少数 == 替换数 == `appText(` 增加数」+ 无 `\uFFFD`；③ 落盘前把 26 个文件复制到 `.cache/backup-batch5/`（出问题可精确回滚）。跑完人工把 9 条自动命名不理想的 id 改名（`shell.haptic-save-failed`、`shell.history-not-recorded`、`science.expression-help`…）。
+
+**收口后的口径**：全仓只剩 **5 处**单行固定 `this.tr()`，全是**排版分隔符**（`：`/`:`、`、`/`,`）——它们不是文案而是拼串用的胶水，**刻意留在页面里**；其余 155 处 `this.tr()` 都带变量/拼接（`'已复制 ' + n + ' 项'`、`'工作日 ' + days + ' 天'`），按约定继续 inline。
+
+**口径**：① **未知 id 原样返回 id**（界面会露出 `tab.tools` 这样的串）——比返回空串更容易在验收时发现拼错；② 单测断言「id 唯一、中英非空、**中英不相同**（抓忘了翻译）、下面清单里的 id 都必须存在」；③ 带变量/拼接的文案仍归各页 `this.tr()`，但**固定片段**可以进登记表（`about.versionPrefix` + 版本号 + `about.versionSuffix`、`settings.holidayStillBundled` 接在网络错误原因后面）；④ **参数化的辅助方法**（`this.tr(zh, en)`、`handPostureTitleZh()` 这类由模型算出的动态标题）保持原样。
+
+**第三批顺带修掉一处过时披露**：设置页那段数据与隐私说明里仍写着「5 项权限」（`module.json5` 已是 6 项，含 `ohos.permission.VIBRATE`）且漏了「触觉反馈开关」。中英文字面**其余部分逐字保留**，只补这两处；外置后改它只需动 `settings.storageDisclosure` 一处，**但改它必须同时改 `docs/PRIVACY.md`**。
+
+**模拟器实测（1080×2444 @480，API 26）**：
+| 场景 | 结果 |
+| --- | --- |
+| 中文（默认） | 页签「工具/收藏/设置」、搜索占位、空态、最近使用、设置页「语言 / 应用图标 / 操作方式 / 设备信息 / 关于」、历史页「类别 / 全部」与排序提示「拖动条目调整顺序，完成后点右侧按钮。」、收藏页提示「长按卡片可置顶或取消收藏。」与长按菜单「置顶 / 取消收藏」、设置页隐私段（含修正后的「6 项权限…振动…触觉反馈开关」）与「版本 1.0.0 (1000000) · 离线优先」（片段拼接）全部照旧渲染 |
+| **英文（应用内切 English）** | 同一批文案立刻变成 `Language / App icon / Interaction / Device info / About`、页签 `Tools / Favorites / Settings`、历史页 `Category / All` 与 `Drag items to reorder, then tap the button on the right.`、收藏页 `Long-press a card to move it to the top or remove it.` 与菜单 `Move to top / Remove from favorites`、设置页 `Privacy` 段与英文披露正文——**证明登记表跟着应用内语言开关走**（这正是 `$r` 做不到的）；随后已切回「跟随系统」 |
+| 回归 | `emu.mjs smoke` 24/24 通过（smoke 的标题断言就覆盖了外壳文案装配路径）；`build-hap --tests` 全绿（一致性 **16 项**——第四批顺带加了「`appText` 的 id 双向对齐」检查，见下） |
+
+**未做/收口说明**：C1 到此**收口**——工具页、入口页、列表页、设置页、对话框与 toast 的**固定文案**都已在登记表里；剩下的只有「带变量/拼接」的 155 处 `this.tr()`（按约定 inline，因为登记表存的是静态中英对）与 5 处标点分隔符。**新增长文案时照旧**：能固定就加 `AppString`，带变量就留在页面，别把变量塞进登记表。
+
+**⚠️ 本批踩过的坑（已写进 AGENTS）**：第四批第一次是用 **PowerShell 数组驱动**的批量替换，结果 `@(@('a','b'),@('c','d'))` 被 PowerShell **展平**成 4 个字符串，`$pair[0]`/`$pair[1]` 变成「字符串的第 0/1 个字符」→ 对 **8 个组件页**做了字符级替换（`t→h`、`a→p`）。发现后：① 先用「`HEAD` + 同样的替换 == 当前文件」逐个判断哪些文件除事故外还有本次会话的真改动（6 个文件相等 → 直接 `git checkout --`；`LevelPage`/`CompassPage` 不等 → 用 `git diff --no-index` 看出真改动是**触觉反馈**那几行，恢复后手工重贴）；② 改用 **Node 脚本 + 整段字面量/正则回调替换**重做本批；③ 全仓扫 `imporh|consh|boolepn` 之类的损伤痕迹 = 0，再跑门禁与 smoke。**教训：批量改源码文本只用 Node 脚本，且必须打印命中数与 `\uFFFD` 计数。**
+
+**本批新增的护栏（一致性检查第 16 项）**：`appText` 的 id **双向对齐**——源码里出现的每个 id 都必须在 `APP_STRINGS` 里（否则界面会直接把 `tab.tools` 这样的串显示出来），且每个登记项都至少被生产代码用过一次（防僵尸条目）。当前 **99 个 id / 151 个调用点**全部对齐；`appText()` 对未知 id 返回 id 的「故意露馅」行为因此有了自动拦截。
+
+## 追加：C 项优化之五 —— 日期计算的自定义时区（C7，2026-10-21）
+
+**来源**：C 项里的「日期计算自定义时区」（竞品矩阵：「日期工具 … 自定义时区未做」）。
+
+**口径**（先说清边界，避免把它做成一个「到处都变」的开关）：**只影响「今天是哪天」**——日期间隔、日期推算、工作日统计都是纯日历运算，与时刻无关；真正依赖「今天」的是**倒数日的「已过去 / 还剩」**（以及进入页面时给的默认日期）。因此「时区」选择只出现在**日期间隔方式**下。
+
+**改动**：
+1. 纯逻辑 `model/TimeZoneTools.ets` 新增 `zonedDateText(instant, offsetMinutes)`（与 `zoneDateTimeText()` 同源：先加偏移、再取 UTC 字段，**非法输入返回空串而不是本机日期**）、`dateZoneNoteText(zoneId, todayText, english)`（本机时返回空串，不占界面）、`dateZoneUnsupportedText(english)`。
+2. `DatesPage`：`@Local dateZone`（默认 `LOCAL_ZONE_ID`）→ `todayInZone()`（本机用系统日期；其它时区走系统 `i18n` 偏移，含夏令时；系统给不出偏移时返回本机日期**并置 `dateZoneUnsupported`**，界面显示「当前设备不支持该时区，日期仍按本机计算。」）；`countdownText()` 改用 `todayInZone()`；换时区时**只在默认日期没被用户改过**（仍等于上一个 today）的情况下跟着更新，绝不覆盖用户填的日期；偏移按「分钟 + 时区」缓存（与时间戳页同一套）。UI 用 `OptionSelect`（与时间戳页的时区换算共用登记表；「本机」显示成「本机 · 北京」这样的补全名，不暴露 IANA id）。
+
+**模拟器实测（1080×2444 @480，API 26）**：
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| 默认本机 | 日期间隔方式下出现「时区」行，值为 **本机 · 北京**；**不显示额外说明行**（本机时 `dateZoneNoteText()` 返回空串） |
+| 选东京 | 选中值变「东京」，结果卡下方出现 **「按 东京 计算：今天是 2026-10-21」** |
+| **选 UTC+11:00（跨日验证）** | 本机当时约 21:07（北京）/ UTC 13:07 → `UTC+11:00` 已是次日：说明行变成 **「按 UTC+11:00 计算：今天是 2026-10-22」**，证明「今天」确实按所选时区推导（倒数日用的就是同一个 `todayInZone()`）—— `screenshots/emulator/date-zone-utc11-zh.jpeg` |
+| 回归 | 其它方式（年龄/工作日/农历/时间点差值等）的布局完全不变（时区行只在日期间隔下渲染）；重进应用回到「本机 · 北京」（**选择不落盘**，避免为它新增持久化键与隐私条目） |
+
+**未覆盖 / 待真机**：① **夏令时切换日**的真实偏移（如 `America/New_York` 的 3 月/11 月切换周）——模拟器上没法改系统时钟，只有纯逻辑 `zonedDateText()` 的固定 UTC 断言；② **系统给不出某个 IANA 时区**时的「不支持」文案（本机模拟器所有条目都能解析，只能靠单测覆盖文案）；③ 英文下的说明行（`Today in Tokyo: …` / `This device does not report that time zone…`）只过了单测；④ 换时区时「默认日期跟随」的边界（用户改过 `firstDate` 后再换时区，**不应该**被覆盖）需要在真机上按清单走一遍。
+
+## 追加：C 项优化之四 —— UI 回归脚本化（C5，2026-10-21）
+
+**来源**：C 项里的「UI 回归自动化」（审计 §4.6：`emu.mjs` 原来靠手工点选）。
+
+**改动**：`tests/emulator/emu.mjs` 新增 `smoke [--only <工具id>] [--shots]`——用**启动意图**（`aa start -b … -a EntryAbility --ps tool <id>`，与桌面快捷方式/分享交回同一条通道）依次打开 24 个工具页，断言「标题栏出现该工具的中文标题」且「页面里出现 2–3 个关键文案」，失败逐条列出并以退出码 1 结束，`--shots` 顺带给每页截图。**不需要任何点按坐标**，因此在任何窗口尺寸/形态下都能跑。同时修掉一个既有缺陷：`title` 命令的判据是「顶部 y < 140 的文本」，而全局沉浸（2026-10-20）之后标题从 y≈172 起算，**它一直只取得到状态栏的时间与电量**；现在改为「本应用窗口内、状态栏之下、内容区之上」（并抽出 `appWindowId()` 供 `grid`/`title` 共用）。
+
+**模拟器实测（1080×2444 @480，API 26）**：
+| 场景 | 结果 |
+| --- | --- |
+| 全量 smoke | `smoke 通过：24/24 个工具页都渲染出标题与关键文案。`（约 1.5 分钟） |
+| **负向验证**（防止断言假通过） | 临时给手电筒页加一条不存在的期望文案 → `❌ torch → 标题对 · 缺文案：不存在的文案XYZ`，`smoke 失败 1/1` 且退出码 1；随后**已还原**并在下一次全量运行中恢复 24/24 |
+| `title` 修复 | 现在能正确打印「二维码」「历史记录」等标题（此前只剩 `08, :, 42 | 100`） |
+
+**未覆盖 / 待补**：① smoke 目前只覆盖**默认中文 + 浅色 + 默认字号**下的渲染，英文/深色/大字体没有脚本化（切语言与字号仍需手点或真机）；② 只覆盖每个工具页的**首屏**，面板内的二级状态（随机页的三种方式、计时页的秒表面板、日期页的 8 种方式）没有逐个断言；③ 交互路径（生成、扫码、传感器、定时器到点）仍按 `PHONE_ACCEPTANCE_CHECKLIST.md` 走真机。
+
+## 追加：C 项优化之三 —— 卡片高度跟随系统字体（C3，2026-10-21）
+
+**来源**：C 项里的「超大字体专项」；审计 §2 把「卡片高度纳入 `LayoutAdaptive` 度量」记为后续候选（此前固定 `CARD_HEIGHT = 128`，系统字体放大到 1.3×/1.75× 时两行标题会被裁掉）。
+
+**改动**：纯逻辑新增 `CARD_HEIGHT_BASE_VP = 128`、`CARD_FONT_SCALE_MAX = 1.75`、`cardHeightVp(fontScale)`（`基准 × clamp(fontScale, 1, 1.75)`，非法/取不到按不放大）；`Index` 新增 `@Local cardHeight`，在 `refreshSafeArea()`（首帧 / 回前台 / 折叠展开都会走到）里读 `ctx().config.fontSizeScale` 后换算，`card()` 用 `.height(this.cardHeight)`。**仍然不用 `constraintSize({ minHeight })`**（Grid 会把最小高度的单元格拉满整行，2026-10-20 实测过这个回归）。
+
+**模拟器实测（1080×2444 @480，API 26）**：
+| 场景 | 结果 |
+| --- | --- |
+| 默认（字体 1×）无回归 | `emu.mjs grid` → `cardHeight=133.3 vp`（＝卡片 128 vp + Grid 单元的固定增量），与改动前同值 |
+| **探针证明链路生效** | 临时把 `CARD_HEIGHT_BASE_VP` 改成 160 → 重装后同一命令读到 `cardHeight=166.7 vp`（与 128→133.3 同一比例关系），随后**已还原为 128** 并重跑门禁（`build-hap --tests` 全绿） |
+
+**未覆盖 / 待真机**：① **系统字体放大后的真实观感**——设置 → 显示和亮度 → 字体大小调到最大档（1.75×）后，工具/收藏页卡片应显著变高、英文长标题两行完整显示（不出现省略号截断）；本机模拟器没有可用的 hdc 路径改字号，只用探针证明了「卡片高度 → 布局高度」的链路。② 1.75 倍时一屏能放几行是否符合预期（当前设计是宁可少放行也不裁标题）。③ 超窄窗（327 vp 外屏）与大字体叠加时的卡片宽度/高度组合只在单测里覆盖。
+
+## 追加：C 项优化之二 —— 历史记录排序（C4，2026-10-21）
+
+**来源**：C 项里的「历史记录拖拽排序」（审计 §3.26 与竞品矩阵都记为待办）。
+
+**改动**：
+1. **顺序口径改为「数组顺序即显示顺序」**（与收藏页完全一致）：`HistoryKinds.normalizeHistoryItems()` 只做「丢弃不可用条目 + 截断」、**不再按置顶 + 时间重排**；置顶靠写入口维持不变量——`withToggledPin()` 置顶移到最前、取消置顶落到置顶区之后，`insertHistory()` 把新记录插到最后一条置顶条目之后；**截断保护置顶条目**（超出上限时丢的是时间最旧的未置顶条目，不是数组尾部）。新增 `moveHistory()`（`insertIndex` 语义）与 `historyShownItems()`（只过滤不重排），上限常量 `HISTORY_MAX` 收进纯逻辑、读写与页面共用。
+2. **页面**：`HistoryPage` 的列表从 `Column + ForEach` 换成 `List`（50 条按需渲染），排序模式下 `editMode` + `onItemDragStart`/`onItemDrop` 可拖拽换位；排序模式内**不挂长按菜单、也不显示筛选与搜索**（拖的是完整列表的存储顺序），入口是与收藏页同一枚图标（≥2 条时才出现）。落盘与回滚在 `Index.moveHistoryItem()`。
+3. **索引/导出**：`Index.addHistoryItem()` 改用 `insertHistory()`、`toggleHistoryPin()` 不再做显示期排序、`exportHistoryText()` 直接导数组顺序。
+
+**模拟器实测（1080×2444 @480，API 26）**：
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| 新记录插到最前 | 在折扣页复制 200×8 的结果 → 历史页第一条是 `原价 200 × 8 折 … = 160.00`，此前两条 `100 × 8 … = 80.00` 跟在后面 |
+| 排序模式入口 | 非排序态下点该图标 → 搜索框与类别筛选消失、出现提示「拖动条目调整顺序，完成后点右侧按钮。」（`Text` 实测在 y=410）；再点对勾退出后恢复搜索与筛选 |
+| **置顶（新顺序语义的核心）** | 长按第二条 `80.00` → 菜单「置顶」→ 它移动到**第一条**，原来的 `160.00` 退到第二；**带图钉图标** —— `screenshots/emulator/history-pinned-verify.jpeg` |
+| **顺序与置顶状态持久化** | `aa force-stop` + `aa start` 后重进历史页：仍是 `80.00`（带图钉）/ `160.00` / `80.00`；沙箱偏好里该条 `pinned&quot;:true`、其余两条 `false`（`hdc shell cat` 读原文） |
+| 布局回归 | 卡片版式、类别筛选、导出/清空按钮与非排序态一致（列表换成 `List` 后间距与卡片宽度未变） |
+
+**未覆盖 / 待真机**：① ~~**拖拽手势本身在模拟器上没有复现**~~ —— **2026-10-22 真机（PLR-AL00, API 26）已解决并改实现**：`uitest uiInput drag`（慢速 200）在**模拟器与真机**上对 `List` 都不换位，但同一命令对**收藏页的 `Grid`** 一次就成功（真机实测：`uitest uiInput drag 350 1250 1000 1250 200` 后「条形码/二维码」互换，且**杀进程重开后顺序保持**）。因此**历史页的列表从 `List` 换成单列 `Grid`**（`columnsTemplate('1fr')` + `.editMode(this.sorting)` + `onItemDragStart`/`onItemDrop`，与收藏页同一套写法），真机实测拖动换位成功、重开后顺序保持（`80.00` 与 `160.00` 两条互换）。**口径**：`List.editMode` 自 API 9 起已废弃、`onItemMove` 与 `onItemDrop` 两条路都没走通，**列表类页面要做拖拽排序就用单列 `Grid`**，不要用 `List`。② 排序模式在**筛选/搜索正在进行**时进入的过渡（本轮是「进入排序即隐藏筛选」，筛选值保留在内存里，退出后仍在）。③ 英文提示文案（`Drag items to reorder…`）只过了单测。
+
+## 追加：C 项优化之一 —— 服务卡片配置刷新 + 错误态口径（2026-10-21）
+
+**来源**：用户选定「完成 C（七项优化）+ 触觉反馈 + 系统分享接收」。本段是 C 的第一批（C2、C6）。
+
+**改动**：
+1. **C2 服务卡片**：`QuickToolsFormAbility` 新增 `onConfigurationUpdate()` → 复用 `refreshQuickToolsCards()` 立即重建已发布卡片（此前系统语言切换后要等 `updateDuration` 的**最长 30 分钟**兜底刷新，卡片文案长时间停在旧语言）；另新增一致性检查第 15 项，把卡片页下的标题（`WidgetCards.quickToolTitle()`）与卡片中心名 `$string:widget_quick_tools_display_name` 两份文案**逐字对齐**（base=中文、en_US=英文），防止改一处漏一处。
+2. **C6 错误态口径**：定下「持续错误行内、一次性反馈 toast」并写进 `AGENTS.md`。按此收敛四处——`DiffPage`（校验/超限只行内，移除 `onStatus`）、`BasePage`（进制换算与位运算错误只有行内，移除 `onStatus` 与其重复 toast）、`QrPage`/`BarcodePage`（新增 `genError` 行内常驻：校验失败、内容超长、本机生成能力不支持；成功/取消/保存/分享仍走 toast）。
+
+**模拟器实测（1080×2444 @480，API 26）**：
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| 二维码页空输入点「生成」 | 动作行**下方**出现常驻红字「请填写必填项」（此前只有 2 秒 toast，消失后看不到原因）—— `screenshots/emulator/qr-inline-error-zh.jpeg` |
+| 换类型清错误 | 切内容类型或再次点生成会按新输入重算该行（同类型重选不动，与「换类型清结果」的既有口径一致） |
+| 服务卡片配置刷新 | **2026-10-22 真机（PLR-AL00）实测：卡片标题跟着系统语言刷新了，但卡片里的工具名没跟着变** —— 说明 `onConfigurationUpdate` 之后重建的那份绑定数据用的还是旧语言。根因是卡片进程里的语言查询（`i18n.System.getSystemLanguage()`）没立刻跟上系统语言变化，而标题由系统按新语言解析资源。**修法**：`refreshQuickToolsCards(context, systemLanguageOverride)`／`quickToolsPayloadFor(..., systemLanguageOverride)` 新增显式语言参数，`onConfigurationUpdate(newConfig)` 直接传 `newConfig.language`；进程内查询改为优先 `resourceManager.getConfigurationSync().locale`（就是系统解析资源时用的那份语言）→ 再退回 `i18n.System.getSystemLanguage()`。**待复验**：真机再切一次系统语言，工具名应与标题同一秒跟随 |
+
+**未覆盖 / 待复核**：① ~~卡片 `onConfigurationUpdate` 的实际触发时机与效果~~ —— **2026-10-22 真机已触发**，见上表（标题刷新、工具名不刷新 → 已按显式语言参数修掉，待复验）；② `BasePage`/`DiffPage` 移除 toast 后的观感（模拟器只验了二维码页的同类改动）；③ 条码页 `genError` 在真机生成失败（如 804）时的行内文案。
+
+## 追加：触觉反馈 + 系统分享接收（2026-10-21）
+
+**来源**：用户选定「高感知、低风险的两个新增」——触觉反馈（计时到点 / 水平到位 / 罗盘对准）与系统分享接收（别的应用分享文本 → 本应用的二维码 / 文本工具）。
+
+**改动**：
+1. **触觉反馈**：权限 `ohos.permission.VIBRATE`（5 → 6 项）；纯逻辑 `model/Haptics.ets`（`HAPTIC_EVENTS` 登记表 + 开关偏好 + 三态文案）、服务 `services/Haptics.ets`（`canIUse('SystemCapability.Sensors.MiscDevice')` 门控、`startVibration` 失败只记日志）；持久化键 `haptic_feedback`（默认开启，已登记 `LOCAL_KEYS`）；设置页「操作方式」卡内在「智感握姿」下方新增一行（分隔线隔开）；三处触发点均为**边缘判定**：`TimersPage.tick()` 到点提示首次显示时、`LevelPage` 倾斜→水平跨越时、`CompassPage` 未对准→对准跨越时。
+2. **系统分享接收**：`module.json5` 新增 `ShareExtAbility`（`type: share`、`exported: true`、`skills.actions = ["ohos.want.action.sendData"]`、`uris = [{ type: "text/plain" }]`）；纯逻辑 `model/ShareIntent.ets`（挑文本 / 20000 字符上限 / 一次性传递）、服务 `services/ShareIntake.ets`（`systemShare.getSharedData()`）、分享详情页 `pages/Share.ets`（唯一新增的 `@Entry`，已登记 `main_pages.json`）；`model/StartupIntent.ets` 新增 `content` 参数与 `consumeStartupIntent()`，`Index.applyStartupIntent()` 把内容交给目标工具的 `initialValue`。
+
+**模拟器实测（1080×2444 @480 → 窗口约 360×814 vp，API 26，`127.0.0.1:5555`；本轮**先覆盖安装新包**再验）**：
+
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| 设置页新增「触觉反馈」行 | 「操作方式」卡内、智感握姿下方，说明为「倒计时结束、水平仪到位、罗盘对准锁定的方位时轻振一下。」（本机 `canIUse('...MiscDevice')` 为真 → 开关可用）—— `screenshots/emulator/haptics-settings-on-zh.jpeg` |
+| 点开关 → 状态与文案同步 | 说明变「已关闭：不会发出任何震动。」，开关变灰 —— `screenshots/emulator/haptics-settings-off-zh.jpeg` |
+| 落盘核对 | `hdc shell strings /data/app/el2/100/base/com.example.pockettoolbox/haps/entry/preferences/pocket_toolbox` → `<string key="haptic_feedback">off</string>` |
+| 强停重启后保持 | `aa force-stop` + `aa start` → 设置页仍是「已关闭：不会发出任何震动。」（`parseHapticFeedback()` 读回生效），随后点回开启并复核文案恢复 |
+| **分享交回主应用**（可脱离分享面板驱动的那一段） | `aa start -b com.example.pockettoolbox -a EntryAbility --ps tool qr --ps content https://example.com/sharetest` → 标题「二维码」、输入框已填入该网址；`--ps tool text --ps content helloWorld12345` → 标题「文本工具」、输入框已填入该文本 |
+| **一次性消费**（不污染下一次正常启动） | 上一步之后不带参数 `aa start` → 回到工具首页，`helloWorld12345` 不残留 |
+
+**单测（`node tools/build-hap.mjs --tests` → 一致性 14 项、`All toolbox model assertions passed`、48 模块 / 513 导出函数、HMSymbol 70/70）**：`Haptics`（默认开启、只认 `on`/`off`、未知值回退默认；事件 id 唯一、时长落在 (0, 10000] ms、计时到点比另两类更明显；未知事件**时长 0 = 不震**、场景退回 `unknown`；三种状态文案互不相同且写明触发节点）、`ShareIntent`（优先非 HTML、只剩 HTML 时退回、空内容返回空串、`SHARE_TEXT_MAX` 夹取与 `truncated` 标记、一次性取走即清、`SharedTextValue` 值对象、文案写出真实上限）、`StartupIntent`（`pickStartupContent` 只收字符串、`setStartupIntent`/`consumeStartupIntent` 工具与内容一起消费、**非法工具时内容一并丢弃**、旧入口 `consumeStartupTool()` 同样清内容、后一次覆盖前一次、`clearStartupTool()` 两者都清）。
+
+**未覆盖 / 必须真机**：① ~~**系统分享面板里是否出现「随身工具箱」**~~ —— **2026-10-22 真机（PLR-AL00）实测：分享文本时面板里看不到本应用**。排查与修法：原来只声明 `uris: [{type: text/plain}]`，而分享面板按**分享内容的 MIME** 匹配，微信/浏览器分享**链接**常见 `text/html`、`text/uri-list`，于是整条匹配不上；改为同时列出 `text/plain`/`text/html`/`text/uri-list`/`text/*`（`text/*` 通配是官方示例用过的写法，示例里是 `image/*`），并给扩展补上 `icon`（原先只有 `label`/`description`，官方示例带 `icon`）。`bm dump` 已确认新包在设备上注册为 `type: share` + 四个文本类型 + `icon: $media:toolbox_icon`。**待用户复验**：再分享一次文本/链接，面板里应出现「随身工具箱」并能打开分享页。② 分享**图片/文件**时本应用不出现是**设计如此**（只接文本类）。③ 依赖系统分享框架按 `actions: ohos.want.action.sendData` 匹配分享扩展，模拟器无分享面板，本轮只验了「扩展被拉起之后」的全部链路（`systemShare.getSharedData()` 之后的挑选与交回用 `aa start --ps` 等价驱动）；② **分享图片/文件**时的表现（应显示「这次分享里没有文字内容」而不是假内容）；③ 分享详情页在分享面板里的观感与收起行为（`terminateSelf()`）；④ **三处触觉反馈的实际震动**（模拟器无马达，只能确认代码路径与开关生效）、关掉开关后确实不震、无振动能力设备上开关禁用态；⑤ 从分享详情页点「二维码 / 文本工具」时主应用是**冷启动**（当前是杀掉后 `aa start` 驱动，等价但未覆盖热启动路径）。
+
+## 追加：二维码定制 —— 自定义码色 + 居中 Logo（2026-10-22）
+
+**来源**：用户提问「二维码模块可以支持定制吗，比如颜色、图片等」，选定「居中 Logo（相册选图）」+「自定义码色」，并要求**自定义码色复用颜色工具的取色能力**。
+
+**改动**：
+1. **自定义码色**（纯逻辑 `model/QrStyle.ets` 扩展）：码色下拉在三个预设外多一档 `QR_CUSTOM_COLOR_ID`（联合表 `qrColorIdList()`/`qrColorOptionIndex()`/`qrColorOptionLabel()` 是唯一下标来源）；`QrPage` 选中后显示「码色 HEX」输入框（挂系统取消按钮）+ **与颜色工具页同一个** `HdsColorPicker`（`@kit.UIDesignKit`，`options.circleRadius: 30`），两者都走 `ColorTools` 的解析链（手输 `qrCustomColorRgb()` → `parseColorInput`；取色回传 `parsePickedColor()` → 8 位 ARGB 丢 alpha）。**背景恒为纯白**，只放开前景色，判据是「能解析 + `contrastRatio(白, 前景) ≥ QR_MIN_CONTRAST_RATIO(4.5)`」：行内实时短判据 `qrCustomColorVerdictText()`（给出实测比值）、点「生成」被拒时给完整提示 `qrCustomColorErrorText()`（说出实际比值与 4.5:1 门槛），`resolveQrColor()` 只做最后兜底回退默认档。
+2. **居中 Logo**（本机合成）：Scan Kit `generateBarcode.CreateOptions` **没有 Logo/水印参数**（已核 SDK：只有 `scanType`/`width`/`height`/`margin`/`level`/`backgroundColor`/`pixelMapColor`），因此 `services/SystemTools.makeQr()` 生成底图后**读像素 → 盖白底板 → 按 alpha 叠加 → `image.createPixelMap()` 重建**；几何与混合全在纯逻辑（`QrStyle.qrLogoLayout()` 居中方块 + 1.2 倍白底板、`qrLogoFit()` 等比内嵌、`qrLogoDecodeSize()` 解码限长边 512；新增 `model/QrCompose.ets` 的 `fillRectOpaque()`/`blendImageRect()`）。相册选图 `pickQrLogo()` 走系统 `PhotoViewPicker`（无权限），**只留解码后的 `PixelMap`、不留临时 URI**，页面离开时释放（生成在途不释放，`generating` 守卫）。仅容错 **Q/H** 允许带 Logo（`qrLogoLevelOk()`，与 `QR_LEVELS` 的 value 比较），等级不足时说明行转警示色且生成被拒；容量超限提示在带 Logo 时改为「缩短内容或移除 Logo」。
+3. 文案：`model/AppStrings.ets` 新增 8 条（`qrpage.pick-qr-colour`/`colour-on-white-note`/`qr-logo`/`choose-logo-image`/`replace-logo-image`/`remove-logo-image`/`logo-level-required`/`logo-image-unreadable` —— 一致性检查的 id 双向对齐已覆盖）。
+
+**模拟器实测（1080×2444 @480 → 窗口约 360×814 vp，API 26，`127.0.0.1:5555`，先覆盖安装新包）**：
+
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| QR 页新增「居中 Logo」行 | 「居中 Logo」标题 + 卡内「未选择图片」+ 右侧选图图标（`sys.symbol.picture_fill`）；下方常驻说明在容错等级为「中（15%）」时显示为**警示色** —— `screenshots/emulator/qr-logo-row-zh.jpeg` |
+| 码色下拉出现「自定义」 | 四项：经典黑白 / 深蓝 / 墨绿 / **自定义**（新增档位排在最后） —— `screenshots/emulator/qr-colour-custom-option-zh.jpeg` |
+| 选「自定义」后的输入区 | 「码色 HEX」标签 + 输入框（默认 `#0D3B66`，带系统清除按钮）+ **系统取色色轮**（与颜色工具页同一形态）；下方色块预览（白底上的深蓝）+ 实时判据「对比度 11.45 : 1」+ 说明「背景固定纯白，保证扫码识别率。」 —— `screenshots/emulator/qr-custom-colour-zh.jpeg` |
+| 页面渲染回归 | `node tests/emulator/emu.mjs smoke --only qr` → `✅ qr → 二维码`（`expect` 已加「居中 Logo」） |
+
+**单测（新增约 200 条断言，`node tests/run-unit-tests.mjs` 全绿）**：`QrStyle` 自定义色（联合表顺序/唯一/未知下标回退、`#RRGGBB`/`rgb()`/缩写三种写法、深色可用与浅色/垃圾不可用、提示含实测比值与 4.5 门槛、`resolveQrColor()` 背景恒为纯白且非法自定义色回退默认档、`qrLogoLevelOk()` 只认 Q/H 且不写死字面量、`qrCapacityErrorText(..., logoRequired)` 不再建议「降低容错等级」而默认参数保持旧行为）、Logo 几何（`qrLogoLayout()` 居中/底板包住 Logo/不越界，含 0/负数/NaN/Infinity；`qrLogoDecodeSize()` 限长边保比例；`qrLogoFit()` 等比内嵌与退化输入回填满方块）、`QrCompose` 像素合成（白底板只写矩形内、越界矩形夹取不越界写、alpha 0/128/255 三条路径、**行 stride 12 的源图不串行**、RGBA 换道、负起点夹取、退化输入不动缓冲）。**其中 alpha=255 的快速路径曾被单测当场抓到「只换混合分支、没换覆盖分支」的红蓝互串写法**，已修。`ColorTools` 新增 `rgbToNumber()`（`0xRRGGBB` 数值，与 `toHex()` 同源走 `clampByte()`）也有断言。
+
+**未覆盖 / 必须真机**：① **带 Logo 的真实成像与实扫**（模拟器 `generateBarcode` 返回 804「能力不支持」，与输入无关，所以合成链路在模拟器上跑不到）——真机上需另用一台设备实扫带 Logo 的码，确认中心遮挡仍在 Q/H 容错范围内；② **自定义前景色的实扫**（含取色器取出的颜色与手输 HEX 两条路）——模拟器只能验「非法色被拒」与判据文案；③ **保存 PNG / 分享图里带 Logo**（`saveQr()`/`shareQr()` 消费的就是合成后的 `PixelMap`，但产物未在模拟器核过，真机需 `hdc file recv` 拉回成品核对）；④ 相册选 Logo 的真实交互（模拟器相册无图，只验到「选图入口与权限路径」）；⑤ Logo 为**非正方形/透明背景 PNG** 时的实际观感（算式已单测，成像待真机）；⑥ 更换/移除 Logo 与离开页面释放像素图的内存表现。
+
+## 追加回执（2026-10-22：密码工具 —— 易混字符开关 / 批量生成 /「强度检查」）
+
+**来源**：[`APP_AUDIT_2026-10-20.md`](APP_AUDIT_2026-10-20.md) §3.23 的两条「新增」（批量生成、只评估已有密码强度）＋两项小改优化。
+
+**改动**：
+1. **「排除易混字符」开关**（纯逻辑 `model/PasswordTools.ets`）：字符集拆成 `UPPER`/`LOWER`/`DIGITS` 的 `_SAFE`/`_FULL` 两档，`PasswordOptions.excludeLookalikes`（默认 `true` ＝既有行为一字不变，`I/O/l/0/1` 仍不出现）；**只作用于完整密码**，PIN 固定 `DIGITS_SAFE`（开关只渲染在密码面板，PIN 面板看不到它）。
+2. **批量生成**：登记表 `PASSWORD_BATCH_COUNTS = [1,2,3,5,10]` + `DEFAULT_BATCH_COUNT`，服务层只留 `createPasswords()`/`createPins()`（**一个**安全随机源循环调用单条生成，返回 `[]` ＝整批失败，**不出现「一半成功」**）；页面在数量 > 1 时逐行渲染、**每行一枚复制按钮**，仍然不写历史。
+3. **「强度检查」= 第三种类型**（新纯逻辑 `model/PasswordAudit.ets` ＋ 页面 `analyze` 分支）：只在本机内存里分析用户**已有**的密码，输入上限 `PASSWORD_AUDIT_MAX = 1024`（`auditInputTooLong()` 拒绝并提示，**不截断**）；输出构成摘要（长度 / 类别点名 / 按字符构成估算的熵）＋ `auditFindings()` 的十个特征码（太短、偏短、单一类别、类别偏少、连续重复、连续递增递减、键盘走位、四位年份、常见弱口令片段、非 ASCII）；**刻意不复用 `strengthLevel()`/`strengthText()`**——不替用户下「强 / 安全」的结论，界面固定写明「只在本机内存、不落盘、不上传、**没有泄露库**」。顺带把页面默认 PIN 长度改用 `DEFAULT_PIN_LENGTH` 常量（原先写死 `'6'`）。
+
+**门禁**：`node tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL` ＋ 一致性 16 项 ＋ 单测 `All toolbox model assertions passed` ＋ 逐函数覆盖（546 个导出函数全部被单测引用）＋ HMSymbol 名检查 72 个 ＋ 探针自检；`node tests/emulator/emu.mjs smoke --only password` → `✅ password → 密码生成`（`SMOKE_CASES` 的 `expect` 已加「生成数量」「排除易混字符」）。
+
+**模拟器实测（1080×2444 @480 → 窗口约 360×814 vp，API 26，`127.0.0.1:5555`）**：
+
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| 类型下拉 | 三项：密码 / PIN 码 / **强度检查**（新增档位排在最后） |
+| 切「强度检查」 | 面板变为「检查已有密码」＋ 系统密码框（自带显隐眼睛，实测点一下明文 ↔ 掩码切换）；数量下拉与生成按钮**整块不再渲染** |
+| 输入 `aaaaaaaaaa` | 「长度 10 · 1 类字符（小写字母）· 按字符构成估算约 47 位熵」＋「长度不到 12 位，建议再长一些」「只用了一类字符（例如纯数字或纯字母）」「有连续重复的字符」＋ 说明行「检查只在本机内存进行：不落盘、不上传。本应用没有泄露库…」；**不出现「很强」这类结论** |
+| 输入一个无特征样本 | 「未发现常见的弱口令特征——但这不等于它一定安全。」 |
+| 生成数量下拉 | 1 / 2 / 3 / 5 / 10 条；选 **3 条**后点生成 → 结果卡 **3 行**掩码，每行右侧一枚复制按钮（44 vp），下方一行强度「很强 · 约 99 位熵」（16 × log2 72） |
+| 显示全部 | 三条各不相同、都是 16 位、**不含 `I/O/l/0/1`**（默认档）：`33GsD?wzeThDeJ+i` / `L6E5Jo&q4^pY*?r(` / `2*f#(eqFSahg%Zdw` —— `screenshots/emulator/password-batch-3-zh.jpeg` |
+| **真机反馈「显示不全」→ 当天修复** | 用户截图（长度 65、3 条）：行内 `maxLines(1)` + 省略号把密码截成 `7PAcX^bqs#cqeUal!…`，根本读不到完整值。修复：批量行**去掉 `maxLines`/省略号、改换行显示全文**，并加 `wordBreak(WordBreak.BREAK_ALL)`（ArkUI 默认 `BREAK_WORD` 只在词边界断行，一长串无空格的密码会横向溢出），复制按钮用 `Row().alignItems(VerticalAlign.Top)` 跟首行；单条结果卡同步加 `BREAK_ALL`。**复验（长度 65 × 3 条）**：三行各 **65 位全部展开、无 `…`**、三条互不相同，强度行「很强 · 约 401 位熵」与用户截图一致 —— `screenshots/emulator/password-batch-long-shown-zh.jpeg` |
+
+**单测（新增约 60 条断言）**：`PasswordTools` 两档字符集逐字符（默认档不含 `I/O/l/0/1`、关掉后 26+26+10 齐全、字符集大小差 5、`entropyBits` 随之变大）、PIN 不受开关影响、批量登记表（`batchCountIndex` 命中与未命中、`validBatchCount` 真假值表、同一条字节流连续两次生成必不同）、`PasswordAudit`（上限 1024/1025 边界、五个类别与判定顺序、空格计入符号、`'中' = log2(64)`、十个特征码各有正反例且**每一个都能被某个样本真的产出**、未知码原样回显、警告/提示分级、摘要里的类别点名与熵数字、`auditCleanText`/`auditLimitText` 的边界措辞），以及 `matchTools('强度检查'/'密码强度'/'批量生成'/'strength')` 命中 `password`。
+
+**模拟器操作备注（供后续复跑）**：`TextInput` 聚焦、系统（安全）键盘弹出时，页面上的点击会被吞掉一次——先 `node tests/emulator/emu.mjs key 2` 收起键盘，再 `tap`/`click` 才能命中；本例中它一度让「选类型」看起来无响应。另：`input` 的 24 次退格在**密码框**上不可靠（实测字段没被清空、内容累积），要清空请用输入框自带的清除按钮或换用 `uitest uiInput text` 前确认已聚焦。
+
+**未覆盖 / 必须真机**：① 系统密码框的显隐眼睛在真机 IME 下的行为与「安全键盘」提示；② 「输入 → 离开页面 → 回来为空」与「逐行复制拿到三条不同密码」——模拟器本轮被**另一个会话同时驱动同一台设备**打断（多次突然切到二维码页、把本轮输入的文本打进对方 vCard 字段），这两条只在真机复核；③ 关掉易混字符开关后多次生成应能看到 `I/O/l/0/1`（字符集差异已由单测确定性钉住，模拟器只验到开关状态与说明文案切换）。
+
+## 追加回执：文档扫描升级（2026-10-22：取字 / 扫描参数 / 结果页管理）
+
+**来源**：用户问「文档扫描模块有没需要新增的功能」→ 核对 SDK 后给出 4 项实施 + 4 项搁置（详见 `docs/COMPETITIVE_ANALYSIS.md` 变更记录）。**改动**：`model/DocumentScan.ets`（新增）、`model/OcrText.ets`（新增）、`services/OcrTools.ets`（新增）、`services/SystemTools.ets`（配置构造 + 写相册 + 文件名）、`component/DocumentsPage.ets`（扫描设置 / 逐页删除 / 追加 / 写相册 / 取字区）、`pages/Index.ets`（偏好落盘、结果合并、路由到文本工具），登记表联动 `LocalData`/`DataImport`/`HistoryKinds`/`ToolMeta`/`AppStrings`。
+
+**门禁**：`node tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL`（22 s）＋ 一致性 **16 项** ＋ 单测 `All toolbox model assertions passed`（新增 2 个模块、80+ 条断言）＋ 逐函数覆盖 **53 个模块 / 565 个导出函数** ＋ HMSymbol **74/74** ＋ 探针自检「全部符合预期」。
+
+**能力事实（真机 PLR-AL00，`10.155.89.11:45679`）**：设备 syscap 表（`cat /system/etc/syscap.json`，53 KB）里**同时存在** `SystemCapability.AI.Component.DocScan` 与 `SystemCapability.AI.OCR.TextRecognition` → 本机的 `canIUse` 门控会放行取字功能；**模拟器（`127.0.0.1:5555`）的 AI syscap 里两者都没有** → 模拟器上文档扫描按钮置灰、取字区显示「当前设备未提供文字识别能力，无法提取文字。」（这正是本轮想要的诚实降级路径）。
+
+**模拟器实测（1080×2444 @480 → 窗口约 360×814 vp，API 26）**：模拟器没有 DocScan/OCR 能力，新 UI 本来一行都渲染不到，因此用**临时探针**（`DocumentsPage` 构造处把 `scannerSupported` 写死为 `true`、`documentUris` 写死成一个不存在的 URI）拍版式，**探针已还原并重跑门禁（`BUILD SUCCESSFUL` + 全绿）**：
+
+| 场景 | 结果 / 证据 |
+| --- | --- |
+| 扫描设置区（探针） | 「扫描设置」＋`拍摄方式 → 手动`＋`默认滤镜 → 增强` 两张 `OptionSelect` 并排渲染，**左列 72 vp 标签「拍摄方式 / 默认滤镜」均未折行或被截断**；下方「单次最多 10 页」由 `DOC_SCAN_MAX_SHOT` 生成 —— `screenshots/emulator/documents-scan-options-zh.jpeg` |
+| 结果区（探针） | 「已生成 **1 个** JPG 文件」（英文单复数已由 `docScanReadyText()` 处理）＋ 第 1 页缩略卡（白底 A4 比例）＋ 行尾垃圾桶图标；动作行三枚图标：追加扫描（`plus`）/ 导出（`square_and_arrow_down`）/ 保存到相册（`picture_badge_arrow_down`，JPG 才渲染） |
+| 取字区（探针，模拟器无 OCR 能力） | 只出现一行黄字说明「当前设备未提供文字识别能力，无法提取文字。」，**不渲染一个必然失败的识别按钮** —— `screenshots/emulator/documents-ocr-unsupported-zh.jpeg` |
+
+**未覆盖 / 必须真机**（模拟器没有 DocScan 与 HMS 识别能力，且真机 `PLR-AL00` 本轮**屏幕处于锁屏状态**，`aa start` 报 `10106102 The device screen is locked`，故真机只核了能力事实、没有核界面）：① 拍摄纸张的自动裁切、多页扫描、自动连拍与三种滤镜的实际观感；② **取字质量**（中文/英文各一份、多页「—— 第 N 页 ——」分隔、无丢行/无块行重复）、复制与「送到文本工具」的一致性、识别结果进历史（类别「扫描文字」）与点条目回填；③ 逐页删除后导出、追加扫描与「已达本次页数上限」提示、PDF 下的「重新扫描（PDF 不支持追加）」；④ 保存到相册（含取消与部分成功文案）与文件名 `PocketToolbox-Scan-YYYYMMDD-HHmm-N`；⑤ `1008601001`（图片不符合要求）与超长文本的真实触发。清单已写进 `PHONE_ACCEPTANCE_CHECKLIST.md` §2.7。
+
+## 追加回执（2026-10-22：智感握姿口径修正 —— 未持握也跟随 + 全量动作行排查）
+
+**来源**：用户截图（水平仪页底部 5 枚校准键）指出「智感握姿有问题」，并要求排查其他模块。
+
+**排查结论（先定性、再动手）**：
+
+1. **链路没坏**：用「临时把 `Index.operatingSide` 写死成 1（右手）」的探针（**已还原**，`grep 探针|setTimeout` 在 `Index.ets` 无命中，门禁重跑全绿）在水平仪页拍照对比——`t=3s`（手位未知）5 枚键中心 x = **239 / 389 / 539 / 689 / 839 px**（居中），`t=10s`（强制右手）= **349 / 499 / 649 / 799 / 949 px**（右对齐），整行右移 **110 px ≈ 37 vp**（像素级比对，非肉眼）。这条同时证明**已打开的详情页确实跟随父状态**（`@Param actionAlign` 会更新），不是路由/刷新问题。
+2. **截图里为什么像「没动」**：5 枚键占 236 vp / 内容宽 328 vp，跟随的可视位移只有 **±37 vp**（对比：指南针 2 键行 ±116 vp）；且当时判定为**中位**＝`actionSide()` 返回 0。
+3. **全 App 动作行排查（静态，逐行对 AGENTS 的四条口径）**：所有「必须跟随」的动作行都接了 `justifyContent(this.actionAlign)` 或 `handAlign()`——含计时倒计时每行的开始/重置/编辑/删除、历史每行复制/删除、纪念日每行镜像、条码/二维码/文档扫描/文本/随机/贷款/健康/颜色/亲属/设置/时间戳/密码等 30+ 行；「逐值复制按钮」（随机骰子与硬币、密码批量行、文本结果行、时间戳值行、对比行）、键位类（科学计算器键盘与常用键/内存键、设置页图标网格、亲属拼接条）、满宽按钮与输入耦合控件（滚轮、色轮、搜索框 ✕）都正确地**不跟随**。**没有发现漏接或「满宽却硬跟随」的行**——即用户报的这一处是**口径问题**，不是接线遗漏。
+
+**改动（按用户选择：只有双手持握冻结）**：`Index.holdingCallback` 的 `holdingFreezes` 从「`BOTH_HANDS_HELD` **或 `NOT_HELD`**」改成**只认 `BOTH_HANDS_HELD`**——手机平放/立在桌面上（`NOT_HELD`）时改为按操作手靠边（水平仪 / 指南针「放着测、单手点」正是这个场景）；代价（用户明确接受）是平放时交替用左右手点会让动作行换边。同步改动：`model/LayoutAdaptive.ets` 的 `actionHandSide()` 文档、`model/HandPosture.ets` 的开关说明（改成「**只有双手持握与宽窗口**保持默认版式，平放或立在桌面上时仍按正在操作的那只手靠边」）、`AGENTS.md` 口径、`PHONE_ACCEPTANCE_CHECKLIST.md`（把「放下手机回到原位」整条改成「**未持握仍跟随**」，并把「双手持握」拆成单独一条）。单测新增/更新：开关说明必须含「平放」且**不得**再出现「未持握」（中英各一条）。
+
+**门禁**：`node tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL` ＋ 一致性 16 项 ＋ 单测全过 ＋ 逐函数覆盖 ＋ HMSymbol 名检查 ＋ 探针自检。
+
+**未覆盖 / 必须真机**：① 真机上「平放/立在桌上时跟随」的实际表现（模拟器不产生 `operatingHandChanged`，本轮只能靠探针证明「布局 + 传导」两条都对）；② 平放时交替用左右手点导致动作行换边，真机上是否可接受（若觉得跳得难受，把 `NOT_HELD` 重新纳入冻结只是一行改动）；③ 双手持握时**确实**冻结（真机两只手握住手机各点一次）；④ 水平仪 5 键行的位移幅度本来就小（±37 vp），若真机上仍觉得「看不出跟随」，下一步应考虑把这行改成靠边拉开间距而不是居中。
+
+
 

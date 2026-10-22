@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { appText } from '../model/AppStrings';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
@@ -101,10 +102,10 @@ export struct TextPage {
    * （原来的「去重与排序」「Deduplicate and sort」在 72 vp 里会折行）。
    */
   private menuTitle(id: string): string {
-    if (id === 'clean') { return this.tr('整理', 'Clean'); }
-    if (id === 'sort') { return this.tr('去重排序', 'Dedup'); }
-    if (id === 'case') { return this.tr('大小写', 'Case'); }
-    return this.tr('编码摘要', 'Encode');
+    if (id === 'clean') { return appText('text.clean', this.english); }
+    if (id === 'sort') { return appText('text.dedup', this.english); }
+    if (id === 'case') { return appText('text.case', this.english); }
+    return appText('text.encode', this.english);
   }
 
   private menuAccessibility(id: string): string {
@@ -155,7 +156,7 @@ export struct TextPage {
 
   /** 下拉按钮的占位文案；隔一次带一个零宽空格，用来把 `Select` 从「显示上次选中项」拨回占位（见 `menuResetTick`）。 */
   private menuPlaceholderText(): string {
-    const text: string = this.tr('选择操作', 'Choose an action');
+    const text: string = appText('text.choose-an-action', this.english);
     return this.menuResetTick % 2 === 0 ? text : text + '\u200B';
   }
 
@@ -180,7 +181,7 @@ export struct TextPage {
     if (index < 0 || index >= items.length) { return; }
     const item: MenuElement = items[index];
     if (item.enabled === false) {
-      this.onStatus(this.tr('请先输入文本', 'Enter some text first'));
+      this.onStatus(appText('text.enter-some-text-first', this.english));
       return;
     }
     if (item.action !== undefined) { item.action(); }
@@ -222,8 +223,7 @@ export struct TextPage {
     }
     const encoded: string = morseEncodeText(this.textInput);
     if (encoded.length === 0) {
-      this.onStatus(this.tr('没有可编码的字符（摩尔斯只支持 A–Z 与 0–9）',
-        'Nothing to encode (Morse supports A–Z and 0–9 only)'));
+      this.onStatus(appText('text.nothing-to-encode-morse', this.english));
       return;
     }
     this.textOutput = encoded;
@@ -234,7 +234,7 @@ export struct TextPage {
     if (this.textInput.length === 0) { return; }
     const result: MorseDecodeResult = morseDecodeText(this.textInput);
     if (result.text.length === 0) {
-      this.onStatus(this.tr('没有可解码的摩尔斯记号', 'No Morse tokens to decode'));
+      this.onStatus(appText('text.no-morse-tokens-to', this.english));
       return;
     }
     this.textOutput = result.text;
@@ -281,7 +281,7 @@ export struct TextPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('输入文本', 'Input text')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('text.input-text', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
         level: this.materialLevel,
@@ -292,7 +292,7 @@ export struct TextPage {
         // 多行 `TextArea` 没有系统取消按钮（系统只给单行 `TextInput` 提供 `cancelButton`），
         // 因此右上角自绘一枚 ✕；清空走 `clearAll()`，与 `onChange` 同一套副作用（结果一并清掉）。
         Row({ space: 4 }) {
-          TextArea({ text: this.textInput, placeholder: this.tr('输入或粘贴文本', 'Type or paste text') })
+          TextArea({ text: this.textInput, placeholder: appText('text.type-or-paste-text', this.english) })
             .backgroundColor(Color.Transparent)
             .layoutWeight(1)
             .onChange((value: string) => this.updateTextInput(value, true))
@@ -300,7 +300,7 @@ export struct TextPage {
           IconActionButton({
             icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
             usable: this.textInput.length > 0,
-            a11yText: this.tr('清空输入与结果', 'Clear input and result'),
+            a11yText: appText('text.clear-input-and-result', this.english),
             onTap: () => this.clearAll()
           })
         }.width('100%').alignItems(VerticalAlign.Top)
@@ -319,28 +319,28 @@ export struct TextPage {
       this.menuEntry('case')
       this.menuEntry('codec')
 
-      Text(this.tr('处理结果', 'Result')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('text.result', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
         lightEffect: true
       }) {
-        Text(this.textOutput || this.tr('选择上方操作查看结果', 'Choose an action to see the result'))
+        Text(this.textOutput || appText('text.choose-an-action-to', this.english))
           .fontSize(16).copyOption(CopyOptions.LocalDevice).padding(16).width('100%')
       }
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制处理结果', 'Copy result'), usable: this.textOutput.length > 0,
+          a11yText: appText('text.copy-result', this.english), usable: this.textOutput.length > 0,
           onTap: () => this.copyResult()
         })
         IconActionButton({
           icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('把结果用作输入', 'Use result as input'), usable: this.textOutput.length > 0,
+          a11yText: appText('text.use-result-as-input', this.english), usable: this.textOutput.length > 0,
           onTap: () => this.useResultAsInput()
         })
         IconActionButton({
           icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('清空输入与结果', 'Clear input and result'),
+          a11yText: appText('text.clear-input-and-result', this.english),
           usable: this.textInput.length > 0 || this.textOutput.length > 0,
           onTap: () => this.clearAll()
         })

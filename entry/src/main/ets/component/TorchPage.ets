@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { ToolPalette } from '../model/ToolPalette';
@@ -213,7 +214,7 @@ export struct TorchPage {
       }
     } else {
       if (segments.length === 0) {
-        this.onStatus(this.tr('没有可发送的字符', 'Nothing to send'));
+        this.onStatus(appText('torch.nothing-to-send', this.english));
         return;
       }
       this.torch.setLevel(torchLevel(this.brightnessPercent));
@@ -285,7 +286,7 @@ export struct TorchPage {
     const left: number = Math.max(0, Math.ceil((this.autoOffTarget - Date.now()) / 1000));
     if (left <= 0) {
       this.stopAll();
-      this.onStatus(this.tr('已按时关闭全部灯光', 'All lights turned off on schedule'));
+      this.onStatus(appText('torch.all-lights-turned-off', this.english));
       return;
     }
     if (left !== this.remainingSec) { this.remainingSec = left; }
@@ -408,21 +409,21 @@ export struct TorchPage {
 
   private heroLabel(): string {
     if (this.mode === 'screen') {
-      return this.running ? this.tr('关闭屏幕补光', 'Turn off screen light') :
-        this.tr('打开屏幕补光', 'Turn on screen light');
+      return this.running ? appText('torch.turn-off-screen-light', this.english) :
+        appText('torch.turn-on-screen-light', this.english);
     }
     if (this.mode === 'steady') {
-      return this.running ? this.tr('关闭手电筒', 'Turn off flashlight') :
-        this.tr('打开手电筒', 'Turn on flashlight');
+      return this.running ? appText('torch.turn-off-flashlight', this.english) :
+        appText('torch.turn-on-flashlight', this.english);
     }
     if (this.mode === 'morse') {
-      return this.running ? this.tr('停止发送摩尔斯灯语', 'Stop sending Morse') :
-        this.tr('开始发送摩尔斯灯语', 'Send Morse');
+      return this.running ? appText('torch.stop-sending-morse', this.english) :
+        appText('torch.send-morse', this.english);
     }
     if (this.mode === 'strobe') {
-      return this.running ? this.tr('停止频闪', 'Stop strobe') : this.tr('开始频闪', 'Start strobe');
+      return this.running ? appText('torch.stop-strobe', this.english) : appText('torch.start-strobe', this.english);
     }
-    return this.running ? this.tr('停止发送灯语', 'Stop the signal') : this.tr('开始发送灯语', 'Send the signal');
+    return this.running ? appText('torch.stop-the-signal', this.english) : appText('torch.send-the-signal', this.english);
   }
 
   // -------------------------------------------------------------------------
@@ -431,11 +432,11 @@ export struct TorchPage {
 
   @Builder private modeRow() {
     OptionSelect({
-      label: this.tr('模式', 'Mode'),
+      label: appText('torch.mode', this.english),
       options: this.modeOptions(),
       selectedIndex: torchModeIndex(this.mode),
       selectedText: torchModeLabel(this.mode, this.english),
-      a11yText: this.tr('灯光模式', 'Light mode'),
+      a11yText: appText('torch.light-mode', this.english),
       onSelected: (index: number): void => { this.selectMode(index); }
     })
   }
@@ -452,11 +453,11 @@ export struct TorchPage {
 
   @Builder private signalRows() {
     OptionSelect({
-      label: this.tr('灯语', 'Signal'),
+      label: appText('torch.signal', this.english),
       options: this.signalOptions(),
       selectedIndex: torchSignalIndex(this.signalId),
       selectedText: torchSignalLabel(this.signalId, this.english),
-      a11yText: this.tr('求援灯语类型', 'Signal type'),
+      a11yText: appText('torch.signal-type', this.english),
       onSelected: (index: number): void => {
         const entry: TorchSignal | undefined = TORCH_SIGNALS[index];
         if (entry === undefined || entry.id === this.signalId) { return; }
@@ -471,11 +472,11 @@ export struct TorchPage {
 
   @Builder private strobeRows() {
     OptionSelect({
-      label: this.tr('频率', 'Rate'),
+      label: appText('torch.rate', this.english),
       options: this.strobeOptions(),
       selectedIndex: strobeIndex(this.strobeHzValue),
       selectedText: strobeLabel(this.strobeHzValue),
-      a11yText: this.tr('频闪频率', 'Strobe rate'),
+      a11yText: appText('torch.strobe-rate', this.english),
       onSelected: (index: number): void => {
         const hz: number = STROBE_FREQUENCIES[index];
         if (hz === undefined || hz === this.strobeHzValue) { return; }
@@ -483,14 +484,13 @@ export struct TorchPage {
         this.restartIfRunning();
       }
     })
-    Text(this.tr('每次闪光 80 毫秒，用于警示与被看见；个别设备在最高频率下可能丢闪。',
-      'Each flash lasts 80 ms, for warning and being seen; the highest rate may drop flashes on some devices.'))
+    Text(appText('torch.each-flash-lasts-80', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
   }
 
   @Builder private morseRows() {
     Column({ space: 6 }) {
-      Text(this.tr('发送内容', 'Text to send')).fontSize(14).fontColor(ToolPalette.textSecondary)
+      Text(appText('torch.text-to-send', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary)
         .width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
@@ -498,7 +498,7 @@ export struct TorchPage {
       }) {
         TextInput({
           text: this.morseInput,
-          placeholder: this.tr('字母或数字，例如 SOS 123', 'Letters or digits, for example SOS 123')
+          placeholder: appText('torch.letters-or-digits-for', this.english)
         })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
@@ -512,12 +512,12 @@ export struct TorchPage {
       corner: 16, lightEffect: true
     }) {
       Column({ space: 8 }) {
-        Text(this.tr('点划', 'Morse')).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
-        Text(this.morsePreview.length === 0 ? this.tr('暂无内容', 'Nothing to send') : this.morsePreview)
+        Text(appText('torch.morse', this.english)).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
+        Text(this.morsePreview.length === 0 ? appText('torch.nothing-to-send-2', this.english) : this.morsePreview)
           .fontSize(this.morsePreview.length === 0 ? 15 : 18).fontColor(ToolPalette.textPrimary)
           .width('100%')
         if (ignoredMorseChars(this.morseInput).length > 0) {
-          Text(this.tr('已忽略：', 'Ignored: ') + ignoredMorseChars(this.morseInput))
+          Text(appText('torch.ignored', this.english) + ignoredMorseChars(this.morseInput))
             .fontSize(13).fontColor(ToolPalette.warningText).width('100%')
         }
         Text(morseTimingText(this.english) + ' ' +
@@ -531,11 +531,11 @@ export struct TorchPage {
 
   @Builder private screenRows() {
     OptionSelect({
-      label: this.tr('光色', 'Tone'),
+      label: appText('torch.tone', this.english),
       options: this.toneOptions(),
       selectedIndex: screenToneIndex(this.screenTone),
       selectedText: screenToneLabel(this.screenTone, this.english),
-      a11yText: this.tr('补光光色', 'Screen light tone'),
+      a11yText: appText('torch.screen-light-tone', this.english),
       onSelected: (index: number): void => {
         const entry: ScreenTone | undefined = SCREEN_TONES[index];
         if (entry === undefined) { return; }
@@ -543,11 +543,11 @@ export struct TorchPage {
       }
     })
     OptionSelect({
-      label: this.tr('补光亮度', 'Fill brightness'),
+      label: appText('torch.fill-brightness', this.english),
       options: this.screenLightOptions(),
       selectedIndex: screenLightLevelIndex(this.screenLightLevel),
       selectedText: screenLightLevelLabel(this.screenLightLevel, this.english),
-      a11yText: this.tr('屏幕补光亮度', 'Screen light brightness'),
+      a11yText: appText('torch.screen-light-brightness', this.english),
       onSelected: (index: number): void => {
         const entry: ScreenLightLevel | undefined = SCREEN_LIGHT_LEVELS[index];
         if (entry === undefined) { return; }
@@ -556,18 +556,17 @@ export struct TorchPage {
         if (this.running && this.output === 'screen') { this.applyScreenBrightness(); }
       }
     })
-    Text(this.tr('把整屏变成一块柔光板，适合近距离补光；亮度分弱/中/强三档，夜里近距离用弱档不刺眼。',
-      'Turns the whole screen into a soft light panel for close-up fill light; brightness has dim/medium/bright levels, so dim is easier on the eyes up close.'))
+    Text(appText('torch.turns-the-whole-screen', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
   }
 
   @Builder private brightnessRow() {
     OptionSelect({
-      label: this.tr('亮度', 'Bright'),
+      label: appText('torch.bright', this.english),
       options: this.brightnessOptions(),
       selectedIndex: brightnessIndex(this.brightnessPercent),
       selectedText: brightnessLabel(this.brightnessPercent),
-      a11yText: this.tr('闪光灯亮度', 'Flashlight brightness'),
+      a11yText: appText('torch.flashlight-brightness', this.english),
       onSelected: (index: number): void => {
         const percent: number = BRIGHTNESS_OPTIONS[index];
         if (percent === undefined) { return; }
@@ -583,11 +582,11 @@ export struct TorchPage {
 
   @Builder private autoOffRow() {
     OptionSelect({
-      label: this.tr('定时关闭', 'Auto off'),
+      label: appText('torch.auto-off', this.english),
       options: this.autoOffOptions(),
       selectedIndex: AUTO_OFF_OPTIONS.indexOf(this.autoOffMinutes),
       selectedText: autoOffLabel(this.autoOffMinutes, this.english),
-      a11yText: this.tr('定时关闭', 'Auto off'),
+      a11yText: appText('torch.auto-off', this.english),
       onSelected: (index: number): void => {
         const minutes: number = AUTO_OFF_OPTIONS[index];
         if (minutes === undefined) { return; }
@@ -597,43 +596,41 @@ export struct TorchPage {
       }
     })
     if (this.running && this.remainingSec > 0) {
-      Text(this.tr('剩余 ', 'Left ') + remainingText(this.remainingSec))
+      Text(appText('torch.left', this.english) + remainingText(this.remainingSec))
         .fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
     }
   }
 
   @Builder private keepScreenRow() {
     Row({ space: 12 }) {
-      Text(this.tr('保持屏幕常亮', 'Keep screen on')).fontSize(14).fontColor(ToolPalette.textSecondary)
+      Text(appText('torch.keep-screen-on', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary)
         .layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: this.keepScreenOn })
-        .accessibilityText(this.tr('保持屏幕常亮', 'Keep screen on'))
+        .accessibilityText(appText('torch.keep-screen-on', this.english))
         .onChange((isOn: boolean): void => {
           this.keepScreenOn = isOn;
           this.applyKeepScreenOn();
         })
     }.width('100%')
-    Text(this.tr('灯光开启期间不让屏幕休眠；系统可能限制长时间常亮。屏幕补光模式会强制保持常亮。',
-      'Prevents the screen from sleeping while a light is on; the system may limit long keep-awake sessions. Screen light always keeps the screen on.'))
+    Text(appText('torch.prevents-the-screen-from', this.english))
       .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
   }
 
   @Builder private screenLightCover() {
     Column({ space: 12 }) {
       Row() {
-        Text(this.tr('屏幕补光', 'Screen light')).fontSize(15)
+        Text(appText('torch.screen-light', this.english)).fontSize(15)
           .fontColor(ToolPalette.neutralDark).layoutWeight(1)
         IconActionButton({
           icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.neutralDark,
-          a11yText: this.tr('关闭屏幕补光', 'Turn off screen light'),
+          a11yText: appText('torch.turn-off-screen-light', this.english),
           onTap: (): void => { this.stopAll(); }
         })
       }.width('100%').padding({ left: 20, right: 8, top: 12 + this.safeAreaTop })
       Blank()
-      Text(this.tr('点任意位置关闭', 'Tap anywhere to close')).fontSize(15)
+      Text(appText('torch.tap-anywhere-to-close', this.english)).fontSize(15)
         .fontColor(ToolPalette.neutralDark)
-      Text(this.tr('屏幕亮度已调到最高，退出后恢复。',
-        'Screen brightness is raised to maximum and restored when you exit.')).fontSize(13)
+      Text(appText('torch.screen-brightness-is-raised', this.english)).fontSize(13)
         .fontColor(ToolPalette.neutralDark)
       Blank()
     }
@@ -661,12 +658,12 @@ export struct TorchPage {
       this.autoOffRow()
       this.keepScreenRow()
       if (!this.torchSupported) {
-        Text(this.tr('当前设备没有可用闪光灯', 'No flashlight on this device')).fontSize(15)
+        Text(appText('torch.no-flashlight-on-this', this.english)).fontSize(15)
           .fontColor(ToolPalette.warningText)
-        Text(this.tr('屏幕补光不需要闪光灯，仍可使用。', 'Screen light works without a flashlight.'))
+        Text(appText('torch.screen-light-works-without', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted)
       }
-      Text(this.tr('离开此页或应用进入后台时自动关闭。', 'Turns off when you leave or the app enters the background.'))
+      Text(appText('torch.turns-off-when-you', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted)
     }.alignItems(HorizontalAlign.Start).width('100%')
       .bindContentCover(!!this.fillLightShown, this.screenLightCover(), {

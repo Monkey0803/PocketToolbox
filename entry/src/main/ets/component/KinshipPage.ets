@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -114,7 +115,7 @@ export struct KinshipPage {
   }
 
   @Builder private stepChips() {
-    Text(this.tr('逐段拼接', 'Build step by step')).fontSize(14)
+    Text(appText('kin.build-step-by-step', this.english)).fontSize(14)
       .fontColor(ToolPalette.textSecondary).width('100%')
     // 一行放不下时自动换行（窄屏 3–4 个一行、宽屏一行放下）：点一下接在关系链末尾。
     // 键高 44 vp：文字按钮也满足最小可点区域（此前 40 vp，2026-10-21 与科学计算器常用键、计时页预设统一）。
@@ -131,17 +132,16 @@ export struct KinshipPage {
 
   @Builder private resultCard() {
     Column({ space: 10 }) {
-      Text(this.tr('称谓', 'Address')).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('kin.address', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       if (!this.hasResult()) {
         Text(this.errorText().length > 0 ? this.errorText() :
-          this.tr('输入或点选关系，结果会自动出现。', 'Type or tap a relationship and the result appears.'))
+          appText('kin.type-or-tap-a', this.english))
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         Text(this.nameText()).fontSize(26).fontWeight(FontWeight.Bold)
           .fontColor(ToolPalette.textPrimary).width('100%')
         if (this.unnamed()) {
-          Text(this.tr('这是关系描述，暂未收录成单一称谓。',
-            'This is a description of the relation; no single term is registered for it.'))
+          Text(appText('kin.this-is-a-description', this.english))
             .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         }
         this.valueLine('关系链', 'Relationship', 'chain')
@@ -153,7 +153,7 @@ export struct KinshipPage {
         Row({ space: 8 }) {
           IconActionButton({
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-            a11yText: this.tr('复制称谓', 'Copy the address'),
+            a11yText: appText('kin.copy-the-address', this.english),
             onTap: () => this.onCopy(kinCopyText(this.outcome, this.english))
           })
         }.width('100%')
@@ -163,42 +163,41 @@ export struct KinshipPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(this.tr('输入一串亲属关系，给出该怎么称呼；远亲与姻亲给关系描述。也可以反过来问「我是他什么人」。各地叫法不同，结果仅供参考。',
-        'Enter a chain of relationships to see how to address that person; distant and in-law relations are described. You can also ask the reverse: who am I to them. Local usage varies.'))
+      Text(appText('kin.enter-a-chain-of', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       OptionSelect({
-        label: this.tr('方向', 'Direction'),
+        label: appText('kin.direction', this.english),
         options: this.directionOptions(),
         selectedIndex: Math.max(0, kinDirectionIndex(this.kinDirection)),
         selectedText: kinDirectionLabel(this.kinDirection, this.english),
-        a11yText: this.tr('查询方向', 'Lookup direction'),
+        a11yText: appText('kin.lookup-direction', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < KIN_DIRECTIONS.length) { this.kinDirection = KIN_DIRECTIONS[index].id; }
         }
       })
       OptionSelect({
-        label: this.tr('我', 'Me'),
+        label: appText('kin.me', this.english),
         options: this.genderOptions(),
         selectedIndex: kinGenderIndex(this.egoGender),
         selectedText: kinGenderLabel(this.egoGender, this.english),
-        a11yText: this.tr('本人性别', 'My gender'),
+        a11yText: appText('kin.my-gender', this.english),
         onSelected: (index: number): void => {
           if (index >= 0 && index < KIN_GENDERS.length) { this.egoGender = KIN_GENDERS[index].id; }
         }
       })
       Column({ space: 6 }) {
-        Text(this.tr('关系链', 'Relationship')).fontSize(14)
+        Text(appText('kin.relationship', this.english)).fontSize(14)
           .fontColor(ToolPalette.textSecondary).width('100%')
         MaterialSurface({
           supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
           corner: 16, interactive: true
         }) {
-          TextInput({ text: this.chain, placeholder: this.tr('如「爸爸的哥哥」', 'e.g. father’s older brother') })
+          TextInput({ text: this.chain, placeholder: appText('kin.e-g-father-s', this.english) })
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
             .height(52)
-            .accessibilityText(this.tr('亲属关系链', 'Relationship chain'))
+            .accessibilityText(appText('kin.relationship-chain', this.english))
             .onChange((value: string) => { this.chain = value; })
         }
       }.width('100%')
@@ -206,7 +205,7 @@ export struct KinshipPage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: $r('sys.symbol.delete_left'), tintColor: ToolPalette.textPrimary,
-          a11yText: this.tr('删除最后一个关系词', 'Delete the last step'),
+          a11yText: appText('kin.delete-the-last-step', this.english),
           onTap: () => { this.chain = removeLastKinStep(this.chain); }
         })
         // 原来这里还有一枚「清空输入」垃圾桶：它做的正是输入框内那枚 ✕ 的事（都只清 `chain`），
@@ -218,8 +217,7 @@ export struct KinshipPage {
       }) {
         this.resultCard()
       }
-      Text(this.tr('输入只在当前页面使用，不保存、不上传。',
-        'The input is used on this page only and is never saved or uploaded.'))
+      Text(appText('kin.the-input-is-used', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }

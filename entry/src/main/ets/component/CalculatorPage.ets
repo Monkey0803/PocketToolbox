@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -174,27 +175,27 @@ export struct CalculatorPage {
 
   private inputLabel(kind: string): string {
     if (kind === 'discountAmount' || kind === 'reverseOriginal' || kind === 'marginPrice') {
-      return kind === 'marginPrice' ? this.tr('售价', 'Price') : this.tr('原价', 'Original price');
+      return kind === 'marginPrice' ? appText('calc.price', this.english) : appText('calc.original-price', this.english);
     }
     if (kind === 'discountFold' || kind === 'reverseFold') {
       return kind === 'discountFold' ?
-        this.tr('折数（0–10；8 表示八折）', 'Price factor (0–10; 8 means 20% off)') :
-        this.tr('折数（0–10）', 'Price factor (0–10)');
+        appText('calc.price-factor-0-10', this.english) :
+        appText('calc.price-factor-0-10-2', this.english);
     }
-    if (kind === 'discountOff') { return this.tr('立减金额', 'Instant discount'); }
-    if (kind === 'reverseFinal') { return this.tr('折后价', 'Final price'); }
-    if (kind === 'percentBase' || kind === 'adjustBase') { return this.tr('基数', 'Base'); }
-    if (kind === 'percentRate') { return this.tr('百分比（%）', 'Percentage (%)'); }
-    if (kind === 'ratioPart') { return this.tr('部分', 'Part'); }
-    if (kind === 'ratioWhole') { return this.tr('整体（非零）', 'Whole (nonzero)'); }
-    if (kind === 'adjustRate') { return this.tr('增减百分比（%）', 'Change (%)'); }
-    if (kind === 'deltaFrom') { return this.tr('原来', 'From'); }
-    if (kind === 'deltaTo') { return this.tr('现在', 'To'); }
-    if (kind === 'costPrice' || kind === 'marginCost') { return this.tr('成本', 'Cost'); }
-    if (kind === 'markupRate') { return this.tr('加价率（%）', 'Markup (%)'); }
-    if (kind === 'splitAmount') { return this.tr('总金额', 'Bill amount'); }
-    if (kind === 'splitPeople') { return this.tr('人数', 'People'); }
-    return this.tr('小费（%）', 'Tip (%)');
+    if (kind === 'discountOff') { return appText('calc.instant-discount', this.english); }
+    if (kind === 'reverseFinal') { return appText('calc.final-price', this.english); }
+    if (kind === 'percentBase' || kind === 'adjustBase') { return appText('calc.base', this.english); }
+    if (kind === 'percentRate') { return appText('calc.percentage', this.english); }
+    if (kind === 'ratioPart') { return appText('calc.part', this.english); }
+    if (kind === 'ratioWhole') { return appText('calc.whole-nonzero', this.english); }
+    if (kind === 'adjustRate') { return appText('calc.change', this.english); }
+    if (kind === 'deltaFrom') { return appText('calc.from', this.english); }
+    if (kind === 'deltaTo') { return appText('calc.to', this.english); }
+    if (kind === 'costPrice' || kind === 'marginCost') { return appText('calc.cost', this.english); }
+    if (kind === 'markupRate') { return appText('calc.markup', this.english); }
+    if (kind === 'splitAmount') { return appText('calc.bill-amount', this.english); }
+    if (kind === 'splitPeople') { return appText('calc.people', this.english); }
+    return appText('calc.tip', this.english);
   }
 
   /**
@@ -316,7 +317,7 @@ export struct CalculatorPage {
     let result: MarginResult | undefined = marginFromPrices(this.marginCost, this.marginPrice);
     if (result === undefined) { return ''; }
     if (result.markupPercent < 0) {
-      return this.tr('成本为 0，加价率不适用', 'Cost is 0; markup is not applicable');
+      return appText('calc.cost-is-0-markup', this.english);
     }
     return this.tr('加价率 ' + formatPercent(result.markupPercent, false),
       'Markup ' + formatPercent(result.markupPercent, false));
@@ -348,16 +349,16 @@ export struct CalculatorPage {
 
   /** 结果卡的小标签；同时用作复制按钮的无障碍名称。 */
   private resultLabel(kind: string): string {
-    if (kind === 'discountFinal') { return this.tr('折后价', 'Final price'); }
-    if (kind === 'reverseOriginal') { return this.tr('原价', 'Original price'); }
-    if (kind === 'reverseFold') { return this.tr('折数', 'Price factor'); }
-    if (kind === 'percentOf') { return this.tr('结果', 'Result'); }
-    if (kind === 'percentRatio') { return this.tr('占比', 'Percentage'); }
-    if (kind === 'percentAdjust') { return this.tr('结果', 'Result'); }
-    if (kind === 'percentDelta') { return this.tr('变化', 'Change'); }
-    if (kind === 'markupPrice') { return this.tr('售价', 'Price'); }
-    if (kind === 'margin') { return this.tr('毛利率', 'Margin'); }
-    return this.tr('每人应付', 'Per person');
+    if (kind === 'discountFinal') { return appText('calc.final-price', this.english); }
+    if (kind === 'reverseOriginal') { return appText('calc.original-price', this.english); }
+    if (kind === 'reverseFold') { return appText('calc.price-factor', this.english); }
+    if (kind === 'percentOf') { return appText('field.result', this.english); }
+    if (kind === 'percentRatio') { return appText('calc.percentage-2', this.english); }
+    if (kind === 'percentAdjust') { return appText('field.result', this.english); }
+    if (kind === 'percentDelta') { return appText('calc.change-2', this.english); }
+    if (kind === 'markupPrice') { return appText('calc.price', this.english); }
+    if (kind === 'margin') { return appText('calc.margin', this.english); }
+    return appText('calc.per-person', this.english);
   }
 
   /** 复制出去的**纯值**（与单位换算/时间戳一致）；输入非法时为 `—`。 */
@@ -378,8 +379,8 @@ export struct CalculatorPage {
     if (kind === 'discountFinal') { return this.discountDetail(); }
     if (kind === 'reverseOriginal') { return this.reverseOriginalDetail(); }
     if (kind === 'reverseFold') { return this.reverseFoldDetail(); }
-    if (kind === 'percentAdjust') { return this.tr('加后 / 减后', 'After increase / after decrease'); }
-    if (kind === 'percentDelta') { return this.tr('负数表示下降', 'Negative means a decrease'); }
+    if (kind === 'percentAdjust') { return appText('calc.after-increase-after-decrease', this.english); }
+    if (kind === 'percentDelta') { return appText('calc.negative-means-a-decrease', this.english); }
     if (kind === 'markupPrice') { return this.markupPriceDetail(); }
     if (kind === 'margin') { return this.marginDetail(); }
     if (kind === 'splitShares') { return this.splitDetail(); }
@@ -480,7 +481,7 @@ export struct CalculatorPage {
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
-          a11yText: this.tr('复制', 'Copy') + this.resultLabel(kind),
+          a11yText: appText('action.copy', this.english) + this.resultLabel(kind),
           boxSize: 44, iconSize: 22, usable: this.copyText(kind) !== '—',
           onTap: () => this.copyValue(kind)
         })
@@ -500,11 +501,11 @@ export struct CalculatorPage {
   // 类型选择与单位换算页「类别」同一套 UI：新增类型只需在 CALC_MODES 加登记项 + 下方加分支。
   @Builder private calcModeSelect() {
     OptionSelect({
-      label: this.tr('类型', 'Type'),
+      label: appText('field.type', this.english),
       options: this.calcModeOptions(),
       selectedIndex: this.calcModeIndex(),
       selectedText: this.calcModeLabel(),
-      a11yText: this.tr('计算类型', 'Calculation type'),
+      a11yText: appText('calc.calculation-type', this.english),
       onSelected: (index: number): void => {
         const mode: CalcMode | undefined = CALC_MODES[index];
         if (mode !== undefined) { this.calcMode = mode.id; }
@@ -538,7 +539,7 @@ export struct CalculatorPage {
             this.inputField('percentBase', '100', false)
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.multiply')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(this.tr('乘', 'Multiply'))
+            .accessibilityText(appText('calc.multiply', this.english))
           Column() {
             this.inputField('percentRate', '20', false)
           }.layoutWeight(1)
@@ -552,7 +553,7 @@ export struct CalculatorPage {
             this.inputField('ratioPart', '25', false)
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.divide_square_fill')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(this.tr('除以', 'Divide'))
+            .accessibilityText(appText('calc.divide', this.english))
           Column() {
             this.inputField('ratioWhole', '100', false)
           }.layoutWeight(1)
@@ -565,7 +566,7 @@ export struct CalculatorPage {
             this.inputField('adjustBase', '100', false)
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.arrow_left_arrow_right')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(this.tr('加或减', 'Plus or minus'))
+            .accessibilityText(appText('calc.plus-or-minus', this.english))
           Column() {
             this.inputField('adjustRate', '10', false)
           }.layoutWeight(1)
@@ -579,7 +580,7 @@ export struct CalculatorPage {
             this.inputField('deltaFrom', '100', false)
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.arrow_right')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(this.tr('变为', 'Becomes'))
+            .accessibilityText(appText('calc.becomes', this.english))
           Column() {
             this.inputField('deltaTo', '120', false)
           }.layoutWeight(1)

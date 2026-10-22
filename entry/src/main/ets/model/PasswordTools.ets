@@ -1,8 +1,18 @@
 import { integerOptionLabels } from './NumberOptions';
 
-const UPPER: string = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const LOWER: string = 'abcdefghijkmnopqrstuvwxyz';
-const DIGITS: string = '23456789';
+/**
+ * 字符集成对登记：`_SAFE` 是默认档（去掉手抄易混的字符），`_FULL` 是关掉「排除易混字符」后的全集。
+ *
+ * 默认档与 2026-10-20 审计第 82 轮核对过的行为**逐字一致**（`I`/`O`/`l`/`0`/`1` 永不出现）；
+ * 关掉开关只是把这几类字符放回来。符号集两档相同——它本来就不含易混字符。
+ * PIN 的字符集固定 `DIGITS_SAFE`，**不受该开关影响**（开关只出现在密码面板里）。
+ */
+const UPPER_SAFE: string = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const UPPER_FULL: string = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const LOWER_SAFE: string = 'abcdefghijkmnopqrstuvwxyz';
+const LOWER_FULL: string = 'abcdefghijklmnopqrstuvwxyz';
+const DIGITS_SAFE: string = '23456789';
+const DIGITS_FULL: string = '0123456789';
 const SYMBOLS: string = '!@#$%^&*()-_=+?';
 
 /** 自定义字符集的长度上限（`unbiasedIndex()` 的 `bound ≤ 256` 是硬约束）。 */
@@ -23,6 +33,14 @@ export class PasswordOptions {
    * 会按首次出现去重，超过 `PASSWORD_CUSTOM_MAX` 或少于 `PASSWORD_CUSTOM_MIN` 个不同字符视为非法。
    */
   custom: string = '';
+  /**
+   * 排除易混字符（默认开启，2026-10-22 新增）。
+   *
+   * 开启时字母/数字用 `_SAFE` 档（无 `I`/`O`/`l`/`0`/`1`）——需要手抄或口述密码时这几对字符最容易出错；
+   * 关掉后改用全集，字符集从 57 涨到 62（大小写+数字），`entropyBits()` 自动跟着变。
+   * **只作用于完整密码**：PIN 固定用 `DIGITS_SAFE`，与开关无关（开关只渲染在密码面板）。
+   */
+  excludeLookalikes: boolean = true;
 }
 
 /** 去重后的自定义字符集（首次出现为准）。 */
@@ -40,10 +58,12 @@ export function customCharset(options: PasswordOptions): string {
 export function passwordGroups(options: PasswordOptions): string[] {
   const custom: string = customCharset(options);
   if (custom.length > 0) { return [custom]; }
+  // 缺字段（旧调用传了对象字面量）按默认「开启」处理，与 `PasswordOptions` 的默认值同一口径。
+  const exclude: boolean = options.excludeLookalikes !== false;
   const groups: string[] = [];
-  if (options.upper) { groups.push(UPPER); }
-  if (options.lower) { groups.push(LOWER); }
-  if (options.digits) { groups.push(DIGITS); }
+  if (options.upper) { groups.push(exclude ? UPPER_SAFE : UPPER_FULL); }
+  if (options.lower) { groups.push(exclude ? LOWER_SAFE : LOWER_FULL); }
+  if (options.digits) { groups.push(exclude ? DIGITS_SAFE : DIGITS_FULL); }
   if (options.symbols) { groups.push(SYMBOLS); }
   return groups;
 }
@@ -66,6 +86,25 @@ export const PASSWORD_MAX_LENGTH: number = 128;
  */
 export function passwordLengthOptions(): string[] {
   return integerOptionLabels(PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH);
+}
+
+/**
+ * 一次生成多少条（2026-10-22 新增）。
+ *
+ * 页面把它映射成 `OptionSelect` 的选项、服务层用它校验请求；**上界刻意只有 10**——
+ * 结果卡逐行渲染，再多既不便于逐条核对，界面也只剩滚动条。
+ */
+export const PASSWORD_BATCH_COUNTS: number[] = [1, 2, 3, 5, 10];
+export const DEFAULT_BATCH_COUNT: number = 1;
+
+/** 数量在登记表里的下标；不在表内返回 `-1`（`OptionSelect` 无选中项）。 */
+export function batchCountIndex(count: number): number {
+  return PASSWORD_BATCH_COUNTS.findIndex((value: number): boolean => value === count);
+}
+
+/** 数量是否是登记表里的合法值（服务层与页面共用一个判据）。 */
+export function validBatchCount(count: number): boolean {
+  return Number.isInteger(count) && PASSWORD_BATCH_COUNTS.indexOf(count) >= 0;
 }
 
 /** 自定义字符集的错误码：`too_many` / `too_few` / 空串（合法）。 */
@@ -156,10 +195,12 @@ export function generatePassword(options: PasswordOptions, nextByte: () => numbe
 }
 
 /**
- * 密码生成方式（登记表条目）：完整密码或纯数字 PIN。
+ * 密码生成方式（登记表条目）：完整密码 / 纯数字 PIN / 强度检查。
  *
  * 与 `RandomTools.RandomOption`、`IncomeTax.TaxKind` 等登记项同一口径——页面只把登记表映射成
  * `SelectOption[]`，按 `id`（不是下标）分支渲染。
+ * `analyze`（2026-10-22 新增）不是「生成」而是「检查已有密码」，逻辑在 `model/PasswordAudit.ets`：
+ * 它在同一张表里，才能沿用同一个下拉与「按 id 分支」的渲染口径。
  */
 export class PasswordMode {
   readonly id: string;
@@ -175,7 +216,8 @@ export class PasswordMode {
 
 export const PASSWORD_MODES: PasswordMode[] = [
   new PasswordMode('password', '密码', 'Password'),
-  new PasswordMode('pin', 'PIN 码', 'PIN')
+  new PasswordMode('pin', 'PIN 码', 'PIN'),
+  new PasswordMode('analyze', '强度检查', 'Strength check')
 ];
 
 export function passwordModeIndex(id: string): number {
@@ -220,7 +262,7 @@ export function isTrivialPin(value: string): boolean {
 }
 
 /**
- * PIN 生成：字符集是 `DIGITS`（已排除易混数字），生成后若命中退化形态则**整串重试**，
+ * PIN 生成：字符集是 `DIGITS_SAFE`（已排除易混数字），生成后若命中退化形态则**整串重试**，
  * 最多 20 次，仍不理想就原样返回——绝不会因为随机源反复给出退化序列而死循环。
  *
  * 位数走 `PIN_LENGTHS` **登记表**（与页面下拉同一份）：此前函数允许 4–12 而下拉只有 4/6/8，
@@ -232,9 +274,9 @@ export function generatePin(length: number, nextByte: () => number): string | un
   for (let attempt: number = 0; attempt < 20; attempt++) {
     const digits: string[] = [];
     for (let index: number = 0; index < length; index++) {
-      const pick: number = unbiasedIndex(DIGITS.length, nextByte);
+      const pick: number = unbiasedIndex(DIGITS_SAFE.length, nextByte);
       if (pick < 0) { return undefined; }
-      digits.push(DIGITS.charAt(pick));
+      digits.push(DIGITS_SAFE.charAt(pick));
     }
     value = digits.join('');
     if (!isTrivialPin(value)) { return value; }
@@ -250,9 +292,9 @@ export function entropyBits(options: PasswordOptions): number {
   return options.length * Math.log2(size);
 }
 
-/** PIN 的字符集熵：与完整密码同一口径，字符集固定为 `DIGITS`。 */
+/** PIN 的字符集熵：与完整密码同一口径，字符集固定为 `DIGITS_SAFE`（与「排除易混字符」开关无关）。 */
 export function pinEntropyBits(length: number): number {
-  return length * Math.log2(DIGITS.length);
+  return length * Math.log2(DIGITS_SAFE.length);
 }
 
 /**

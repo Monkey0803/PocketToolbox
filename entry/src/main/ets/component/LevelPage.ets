@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { appText } from '../model/AppStrings';
 import { common } from '@kit.AbilityKit';
 import { sensor } from '@kit.SensorServiceKit';
 import { IconActionButton } from './IconActionButton';
@@ -13,6 +14,9 @@ import {
   tiltDisplayText
 } from '../model/LevelMath';
 import { sensorAccuracyHint } from '../model/SensorAccuracy';
+// 水平「到位」的触觉反馈：事件 id 来自纯逻辑登记表，震动实现与开关在 `services/Haptics`。
+import { HAPTIC_EVENT_LEVEL_REACHED } from '../model/Haptics';
+import { playHaptic } from '../services/Haptics';
 
 /**
  * 水平仪页。
@@ -67,7 +71,13 @@ export struct LevelPage {
       this.peak = peakTilt(this.peak, result);
       this.accuracy = reading.accuracy;
       // 锁定后不再改写显示读数（峰值仍按真实读数累计）。
+      const wasLevel: boolean = this.shown.level;
       if (this.held === undefined) { this.shown = applyOffset(result, this.zeroBase, this.toleranceDegrees()); }
+      // 到位触觉反馈：只在「倾斜 → 水平」这一次跨越上震一下（持续水平不重复震）。
+      // 第一次读数不震（`levelReady` 在 `startLevel()` 里置 false），否则一进页面平放就震，像是故障。
+      if (this.levelReady && !wasLevel && this.shown.level) {
+        playHaptic(HAPTIC_EVENT_LEVEL_REACHED);
+      }
       this.levelReady = true;
     };
 
@@ -107,7 +117,7 @@ export struct LevelPage {
     this.levelMessage = '';
     // 与指南针同一口径的能力门控：只靠 `getSingleSensorSync` 抛错探测不够稳（2026-10-20 审计 P1）。
     if (!canIUse('SystemCapability.Sensors.Sensor')) {
-      this.levelMessage = this.tr('当前设备无法读取加速度传感器', 'Accelerometer unavailable on this device');
+      this.levelMessage = appText('level.accelerometer-unavailable-on-this', this.english);
       this.applyKeepScreenOn(false);
       return;
     }
@@ -117,7 +127,7 @@ export struct LevelPage {
       this.levelSubscribed = true;
       this.applyKeepScreenOn(true);
     } catch (_) {
-      this.levelMessage = this.tr('当前设备无法读取加速度传感器', 'Accelerometer unavailable on this device');
+      this.levelMessage = appText('level.accelerometer-unavailable-on-this', this.english);
       this.applyKeepScreenOn(false);
     }
   }
@@ -247,10 +257,10 @@ export struct LevelPage {
   private peakLabelText(): string {
     const value: string = tiltDisplayText(this.peak, this.levelUnit, this.english);
     if (!this.zeroed) {
-      return this.tr('本轮最大倾角（绝对）', 'Max tilt this round (absolute)') + ' ' + value;
+      return appText('level.max-tilt-this-round', this.english) + ' ' + value;
     }
-    return this.tr('本轮最大绝对倾角 ', 'Max absolute tilt this round ') + value +
-      this.tr('（相对重力，不含校准基准）', ' (from gravity, ignoring the zero reference)');
+    return appText('level.max-absolute-tilt-this', this.english) + value +
+      appText('level.from-gravity-ignoring-the', this.english);
   }
 
   private resetPeak(): void {    if (this.peak === 0) { return; }
@@ -282,7 +292,7 @@ export struct LevelPage {
       if (this.levelMessage) {
         Text(this.levelMessage).fontSize(16).fontColor(ToolPalette.warning).width('100%')
       } else if (!this.levelReady) {
-        Text(this.tr('正在读取传感器…', 'Reading sensor…')).fontSize(16).width('100%')
+        Text(appText('level.reading-sensor', this.english)).fontSize(16).width('100%')
       } else {
         Stack({ alignContent: Alignment.Center }) {
           Circle().width(220).height(220).fill(ToolPalette.tintSky).stroke(ToolPalette.primary).strokeWidth(3)
@@ -290,19 +300,19 @@ export struct LevelPage {
           Circle().width(38).height(38).fill(this.shown.level ? ToolPalette.success : ToolPalette.primary)
             .offset({ x: this.shown.bubbleX, y: -this.shown.bubbleY })
         }.width(240).height(240)
-        Text(this.shown.level ? this.tr('水平', 'Level') : this.tr('倾斜', 'Tilted'))
+        Text(this.shown.level ? appText('level.level', this.english) : appText('level.tilted', this.english))
           .fontSize(24).fontWeight(FontWeight.Bold)
           .fontColor(this.shown.level ? ToolPalette.success : ToolPalette.warning)
         if (this.zeroed) {
-          Text(this.tr('相对基准读数', 'Reading relative to zero')).fontSize(13)
+          Text(appText('level.reading-relative-to-zero', this.english)).fontSize(13)
             .fontColor(ToolPalette.textMuted)
         }
-        Text(this.tr('倾角 ', 'Tilt ') + tiltDisplayText(this.shown.tiltDegrees, this.levelUnit, this.english))
+        Text(appText('level.tilt', this.english) + tiltDisplayText(this.shown.tiltDegrees, this.levelUnit, this.english))
           .fontSize(22).fontWeight(FontWeight.Bold)
         Text('X ' + this.shown.xDegrees.toFixed(1) + '°  ·  Y ' + this.shown.yDegrees.toFixed(1) + '°')
           .fontSize(16).fontColor(ToolPalette.textSecondary)
         if (this.zeroed) {
-          Text(this.tr('绝对倾角 ', 'Absolute tilt ') +
+          Text(appText('level.absolute-tilt', this.english) +
             tiltDisplayText(this.raw.tiltDegrees, this.levelUnit, this.english))
             .fontSize(14).fontColor(ToolPalette.textSecondary)
         }
@@ -315,51 +325,50 @@ export struct LevelPage {
         }
       }
       OptionSelect({
-        label: this.tr('单位', 'Unit'),
+        label: appText('field.unit', this.english),
         options: this.unitOptions(),
         selectedIndex: this.unitIndex(),
         selectedText: this.unitName(),
-        a11yText: this.tr('倾角显示单位', 'Tilt display unit'),
+        a11yText: appText('level.tilt-display-unit', this.english),
         onSelected: (index: number): void => { this.selectUnit(index); }
       })
       OptionSelect({
-        label: this.tr('容差', 'Tolerance'),
+        label: appText('level.tolerance', this.english),
         options: this.toleranceOptions(),
         selectedIndex: this.toleranceIndex(),
         selectedText: levelToleranceLabel(this.levelTolerance),
-        a11yText: this.tr('判定水平的角度容差', 'Tolerance for calling it level'),
+        a11yText: appText('level.tolerance-for-calling-it', this.english),
         onSelected: (index: number): void => { this.selectTolerance(index); }
       })
       Row({ space: 4 }) {
         IconActionButton({
           icon: $r('sys.symbol.scope'), tintColor: ToolPalette.accentPurple,
-          a11yText: this.tr('以当前姿态置零', 'Zero at the current pose'),
+          a11yText: appText('level.zero-at-the-current', this.english),
           boxSize: 44, iconSize: 22, usable: this.levelReady,
           onTap: (): void => { this.zeroHere(); }
         })
         IconActionButton({
           icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
-          a11yText: this.tr('清除置零基准', 'Clear the zero reference'),
+          a11yText: appText('level.clear-the-zero-reference', this.english),
           boxSize: 44, iconSize: 22, usable: this.zeroed,
           onTap: (): void => { this.clearZero(); }
         })
         IconActionButton({
           icon: this.locked ? $r('sys.symbol.lock_fill') : $r('sys.symbol.lock'),
           tintColor: this.locked ? ToolPalette.primary : ToolPalette.textSecondary,
-          a11yText: this.locked ? this.tr('解除读数锁定', 'Unlock the reading') : this.tr('锁定当前读数',
-            'Lock the current reading'),
+          a11yText: this.locked ? appText('level.unlock-the-reading', this.english) : appText('level.lock-the-current-reading', this.english),
           boxSize: 44, iconSize: 22, usable: this.levelReady,
           onTap: (): void => { this.toggleHold(); }
         })
         IconActionButton({
           icon: $r('sys.symbol.arrow_up_to_line'), tintColor: ToolPalette.textMuted,
-          a11yText: this.tr('重置本轮最大倾角', 'Reset the max tilt'),
+          a11yText: appText('level.reset-the-max-tilt', this.english),
           boxSize: 44, iconSize: 22, usable: this.peak > 0,
           onTap: (): void => { this.resetPeak(); }
         })
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制当前读数', 'Copy the current reading'),
+          a11yText: appText('level.copy-the-current-reading', this.english),
           boxSize: 44, iconSize: 22, usable: this.levelReady,
           onTap: (): void => { this.copyReading(); }
         })

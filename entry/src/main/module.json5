@@ -11,6 +11,9 @@
       { "name": "ohos.permission.PUBLISH_AGENT_REMINDER" },
       { "name": "ohos.permission.DETECT_GESTURE" },
       { "name": "ohos.permission.ACCELEROMETER" },
+      // 触觉反馈（计时到点 / 水平到位 / 罗盘对准）：系统权限，声明即生效、不弹授权框；
+      // 设置页有开关（键 `haptic_feedback`），关掉后一次都不震。
+      { "name": "ohos.permission.VIBRATE" },
       // 联网能力只在用户显式触发时使用：网络工具（DNS/端口/HTTP 响应头）、单位换算的汇率更新、
       // 设置页的节假日数据更新。GET_NETWORK_INFO 只用于域名解析（connection.getAddressesByName）。
       { "name": "ohos.permission.INTERNET" },
@@ -61,6 +64,43 @@
           {
             "name": "ohos.extension.form",
             "resource": "$profile:form_config"
+          }
+        ]
+      },
+      // 分享接收：别的应用「分享」时在系统分享面板里提供「随身工具箱」，把文本交给二维码/文本工具。
+      // 只接收**文本类**内容（图片与文件仍不接），页面为 pages/Share（见 main_pages.json），
+      // 内容不落盘、不上传，处理完即收起会话（`shareext/ShareExtAbility.ets` 有完整口径）。
+      {
+        "name": "ShareExtAbility",
+        "srcEntry": "./ets/shareext/ShareExtAbility.ets",
+        "icon": "$media:toolbox_icon",
+        "label": "$string:share_extension_label",
+        "description": "$string:share_extension_desc",
+        "type": "share",
+        "exported": true,
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.sendData"
+            ],
+            // 分享面板按**分享内容的 MIME** 匹配本扩展：微信/浏览器分享链接常见 `text/html`、
+            // `text/uri-list`，只声明 `text/plain` 就会整条匹配不上（2026-10-22 真机反馈
+            // 「分享面板里看不到随身工具箱」）。`text/*` 是官方示例用过的通配写法（示例里是 `image/*`），
+            // 这里连具体类型一起列出，避免个别实现只做精确匹配。
+            "uris": [
+              {
+                "type": "text/plain"
+              },
+              {
+                "type": "text/html"
+              },
+              {
+                "type": "text/uri-list"
+              },
+              {
+                "type": "text/*"
+              }
+            ]
           }
         ]
       }

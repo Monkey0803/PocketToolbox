@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { appText } from '../model/AppStrings';
 import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
@@ -12,6 +13,9 @@ import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES
   slowestLapIndex, timerDurationWithinLimits, timerLimitText, timerDurationLimitText, TIMER_MAX_COUNT,
   TimerMode, TIMER_MODES } from '../model/TimerMath';
 import { scheduleReminder, cancelReminder, ReminderOutcome } from '../services/SystemTools';
+// 到点触觉反馈：事件 id 来自纯逻辑登记表，震动实现与开关在 `services/Haptics`。
+import { HAPTIC_EVENT_TIMER_DONE } from '../model/Haptics';
+import { playHaptic } from '../services/Haptics';
 import { LiveViewHandle, startTimerLiveView, updateTimerLiveView, stopTimerLiveView } from '../services/LiveViewTools';
 
 /**
@@ -102,11 +106,11 @@ export struct TimersPage {
   // 新增计时能力只需在 TIMER_MODES 加登记项 + 在 build() 加一个面板与分支。
   @Builder private modeSelect() {
     OptionSelect({
-      label: this.tr('方式', 'Method'),
+      label: appText('field.method', this.english),
       options: this.modeOptions(),
       selectedIndex: this.timerModeIndex(),
       selectedText: this.timerModeLabel(),
-      a11yText: this.tr('计时方式', 'Timer tool'),
+      a11yText: appText('timers.timer-tool', this.english),
       onSelected: (index: number): void => {
         const mode: TimerMode | undefined = TIMER_MODES[index];
         if (mode !== undefined) { this.timerMode = mode.id; }
@@ -148,6 +152,9 @@ export struct TimersPage {
       this.finishedShown = true;
       this.finishedLabel = finishedAlertText(this.finishedNames, this.english);
       this.onStatus(this.finishedLabel);
+      // 到点同时轻振一次（与横幅、toast 同一时刻，一次到点只震一次）。开关在设置页，
+      // 关掉或本机无马达时服务层静默返回，不影响这里的提示。
+      playHaptic(HAPTIC_EVENT_TIMER_DONE);
     }
     if (changed) { this.timers = this.timers.slice(); this.persistTimers(); }
     // 空闲时降到 1 秒一次：此前固定 250 ms 常驻，没在计时也每秒唤醒四次（2026-10-20 审计 P1）。
@@ -219,7 +226,7 @@ export struct TimersPage {
         }
       });
     } catch (_) {
-      this.onStatus(this.tr('无法打开时长选择器', 'Could not open the duration picker'));
+      this.onStatus(appText('timers.could-not-open-the', this.english));
     }
   }
 
@@ -228,7 +235,7 @@ export struct TimersPage {
     let duration: number = parseDuration(clampDurationPart(this.hours, 23).toString(),
       clampDurationPart(this.minutes, 59).toString(), clampDurationPart(this.seconds, 59).toString());
     const editing: string = this.editingId;
-    const name: string = this.timerName.trim() || this.tr('倒计时', 'Countdown');
+    const name: string = this.timerName.trim() || appText('timers.countdown', this.english);
     // 编辑态：按 id 覆盖原条目（保持原位置），不新增第二条。
     if (editing.length > 0 && this.timers.some((item: CountdownItem): boolean => item.id === editing)) {
       if (duration === 0) {
@@ -246,7 +253,7 @@ export struct TimersPage {
       });
       this.editingId = '';
       await this.persistTimers();
-      this.timerName = ''; this.onStatus(this.tr('计时已更新', 'Timer updated'));
+      this.timerName = ''; this.onStatus(appText('timers.timer-updated', this.english));
       return;
     }
     // 上限与存储层共用 `TimerMath` 的常量与文案，不再各写一份数字（2026-10-20 审计 §3.15④）。
@@ -259,7 +266,7 @@ export struct TimersPage {
     timer.durationMs = duration; timer.remainingMs = duration;
     timer.repeat = this.repeatTimer;
     this.timers = [timer].concat(this.timers); await this.persistTimers();
-    this.timerName = ''; this.onStatus(this.tr('计时器已添加', 'Timer added'));
+    this.timerName = ''; this.onStatus(appText('timers.timer-added', this.english));
   }
 
   /** 常用时长预设：直接写回时分秒，仍可用时间选择器微调。 */
@@ -300,19 +307,19 @@ export struct TimersPage {
   // 实况窗（锁屏/通知栏实时倒计时）优先，其次系统后台提醒；都不可用时退化为应用内计时。
   private startTimerStatus(timer: CountdownItem): string {
     if (timer.liveViewId >= 0) {
-      return this.tr('实况窗已开启，锁屏与通知栏可查看倒计时', 'Live view on; track the countdown on the lock screen');
+      return appText('timers.live-view-on-track', this.english);
     }
     if (this.liveViewReason === 'disabled') {
-      return this.tr('实况窗未开启，请在系统设置中打开', 'Live view is off; enable it in system settings');
+      return appText('timers.live-view-is-off', this.english);
     }
     if (this.liveViewReason === 'denied') {
-      return this.tr('当前设备未开通实况窗权益，已改用后台提醒', 'Live view entitlement unavailable; using background reminder');
+      return appText('timers.live-view-entitlement-unavailable', this.english);
     }
-    if (timer.reminderId >= 0) { return this.tr('后台提醒已设置', 'Background reminder set'); }
+    if (timer.reminderId >= 0) { return appText('timers.background-reminder-set', this.english); }
     // 失败原因有明确引导文案时优先给引导（例如「通知未允许」要给出去系统设置的下一步）。
     const guidance: string = reminderGuidanceText(this.reminderError, this.english);
     if (guidance.length > 0) { return guidance; }
-    return this.tr('仅应用内计时：实况窗或后台提醒未启用', 'In-app only: live view and background alert unavailable');
+    return appText('timers.in-app-only-live', this.english);
   }
 
   private async cancelForChange(timer: CountdownItem): Promise<boolean> {
@@ -321,8 +328,7 @@ export struct TimersPage {
       return true;
     } catch (_) {
       if (timer.state === 'running' && remainingAt(timer.deadlineMs, Date.now()) > 0) {
-        this.onStatus(this.tr('系统提醒取消失败，计时器保持运行',
-          'Could not cancel system reminder; timer stays running'));
+        this.onStatus(appText('timers.could-not-cancel-system', this.english));
         return false;
       }
       return true;
@@ -366,7 +372,7 @@ export struct TimersPage {
     // **编辑不再删除原条目**：原实现先删除再填入上方，用户中途放弃就永久丢了这个计时。
     // 现在只记下 id，`addTimer()` 按 id 覆盖（upsert），界面文案也跟着变（2026-10-20 审计 P1）。
     this.editingId = timer.id;
-    this.onStatus(this.tr('已填入上方，保存将覆盖该计时', 'Loaded above; saving will update this timer'));
+    this.onStatus(appText('timers.loaded-above-saving-will', this.english));
   }
 
   private formatTime(ms: number): string {
@@ -422,7 +428,7 @@ export struct TimersPage {
     // 因此严格递增才允许计次（2026-10-20 审计 P1）。上限见 `TimerMath.LAP_MAX`（保最近 N 次）。
     if (!lapRecordable(this.watch.laps, elapsed)) {
       if (elapsed > 0) {
-        this.onStatus(this.tr('没有新的时间可计次', 'No new time to record since the last lap'));
+        this.onStatus(appText('timers.no-new-time-to', this.english));
       }
       return;
     }
@@ -458,7 +464,7 @@ export struct TimersPage {
               .fontColor(ToolPalette.textPrimary).layoutWeight(1)
             IconActionButton({
               icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.textSecondary, boxSize: 44, iconSize: 22,
-              a11yText: this.tr('关闭到点提示', 'Dismiss the finish alert'),
+              a11yText: appText('timers.dismiss-the-finish-alert', this.english),
               onTap: () => this.dismissFinished()
             })
           }.padding(16).width('100%').alignItems(VerticalAlign.Center)
@@ -477,7 +483,7 @@ export struct TimersPage {
   // 切到秒表时本面板不再渲染，但倒计时留在页面上继续跑（tick 与 `timers` 都由页面持有）。
   @Builder private countdownPanel() {
     Column({ space: 14 }) {
-      Text(this.tr('新建倒计时', 'New countdown')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('timers.new-countdown', this.english)).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported,
         level: this.materialLevel,
@@ -485,7 +491,7 @@ export struct TimersPage {
         corner: 16,
         interactive: true
       }) {
-        TextInput({ text: this.timerName, placeholder: this.tr('名称，可选', 'Name, optional') })
+        TextInput({ text: this.timerName, placeholder: appText('timers.name-optional', this.english) })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
@@ -500,17 +506,17 @@ export struct TimersPage {
       }) {
         Row({ space: 12 }) {
           Column({ space: 2 }) {
-            Text(this.tr('时长', 'Duration')).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+            Text(appText('timers.duration', this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
             Text(this.durationLabel()).fontSize(28).fontWeight(FontWeight.Bold)
               .fontColor(ToolPalette.textPrimary).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.timer')).fontSize(24).fontColor([ToolPalette.textSubtle])
         }
         .width('100%').padding(16)
-        .accessibilityText(this.tr('选择倒计时时长', 'Choose countdown duration'))
+        .accessibilityText(appText('timers.choose-countdown-duration', this.english))
         .onClick(() => this.openDurationPicker())
       }
-      Text(this.tr('常用时长', 'Quick durations')).fontSize(14).fontColor(ToolPalette.textSecondary)
+      Text(appText('timers.quick-durations', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary)
         .width('100%')
       // 一行放不下时自动换行：按内容宽度排布，不再用 layoutWeight 均分整行——
       // 345 vp 的折叠态每格只有约 44 vp，6 个预设会被系统截断成「…」（2026-10-20 折叠态实测，
@@ -525,29 +531,28 @@ export struct TimersPage {
       }.width('100%')
       Row({ space: 12 }) {
         Column({ space: 2 }) {
-          Text(this.tr('重复计时', 'Repeat')).fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
-          Text(this.tr('一轮结束后自动开始下一轮（后台提醒只覆盖当前一轮）',
-            'Starts the next round automatically; background alerts cover the current round only'))
+          Text(appText('timers.repeat', this.english)).fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
+          Text(appText('timers.starts-the-next-round', this.english))
             .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Toggle({ type: ToggleType.Switch, isOn: this.repeatTimer })
-          .accessibilityText(this.tr('重复计时', 'Repeat'))
+          .accessibilityText(appText('timers.repeat', this.english))
           .onChange((isOn: boolean) => { this.repeatTimer = isOn; })
       }.width('100%')
       Row({ space: 8 }) {
         IconActionButton({
           icon: this.editingId.length > 0 ? $r('sys.symbol.checkmark') : $r('sys.symbol.plus'),
           tintColor: this.editingId.length > 0 ? ToolPalette.success : ToolPalette.warning,
-          a11yText: this.editingId.length > 0 ? this.tr('保存该计时', 'Save this timer')
-            : this.tr('添加计时器', 'Add timer'),
+          a11yText: this.editingId.length > 0 ? appText('timers.save-this-timer', this.english)
+            : appText('timers.add-timer', this.english),
           onTap: () => this.addTimer()
         })
         // 编辑态给一条显式退路：取消编辑不会动原条目（原实现是先删再填，弃改即丢）。
         if (this.editingId.length > 0) {
           IconActionButton({
             icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.textMuted,
-            a11yText: this.tr('取消编辑', 'Cancel editing'),
-            onTap: () => { this.editingId = ''; this.onStatus(this.tr('已取消编辑', 'Editing cancelled')); }
+            a11yText: appText('timers.cancel-editing', this.english),
+            onTap: () => { this.editingId = ''; this.onStatus(appText('status.editCancelled', this.english)); }
           })
         }
       }.width('100%').justifyContent(this.actionAlign)
@@ -564,39 +569,39 @@ export struct TimersPage {
             Text(timer.name).fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
             if (timer.repeat) {
               SymbolGlyph($r('sys.symbol.repeat')).fontSize(18).fontColor([ToolPalette.accentPurple])
-              Text(this.tr('重复', 'Repeat')).fontSize(12).fontColor(ToolPalette.accentPurple)
+              Text(appText('timers.repeat-2', this.english)).fontSize(12).fontColor(ToolPalette.accentPurple)
             }
           }.width('100%')
           Text(this.timerTime(timer)).fontSize(30).fontWeight(FontWeight.Bold).width('100%')
           if (timer.state === 'running' && timer.reminderId < 0 && timer.liveViewId < 0) {
-            Text(this.tr('仅应用内计时，实况窗与后台提醒均未启用', 'In-app only; live view and background alert unavailable'))
+            Text(appText('timers.in-app-only-note', this.english))
               .fontSize(12).fontColor(ToolPalette.warning).width('100%')
           }
           Row({ space: 6 }) {
             if (timer.state === 'running') {
               IconActionButton({
                 icon: $r('sys.symbol.pause_fill'), tintColor: ToolPalette.warning,
-                a11yText: this.tr('暂停计时器', 'Pause timer'), onTap: () => this.pauseTimer(timer)
+                a11yText: appText('timers.pause-timer', this.english), onTap: () => this.pauseTimer(timer)
               })
             } else {
               IconActionButton({
                 icon: $r('sys.symbol.play_fill'), tintColor: ToolPalette.success,
-                a11yText: timer.state === 'paused' ? this.tr('继续计时器', 'Resume timer') :
-                  this.tr('开始计时器', 'Start timer'),
+                a11yText: timer.state === 'paused' ? appText('timers.resume-timer', this.english) :
+                  appText('timers.start-timer', this.english),
                 onTap: () => this.startTimer(timer)
               })
             }
             IconActionButton({
               icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
-              a11yText: this.tr('重置计时器', 'Reset timer'), onTap: () => this.resetTimer(timer)
+              a11yText: appText('timers.reset-timer', this.english), onTap: () => this.resetTimer(timer)
             })
             IconActionButton({
               icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
-              a11yText: this.tr('编辑计时器', 'Edit timer'), onTap: () => this.editTimer(timer)
+              a11yText: appText('timers.edit-timer', this.english), onTap: () => this.editTimer(timer)
             })
             IconActionButton({
               icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
-              a11yText: this.tr('删除计时器', 'Delete timer'), onTap: () => this.deleteTimer(timer)
+              a11yText: appText('timers.delete-timer', this.english), onTap: () => this.deleteTimer(timer)
             })
           }.width('100%').justifyContent(this.actionAlign)
         }.padding(16).width('100%')
@@ -611,23 +616,23 @@ export struct TimersPage {
   // 秒表面板（方式=秒表）：读数 + 操作行 + 计次记录；切走时秒表同样继续跑。
   @Builder private stopwatchPanel() {
     Column({ space: 14 }) {
-      Text(this.tr('秒表', 'Stopwatch')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
+      Text(appText('timers.stopwatch', this.english)).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
       Text(this.watchTime()).fontSize(36).fontWeight(FontWeight.Bold).width('100%')
       Row({ space: 8 }) {
         IconActionButton({
           icon: this.watch.running ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'),
           tintColor: ToolPalette.primary,
-          a11yText: this.watch.running ? this.tr('暂停秒表', 'Pause stopwatch') :
-            this.tr('开始或继续秒表', 'Start or resume stopwatch'),
+          a11yText: this.watch.running ? appText('timers.pause-stopwatch', this.english) :
+            appText('timers.start-or-resume-stopwatch', this.english),
           onTap: () => this.toggleWatch()
         })
         IconActionButton({
           icon: $r('sys.symbol.flag'), tintColor: ToolPalette.accentPurple, usable: this.watchElapsedMs() > 0,
-          a11yText: this.tr('计次', 'Lap'), onTap: () => this.lapWatch()
+          a11yText: appText('timers.lap', this.english), onTap: () => this.lapWatch()
         })
         IconActionButton({
           icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
-          a11yText: this.tr('重置秒表', 'Reset stopwatch'), onTap: () => this.resetWatch()
+          a11yText: appText('timers.reset-stopwatch', this.english), onTap: () => this.resetWatch()
         })
       }.width('100%').justifyContent(this.actionAlign)
       if (this.watch.laps.length > 0) {
@@ -637,7 +642,7 @@ export struct TimersPage {
         }) {
           Column({ space: 8 }) {
             Row({ space: 8 }) {
-              Text(this.tr('计次记录', 'Laps')).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+              Text(appText('timers.laps', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
               Text(this.tr('最快 ' + this.formatTime(this.lapDelta(fastestLapIndex(this.watch.laps))) +
                 ' · 最慢 ' + this.formatTime(this.lapDelta(slowestLapIndex(this.watch.laps))),
                 'Fastest ' + this.formatTime(this.lapDelta(fastestLapIndex(this.watch.laps))) +

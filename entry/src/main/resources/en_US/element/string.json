@@ -9,6 +9,8 @@
     { "name": "EntryAbility_label", "value": "Pocket Toolbox" },
     { "name": "widget_quick_tools_label", "value": "Pocket Toolbox" },
     { "name": "widget_quick_tools_display_name", "value": "Quick tools" },
-    { "name": "widget_quick_tools_desc", "value": "Favourite-first shortcuts; tap a tile to open the tool" }
+    { "name": "widget_quick_tools_desc", "value": "Favourite-first shortcuts; tap a tile to open the tool" },
+    { "name": "share_extension_label", "value": "Pocket Toolbox" },
+    { "name": "share_extension_desc", "value": "Send shared text to the QR code or text tools" }
   ]
 }

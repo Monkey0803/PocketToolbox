@@ -1,4 +1,5 @@
 import { clearButtonIcon } from '../model/Materials';
+import { appText } from '../model/AppStrings';
 import { common } from '@kit.AbilityKit';
 import { sensor } from '@kit.SensorServiceKit';
 import { uiMaterial } from '@kit.ArkUI';
@@ -15,6 +16,9 @@ import {
   trueHeading, DECLINATION_LIMIT_DEGREES
 } from '../model/CompassMath';
 import { sensorAccuracyHint } from '../model/SensorAccuracy';
+// 对准锁定方位的触觉反馈：事件 id 来自纯逻辑登记表，震动实现与开关在 `services/Haptics`。
+import { HAPTIC_EVENT_COMPASS_ALIGNED } from '../model/Haptics';
+import { playHaptic } from '../services/Haptics';
 
 /**
  * 指南针页。
@@ -72,6 +76,8 @@ export struct CompassPage {
 
   private subscribed: boolean = false;
   private keepApplied: boolean = false;
+  // 「上一次采样是否已对准」：只用于给触觉反馈做「未对准 → 对准」的跨越判定，不做界面状态。
+  private wasAligned: boolean = false;
   private callback: (reading: sensor.OrientationResponse) => void =
     (reading: sensor.OrientationResponse): void => {
       // alpha 是设备绕 z 轴的转角（0–360），设备接近水平时即方位角；
@@ -80,6 +86,11 @@ export struct CompassPage {
       this.flat = isCompassFlat(reading.beta, reading.gamma);
       this.accuracy = reading.accuracy;
       this.ready = !Number.isNaN(this.heading);
+      // 对准锁定方位的触觉反馈：只在「没对准 → 对准」这一次跨越上震一下（对准期间不重复震）。
+      // 未锁定时 `locked` 为 false，不会震；倾斜时也不震（此时偏差行本来就不显示）。
+      const alignedNow: boolean = this.flat && this.locked && this.deviation.aligned;
+      if (alignedNow && !this.wasAligned) { playHaptic(HAPTIC_EVENT_COMPASS_ALIGNED); }
+      this.wasAligned = alignedNow;
     };
 
   aboutToAppear(): void {
@@ -119,6 +130,8 @@ export struct CompassPage {
     this.ready = false;
     this.unavailable = false;
     this.heading = Number.NaN;
+    // 重新订阅后第一次采样不该按「刚对准」震一下。
+    this.wasAligned = false;
     // 先做能力门控（与 VisionKit / NetStack 同一口径）：`getSingleSensorSync` 抛错只是兜底，
     // 个别设备可能不抛错而给出无效值，那会让界面显示 0°（会被误读成正北，AGENTS 明令禁止）。
     if (!canIUse('SystemCapability.Sensors.Sensor')) {
@@ -288,7 +301,7 @@ export struct CompassPage {
   /** 锁定状态行：显示锁定时的目标方位与当前偏差（倾斜时偏差不显示，倾斜提示由下方的统一提示行负责）。 */
   @Builder private lockLine() {
     Column({ space: 4 }) {
-      Text(this.tr('已锁定 ', 'Locked ') + headingTextInUnit(this.targetHeading, this.headingUnit))
+      Text(appText('compass.locked', this.english) + headingTextInUnit(this.targetHeading, this.headingUnit))
         .fontSize(13).fontColor(ToolPalette.textMuted)
       if (this.flat && bearingStatusText(this.deviation, this.english).length > 0) {
         Text(bearingStatusText(this.deviation, this.english)).fontSize(18).fontWeight(FontWeight.Bold)
@@ -299,12 +312,12 @@ export struct CompassPage {
 
   build() {
     Column({ space: 16 }) {
-      Text(this.tr('下面是手机顶部所指的方向。', 'The reading below is the direction the top of the device points to.'))
+      Text(appText('compass.the-reading-below-is', this.english))
         .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
       if (this.unavailable) {
         Text(headingErrorText(this.english)).fontSize(16).fontColor(ToolPalette.warning).width('100%')
       } else if (!this.ready) {
-        Text(this.tr('正在读取方向传感器…', 'Reading direction sensor…')).fontSize(16).width('100%')
+        Text(appText('compass.reading-direction-sensor', this.english)).fontSize(16).width('100%')
       } else {
         Stack({ alignContent: Alignment.Center }) {
           this.rose()
@@ -318,7 +331,7 @@ export struct CompassPage {
           .fontColor(ToolPalette.primaryDeep)
         // 校正口径必须写明：有磁偏角时显示真北，没有时显示磁北（不显示 0，避免被当成「已校正」）。
         if (this.declination() !== undefined) {
-          Text(this.tr('真北', 'True north') + ' · ' + declinationText(this.declination(), this.english))
+          Text(appText('compass.true-north', this.english) + ' · ' + declinationText(this.declination(), this.english))
             .fontSize(13).fontColor(ToolPalette.textMuted)
         }
         if (this.locked) {
@@ -330,31 +343,30 @@ export struct CompassPage {
         }
       }
       OptionSelect({
-        label: this.tr('单位', 'Unit'),
+        label: appText('field.unit', this.english),
         options: this.unitOptions(),
         selectedIndex: this.unitIndex(),
         selectedText: this.unitName(),
-        a11yText: this.tr('方位角显示单位', 'Bearing display unit'),
+        a11yText: appText('compass.bearing-display-unit', this.english),
         onSelected: (index: number): void => { this.selectUnit(index); }
       })
       Row({ space: 8 }) {
         IconActionButton({
           icon: this.locked ? $r('sys.symbol.lock_fill') : $r('sys.symbol.lock'),
           tintColor: this.locked ? ToolPalette.accentPurple : ToolPalette.textSecondary,
-          a11yText: this.locked ? this.tr('解除方位锁定', 'Unlock the bearing') : this.tr('锁定当前方位',
-            'Lock the current bearing'),
+          a11yText: this.locked ? appText('compass.unlock-the-bearing', this.english) : appText('compass.lock-the-current-bearing', this.english),
           boxSize: 44, iconSize: 22, usable: this.ready,
           onTap: (): void => { this.toggleLock(); }
         })
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-          a11yText: this.tr('复制当前方位', 'Copy the current bearing'),
+          a11yText: appText('compass.copy-the-current-bearing', this.english),
           boxSize: 44, iconSize: 22, usable: this.ready,
           onTap: (): void => { this.copyReading(); }
         })
       }.justifyContent(this.actionAlign).width('100%')
       // 磁偏角手输：零权限的真北校正（不联网、不读定位），输入非法时如实提示而不是当 0 用。
-      Text(this.tr('磁偏角（可选，手输）', 'Declination (optional, manual)')).fontSize(15)
+      Text(appText('compass.declination-optional-manual', this.english)).fontSize(15)
         .fontColor(ToolPalette.textSecondary).width('100%')
       MaterialSurface({
         supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
@@ -362,7 +374,7 @@ export struct CompassPage {
       }) {
         TextInput({
           text: this.declinationInput,
-          placeholder: this.tr('如 7.5E / 7.5W / 东偏 7.5，留空表示用磁北', 'e.g. 7.5E, 7.5W or -7.5; empty = magnetic north')
+          placeholder: appText('compass.e-g-7-5e', this.english)
         })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
@@ -379,7 +391,7 @@ export struct CompassPage {
           DECLINATION_LIMIT_DEGREES.toString() + ', optionally with E/W)'))
           .fontSize(13).fontColor(ToolPalette.warning).width('100%')
       } else if (this.declination() !== undefined) {
-        Text(this.tr('已按真北显示。', 'Showing true north.'))
+        Text(appText('compass.showing-true-north', this.english))
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       }
       Text(compassCalibrationHint(this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
