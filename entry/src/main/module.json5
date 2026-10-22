@@ -83,11 +83,33 @@
             "actions": [
               "ohos.want.action.sendData"
             ],
-            // 分享面板按**分享内容的 MIME** 匹配本扩展：微信/浏览器分享链接常见 `text/html`、
-            // `text/uri-list`，只声明 `text/plain` 就会整条匹配不上（2026-10-22 真机反馈
-            // 「分享面板里看不到随身工具箱」）。`text/*` 是官方示例用过的通配写法（示例里是 `image/*`），
-            // 这里连具体类型一起列出，避免个别实现只做精确匹配。
+            // 分享面板怎么匹配本扩展（2026-10-22 真机排查）：
+            // ① **UTD 是主判据**——华为侧分享面板（`com.huawei.hmos.instantshare/SystemShareModalAbility`）与
+            //    `@kit.ShareKit` 走 `SharedRecord.utd`（统一数据类型）。真机上装了微信后 dump 它的 bundle：
+            //    分享扩展的 uris 是 `{ "scheme": "file", "type": "", "utd": "general.text" }` 这种形状，
+            //    而本应用原来的 uris 里 `utd` 全是空串 —— 只声明 MIME 时面板里**一次都没出现**。
+            // ② module.json5 的 schema 要求：`utd` 必须和 `scheme` 同时出现（单独的 `{ "utd": … }` 会被
+            //    「missingProperty: scheme」拒掉），因此 UTD 条目写成 `{ "scheme": "file", "utd": … }`。
+            // ③ MIME 的 `type` 条目保留：三方应用自己拼 want 时可能只给 MIME。
+            // ④ 仍然只收文本类：图片/视频/文件分享不出现本应用是设计如此（`ShareExtAbility` 只挑文本；
+            //    文本以文件形式交过来时 `ShareIntake` 会读文件内容）。
             "uris": [
+              {
+                "scheme": "file",
+                "utd": "general.plain-text"
+              },
+              {
+                "scheme": "file",
+                "utd": "general.text"
+              },
+              {
+                "scheme": "file",
+                "utd": "general.hyperlink"
+              },
+              {
+                "scheme": "file",
+                "utd": "general.html"
+              },
               {
                 "type": "text/plain"
               },

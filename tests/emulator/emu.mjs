@@ -250,6 +250,8 @@ const SMOKE_CASES = [
   { id: 'anniversary', title: '纪念日', expect: ['添加'] },
   { id: 'net', title: '网络工具', expect: ['方式'] },
   { id: 'documents', title: '文档扫描', expect: ['扫描'] },
+  // 证件照（2026-10-22）：页面上必然出现的三行标签（照片卡 + 规格/底色/相纸三个下拉）
+  { id: 'idphoto', title: '证件照', expect: ['照片', '规格', '底色', '相纸排版'] },
 ];
 
 function smoke(only, withShots) {

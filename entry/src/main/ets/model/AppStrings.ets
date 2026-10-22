@@ -58,6 +58,10 @@ export const APP_STRINGS: AppString[] = [
   new AppString('favorites.browse', '去工具页挑选', 'Browse tools'),
   // 外壳：最近使用
   new AppString('recent.title', '最近使用', 'Recently used'),
+  // 外壳：工具页分类筛选（分类名本身来自 `model/ToolMeta.ets` 的 `TOOL_CATEGORIES`，不是固定文案）
+  new AppString('tools.category', '分类', 'Category'),
+  new AppString('tools.categoryA11y', '工具分类', 'Tool category'),
+  new AppString('tools.allCategories', '全部分类', 'All categories'),
   // 设置页：分区标题
   new AppString('settings.language', '语言', 'Language'),
   new AppString('settings.icons', '应用图标', 'App icon'),
@@ -159,6 +163,7 @@ export const APP_STRINGS: AppString[] = [
   new AppString('settings.storageDisclosure',
     '历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、' +
     '工具收藏及其顺序、语言偏好、智感握姿开关、触觉反馈开关、工具与收藏页的「每行显示几个」、' +
+    '工具页的分类筛选、' +
     '单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，' +
     '可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。' +
     '条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；' +
@@ -167,7 +172,8 @@ export const APP_STRINGS: AppString[] = [
     '启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
     'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), ' +
     'timers and stopwatch laps, favourites and their order, language preference, the adaptive hand posture and ' +
-    'haptic feedback switches, the per-row setting of the tools and favourites tabs, the converter’s last ' +
+    'haptic feedback switches, the per-row setting of the tools and favourites tabs, the tools tab’s category ' +
+    'filter, the converter’s last ' +
     'category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary ' +
     'list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten ' +
     'when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, ' +
@@ -1447,6 +1453,52 @@ export const APP_STRINGS: AppString[] = [
     'From'),
   new AppString('units.to', '到',
     'To'),
+  // —— 证件照（2026-10-22 新工具）：字段标签、说明与状态；带变量的尺寸/张数/错误文案在
+  // `model/IdPhoto.ets`（`idPhotoSizeText()`/`idPhotoSheetText()`/`idPhotoErrorText()`），不在这里重复登记。
+  new AppString('idphoto.photo', '照片',
+    'Photo'),
+  new AppString('idphoto.pick', '选择照片',
+    'Pick a photo'),
+  new AppString('idphoto.autoFrame', '自动构图',
+    'Auto frame'),
+  new AppString('idphoto.reset', '重置取景',
+    'Reset framing'),
+  new AppString('idphoto.gestureHint', '拖动移动画面，双指缩放；自动构图后仍可手动微调。',
+    'Drag to move, pinch to zoom. Auto framing can still be fine-tuned by hand.'),
+  new AppString('idphoto.emptyPhoto', '还没有选择照片。',
+    'No photo selected yet.'),
+  new AppString('idphoto.cutoutUnsupported', '本机不支持端侧抠图，换底色时会保留原底色。',
+    'On-device cut-out is unavailable here, so the original background is kept.'),
+  new AppString('idphoto.faceUnsupported', '本机不支持人脸检测，请手动取景。',
+    'Face detection is unavailable here; frame it by hand.'),
+  new AppString('idphoto.faceFramed', '已按人脸构图，可再手动微调。',
+    'Framed by face detection; fine-tune by hand if needed.'),
+  new AppString('idphoto.spec', '规格',
+    'Size'),
+  new AppString('idphoto.background', '底色',
+    'Background'),
+  new AppString('idphoto.sheet', '相纸排版',
+    'Sheet layout'),
+  new AppString('idphoto.cutLines', '裁切参考线',
+    'Cut guides'),
+  new AppString('idphoto.customWidth', '宽（毫米）',
+    'Width (mm)'),
+  new AppString('idphoto.customHeight', '高（毫米）',
+    'Height (mm)'),
+  new AppString('idphoto.sizeNote', '规格尺寸以受理机构要求为准；输出像素按 300 dpi 换算。',
+    'Check the issuing office for the exact size; output pixels are computed at 300 dpi.'),
+  new AppString('idphoto.cutLinesNote', '参考线只画在照片之间的间距里，方便裁切。',
+    'Guides are drawn only in the gaps between photos to help cutting.'),
+  new AppString('idphoto.save', '保存到相册',
+    'Save to gallery'),
+  new AppString('idphoto.share', '分享',
+    'Share'),
+  new AppString('idphoto.busy', '正在生成…',
+    'Creating…'),
+  new AppString('idphoto.customInvalid', '自定义尺寸要用 10 到 150 之间的整数毫米，且不能超过像素上限。',
+    'Custom size must be whole millimetres between 10 and 150, within the pixel limit.'),
+  new AppString('idphoto.backgroundKept', '已保留原底色',
+    'Original background kept'),
 ];
 
 /** 按 id 取固定文案；未知 id 原样返回 id（让拼错在界面上可见，而不是留白）。 */

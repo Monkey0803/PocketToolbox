@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf, inputFilterOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -428,11 +429,24 @@ export struct UnitsPage {
       corner: 16,
       interactive: true
     }) {
-      TextInput({ text: this.unitInput, placeholder: '0' })
-        // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
-        .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
-        .backgroundColor(Color.Transparent).type(InputType.Normal)
-        .onChange((value: string) => this.unitInput = value).height(54)
+      if (this.currentCategory().special === 'temperature') {
+        // 温度可以是负的（`parseUnitInput()` 接受正负号）：数字小键盘 + `inputFilter` 放行负号。
+        TextInput({ text: this.unitInput, placeholder: '0' })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+          .backgroundColor(Color.Transparent)
+          .type(inputTypeOf(InputKeyboard.SIGNED_DECIMAL))
+          .inputFilter(inputFilterOf(InputKeyboard.SIGNED_DECIMAL))
+          .onChange((value: string) => this.unitInput = value).height(54)
+      } else {
+        // 其余线性类别都是非负小数：交给 `NUMBER_DECIMAL` 自带的过滤，**不挂空 `inputFilter`**
+        // （空正则会接管并可能过滤掉全部输入，见 `component/InputKeyboard.ets`）。
+        TextInput({ text: this.unitInput, placeholder: '0' })
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+          .backgroundColor(Color.Transparent)
+          .type(inputTypeOf(InputKeyboard.DECIMAL))
+          .onChange((value: string) => this.unitInput = value).height(54)
+      }
     }
     MaterialSurface({
       supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 18
@@ -482,7 +496,8 @@ export struct UnitsPage {
       TextInput({ text: this.unitInput, placeholder: '0' })
         // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
         .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
-        .backgroundColor(Color.Transparent).type(InputType.Normal)
+        .backgroundColor(Color.Transparent)
+        .type(inputTypeOf(InputKeyboard.DECIMAL))
         .onChange((value: string) => this.unitInput = value).height(54)
     }
     MaterialSurface({

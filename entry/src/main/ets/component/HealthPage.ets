@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { WheelPickerButton } from './WheelPickerButton';
@@ -126,6 +127,14 @@ export struct HealthPage {
   }
 
   /**
+   * 输入框键盘类型：身高/体重是小数，**年龄是整岁**（1–120 的有限取值，另有滚轮入口），
+   * 因此年龄走整数键盘（2026-10-22 全量排查，此前三格统一是小数键盘）。
+   */
+  private inputKeyboard(id: string): string {
+    return id === 'age' ? InputKeyboard.INTEGER : InputKeyboard.DECIMAL;
+  }
+
+  /**
    * 输入行只收**常量** `id` 与 `pickable`（`@Builder` 按值传参不刷新）：文本与滚轮下标都在构建函数体内
    * 按 `id` 现取。`pickable` 只有年龄行为 true——身高/体重是连续量，滚轮列会很长且没有意义。
    */
@@ -141,7 +150,7 @@ export struct HealthPage {
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
-            .type(InputType.NUMBER_DECIMAL)
+            .type(inputTypeOf(this.inputKeyboard(id)))
             .layoutWeight(1)
             .onChange((value: string) => this.setFieldText(id, value)).height(52)
           if (pickable) {

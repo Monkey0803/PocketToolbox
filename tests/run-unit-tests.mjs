@@ -89,6 +89,8 @@ const torchSignal = await loadEts('../entry/src/main/ets/model/TorchSignal.ets')
 const immersiveBars = await loadEts('../entry/src/main/ets/model/ImmersiveBars.ets');
 const aboutInfo = await loadEts('../entry/src/main/ets/model/AboutInfo.ets');
 const numberOptions = await loadEts('../entry/src/main/ets/model/NumberOptions.ets');
+// 证件照（2026-10-22）：规格登记表、取景映射、自动构图、相纸排版、像素合成与状态/文案。
+const idPhoto = await loadEts('../entry/src/main/ets/model/IdPhoto.ets');
 const { createHash } = await import('node:crypto');
 
 // --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
@@ -2535,9 +2537,9 @@ assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-01', fa
 assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', true, [], []), undefined);
 
 // --- 工具元数据：单一数据源（收藏白名单与工具搜索都由它派生）---
-assert.equal(toolMeta.TOOL_META.length, 24);
-assert.equal(toolMeta.TOOL_IDS.length, 24);
-assert.equal(new Set(toolMeta.TOOL_IDS).size, 24);
+assert.equal(toolMeta.TOOL_META.length, 25);
+assert.equal(toolMeta.TOOL_IDS.length, 25);
+assert.equal(new Set(toolMeta.TOOL_IDS).size, 25);
 assert.equal(toolMeta.TOOL_IDS[0], 'qr');
 assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'net');
 assert.ok(toolMeta.TOOL_IDS.includes('timestamp'), 'timestamp must be a known tool id');
@@ -2580,7 +2582,7 @@ assert.deepEqual(toolMeta.allowedFavorites(['qr', 'qr']), ['qr']);
 assert.deepEqual(toolMeta.allowedFavorites([]), []);
 assert.deepEqual(toolMeta.allowedFavorites(['history']), []);
 assert.deepEqual(toolMeta.allowedFavorites(undefined), []);
-assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 24);
+assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 25);
 assert.deepEqual(toolMeta.allowedFavorites(toolMeta.TOOL_IDS), toolMeta.TOOL_IDS);
 
 // 工具搜索：空查询返回全部；中英双语与 id 都能命中；无命中返回空
@@ -2596,9 +2598,13 @@ assert.deepEqual(toolMeta.matchTools('时间戳'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('epoch'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('毫秒'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('millisecond'), ['timestamp']);
-// 'cal' 现在还会命中 Loan calculator、Health calculator 与 Kinship calculator（英文标题含 calculator）
-assert.deepEqual(toolMeta.matchTools('cal'), ['calculator', 'dates', 'loan', 'health', 'science', 'kinship']);
-assert.deepEqual(toolMeta.matchTools('计算'), ['tax', 'dates', 'loan', 'health', 'science']);
+// 'cal' 的分级（2026-10-22 命中分级生效后）：
+//  ① 前缀命中 id `calculator`；② `science` 的关键词 `calc` 是前缀命中（别名比标题子串更贴）；
+//  ③ 标题含 `cal` 的 Date/Loan/Health/Kinship calculator；④ `tax` 由分类名 `Calc & money` 最低档补上。
+assert.deepEqual(toolMeta.matchTools('cal'),
+  ['calculator', 'science', 'dates', 'loan', 'health', 'kinship', 'tax']);
+assert.deepEqual(toolMeta.matchTools('计算'),
+  ['tax', 'dates', 'loan', 'health', 'science', 'calculator']);
 assert.deepEqual(toolMeta.matchTools('贷款'), ['loan']);
 assert.deepEqual(toolMeta.matchTools('loan'), ['loan']);
 assert.deepEqual(toolMeta.matchTools('健康'), ['health']);
@@ -2638,16 +2644,99 @@ assert.deepEqual(toolMeta.matchTools('kinship'), ['kinship']);
 assert.deepEqual(toolMeta.matchTools('relative'), ['kinship']);
 assert.deepEqual(toolMeta.matchTools('亲戚称呼'), ['kinship']);
 // 「计算」的命中集合不受亲戚称呼影响（关键词刻意不含「计算」）
-assert.deepEqual(toolMeta.matchTools('计算'), ['tax', 'dates', 'loan', 'health', 'science']);
+assert.deepEqual(toolMeta.matchTools('计算'),
+  ['tax', 'dates', 'loan', 'health', 'science', 'calculator']);
 assert.deepEqual(toolMeta.matchTools('介绍一个不存在的工具'), []);
 // 关键词不能反过来污染标题匹配：`barcode` 只应命中条形码（不是健康/贷款）
 assert.deepEqual(toolMeta.matchTools('barcode'), ['barcode']);
 assert.deepEqual(toolMeta.matchTools('  单位  '), ['units']);
 assert.deepEqual(toolMeta.matchTools('zzz'), []);
 assert.deepEqual(toolMeta.matchTools('历史'), []);
-// 命中结果必须保持 TOOL_IDS 顺序
-const searchOrder = toolMeta.matchTools('er');
-assert.deepEqual(searchOrder, toolMeta.TOOL_IDS.filter((id) => searchOrder.includes(id)));
+// 命中分级后结果**不再是全局 TOOL_IDS 顺序**，但同一档位内仍按 TOOL_IDS 顺序：
+// 'er' = ③标题子串（Converter/Timers/Random picker/Password generator/Document scanner/Anniversaries）
+//        → [units, timers, random, password, documents, anniversary]
+//      + ④分类名 Everyday → [color, kinship]
+assert.deepEqual(toolMeta.matchTools('er'),
+  ['units', 'timers', 'random', 'password', 'documents', 'anniversary', 'color', 'kinship']);
+
+// --- 工具分类与搜索增强（2026-10-22：分类分组 + 拼音首字母 + 命中分级）---
+assert.equal(toolMeta.TOOL_CATEGORIES.length, 7);
+assert.equal(toolMeta.CATEGORY_FILTER_ALL, 'all');
+assert.equal(toolMeta.CATEGORY_FALLBACK_ID, 'other');
+assert.deepEqual(toolMeta.TOOL_CATEGORIES.map((category) => category.id),
+  ['scan', 'calc', 'text', 'time', 'life', 'system', 'other']);
+assert.equal(new Set(toolMeta.TOOL_CATEGORIES.map((category) => category.id)).size, 7);
+for (const category of toolMeta.TOOL_CATEGORIES) {
+  assert.ok(category.nameZh.length > 0 && category.nameEn.length > 0,
+    `incomplete category ${category.id}`);
+  assert.notEqual(category.nameZh, category.nameEn, `category ${category.id} needs distinct zh/en names`);
+}
+assert.equal(toolMeta.categoryById('scan').nameZh, '扫码与图像');
+assert.equal(toolMeta.categoryById('scan').nameEn, 'Scan & image');
+assert.equal(toolMeta.categoryById('time').nameZh, '时间与日期');
+assert.equal(toolMeta.categoryById('nope'), undefined);
+// 分区：每个分类的成员与顺序都钉住（顺序即 TOOL_IDS 顺序，不按分类重排登记表）
+assert.deepEqual(toolMeta.toolIdsInCategory('scan'), ['qr', 'barcode', 'documents', 'idphoto']);
+assert.deepEqual(toolMeta.toolIdsInCategory('calc'), ['calculator', 'tax', 'loan', 'health', 'science']);
+assert.deepEqual(toolMeta.toolIdsInCategory('text'), ['text', 'password', 'base', 'diff']);
+assert.deepEqual(toolMeta.toolIdsInCategory('time'), ['timers', 'dates', 'timestamp', 'anniversary']);
+assert.deepEqual(toolMeta.toolIdsInCategory('life'), ['units', 'random', 'color', 'kinship']);
+assert.deepEqual(toolMeta.toolIdsInCategory('system'), ['torch', 'level', 'compass', 'net']);
+assert.deepEqual(toolMeta.toolIdsInCategory('nope'), []);
+// 兜底分类「其他」必须恒为空（漏登记守卫）：有工具落进去说明分类表与工具表脱节
+assert.deepEqual(toolMeta.toolIdsInCategory(toolMeta.CATEGORY_FALLBACK_ID), []);
+// 分区无重无漏：所有分类成员拼起来恰好是全部工具
+const groupedIds = [];
+for (const category of toolMeta.TOOL_CATEGORIES) {
+  const ids = toolMeta.toolIdsInCategory(category.id);
+  if (category.id !== toolMeta.CATEGORY_FALLBACK_ID) {
+    assert.ok(ids.length > 0, `category ${category.id} must not be empty`);
+  }
+  for (const id of ids) { groupedIds.push(id); }
+}
+assert.equal(groupedIds.length, 25);
+assert.deepEqual(groupedIds.slice().sort(), toolMeta.TOOL_IDS.slice().sort());
+// categoryOfTool：已知工具 → 声明分类；未知 id → 显式兜底桶（绝不返回空串，否则工具会静默消失）
+for (const meta of toolMeta.TOOL_META) {
+  assert.equal(toolMeta.categoryOfTool(meta.id), meta.category);
+}
+assert.equal(toolMeta.categoryOfTool('qr'), 'scan');
+assert.equal(toolMeta.categoryOfTool('documents'), 'scan');
+assert.equal(toolMeta.categoryOfTool('net'), 'system');
+assert.equal(toolMeta.categoryOfTool('nope'), 'other');
+assert.equal(toolMeta.categoryOfTool(''), 'other');
+// 分类筛选的持久化：只认「全部」与已登记 id，其余回退「全部」
+assert.equal(toolMeta.parseToolCategory('all'), 'all');
+assert.equal(toolMeta.parseToolCategory(' time '), 'time');
+assert.equal(toolMeta.parseToolCategory('other'), 'other');
+assert.equal(toolMeta.parseToolCategory('nope'), 'all');
+assert.equal(toolMeta.parseToolCategory(''), 'all');
+assert.equal(toolMeta.parseToolCategory('   '), 'all');
+assert.equal(toolMeta.parseToolCategory(undefined), 'all');
+assert.equal(toolMeta.parseToolCategory(7), 'all');
+assert.equal(toolMeta.serializeToolCategory('scan'), 'scan');
+assert.equal(toolMeta.serializeToolCategory('   '), 'all');
+// 拼音首字母别名（数据登记，不是拼音算法）
+assert.deepEqual(toolMeta.matchTools('ewm'), ['qr']);
+assert.deepEqual(toolMeta.matchTools('txm'), ['barcode']);
+assert.deepEqual(toolMeta.matchTools('sjc'), ['timestamp']);
+assert.deepEqual(toolMeta.matchTools('dkjs'), ['loan']);
+assert.deepEqual(toolMeta.matchTools('wdsm'), ['documents']);
+assert.deepEqual(toolMeta.matchTools('qqch'), ['kinship']);
+// 命中分级：标题前缀 > 子串 > 分类名；同档内保持 TOOL_IDS 顺序
+// （`compass` 由关键词「磁力计」以子串命中，排在分类名命中「计算与财务」之前）
+assert.deepEqual(toolMeta.matchTools('计'),
+  ['timers', 'tax', 'dates', 'loan', 'health', 'science', 'compass', 'calculator']);
+assert.equal(toolMeta.matchTools('计')[0], 'timers');
+// 「折扣与均摊」自己不含「计算」，靠分类「计算与财务」命中，因此排在标题命中的 5 个之后
+assert.equal(toolMeta.matchTools('计算')[5], 'calculator');
+// 分类名参与搜索（最低档）：搜「时间」一次列出全部时间类工具，标题命中的时间戳排最前
+assert.deepEqual(toolMeta.matchTools('时间'), ['timestamp', 'timers', 'dates', 'anniversary']);
+assert.deepEqual(toolMeta.matchTools('设备'), ['torch', 'level', 'compass', 'net']);
+// 「扫码」：二维码/条形码按关键词命中，「文档扫描」「证件照」由分类名「扫码与图像」以最低档补在末尾
+assert.deepEqual(toolMeta.matchTools('扫码'), ['qr', 'barcode', 'documents', 'idphoto']);
+// 精确命中仍排在子串命中之前（`hex` 是两个工具的关键词精确命中，顺序仍按 TOOL_IDS）
+assert.deepEqual(toolMeta.matchTools('hex'), ['color', 'base']);
 
 // 收藏置顶：只改目标项位置，其余相对顺序不变；未知 id 与重复项一并过滤
 assert.deepEqual(toolMeta.promoteFavorite(['qr', 'text', 'units'], 'units'), ['units', 'qr', 'text']);
@@ -9568,6 +9657,422 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   assert.ok(ocrText.ocrTooLongText(false).includes('100000'), '超限文案必须写明真实上限');
   assert.notEqual(ocrText.ocrTooLongText(false), ocrText.ocrTooLongText(true));
   assert.equal(ocrText.ocrTooLongText(true).includes('100000'), true);
+}
+
+// --- 证件照（2026-10-22 新增工具）：规格登记表、mm→px、取景映射、自动构图、相纸排版、合成、状态与文案 ---
+{
+  // ① 常量口径
+  assert.equal(idPhoto.SPEC_DPI, 300);
+  assert.equal(idPhoto.CUSTOM_SPEC_ID, 'custom');
+  assert.equal(idPhoto.CUSTOM_MM_MIN, 10);
+  assert.equal(idPhoto.CUSTOM_MM_MAX, 150);
+  assert.equal(idPhoto.ID_PHOTO_MAX_PIXELS, 4000000);
+  assert.equal(idPhoto.ID_PHOTO_ZOOM_MIN, 1);
+  assert.equal(idPhoto.ID_PHOTO_ZOOM_MAX, 4);
+  assert.equal(idPhoto.ID_PHOTO_PREVIEW_MAX, 2048);
+  assert.equal(idPhoto.DEFAULT_SHEET_MARGIN_MM, 3);
+  assert.equal(idPhoto.DEFAULT_SHEET_GAP_MM, 2);
+  assert.equal(idPhoto.PAPER_NONE_ID, 'none');
+  assert.equal(idPhoto.AUTO_FACE_WIDTH_RATIO, 0.55);
+  assert.equal(idPhoto.AUTO_EYE_IN_FACE, 0.38);
+  assert.equal(idPhoto.AUTO_EYE_LINE_RATIO, 0.42);
+  assert.equal(idPhoto.FOREGROUND_ALPHA_LIMIT, 250);
+
+  // ② 规格登记表完整性：id 唯一、中英非空且不同、毫米是界内整数
+  assert.equal(idPhoto.ID_PHOTO_SPECS.length, 12);
+  assert.equal(new Set(idPhoto.ID_PHOTO_SPECS.map((spec) => spec.id)).size, 12);
+  for (const spec of idPhoto.ID_PHOTO_SPECS) {
+    assert.ok(spec.nameZh.length > 0 && spec.nameEn.length > 0, `规格 ${spec.id} 缺名称`);
+    assert.notEqual(spec.nameZh, spec.nameEn, `规格 ${spec.id} 中英相同`);
+    assert.ok(Number.isInteger(spec.widthMm) && Number.isInteger(spec.heightMm), `规格 ${spec.id} 必须是整数毫米`);
+    assert.ok(spec.widthMm >= idPhoto.CUSTOM_MM_MIN && spec.widthMm <= idPhoto.CUSTOM_MM_MAX);
+    assert.ok(spec.heightMm >= idPhoto.CUSTOM_MM_MIN && spec.heightMm <= idPhoto.CUSTOM_MM_MAX);
+  }
+  assert.equal(idPhoto.specById('one_inch').nameZh, '一寸');
+  assert.equal(idPhoto.specById('one_inch').nameEn, '1 inch');
+  assert.equal(idPhoto.specById('nope').id, 'one_inch', '未知 id 回退首项（下拉不能空）');
+  assert.equal(idPhoto.specIndex('two_inch'), 3);
+  assert.equal(idPhoto.specIndex('nope'), 0);
+  assert.equal(idPhoto.specName(idPhoto.specById('us_visa'), false), '美国签证');
+  assert.equal(idPhoto.specName(idPhoto.specById('us_visa'), true), 'US visa');
+
+  // ③ mm → px：四舍五入到 300 dpi（25×35 → 295×413、33×48 → 390×567、51×51 → 602×602）
+  const oneInchPx = idPhoto.photoPixels(25, 35, idPhoto.SPEC_DPI);
+  assert.equal(oneInchPx.width, 295);
+  assert.equal(oneInchPx.height, 413);
+  const passportPx = idPhoto.photoPixels(33, 48, idPhoto.SPEC_DPI);
+  assert.equal(passportPx.width, 390);
+  assert.equal(passportPx.height, 567);
+  const visaPx = idPhoto.photoPixels(51, 51, idPhoto.SPEC_DPI);
+  assert.equal(visaPx.width, 602);
+  assert.equal(visaPx.height, 602);
+  // 非法输入不编造尺寸：某一维为 0 时该维为 0，dpi 非法时整体 0
+  assert.equal(idPhoto.photoPixels(0, 10, idPhoto.SPEC_DPI).width, 0);
+  assert.equal(idPhoto.photoPixels(0, 10, idPhoto.SPEC_DPI).height, 118);
+  assert.equal(idPhoto.photoPixels(25, 35, Number.NaN).width, 0);
+  assert.equal(idPhoto.photoPixels(25, 35, Number.NaN).height, 0);
+
+  // ④ 自定义尺寸守卫：整数、界内、像素不超上限
+  assert.equal(idPhoto.customSizeAcceptable(25, 35), true);
+  assert.equal(idPhoto.customSizeAcceptable(25.5, 35), false, '毫米必须是整数');
+  assert.equal(idPhoto.customSizeAcceptable(9, 35), false);
+  assert.equal(idPhoto.customSizeAcceptable(151, 35), false);
+  assert.equal(idPhoto.customSizeAcceptable(150, 150), true, '150×150 仍在像素上限内');
+  assert.equal(idPhoto.customSizeAcceptable(150, 150) &&
+    idPhoto.photoPixels(150, 150, idPhoto.SPEC_DPI).width *
+    idPhoto.photoPixels(150, 150, idPhoto.SPEC_DPI).height <= idPhoto.ID_PHOTO_MAX_PIXELS, true);
+
+  // ⑤ 规格 → 输出像素：不可用一律 undefined（拒绝生成，不回退成「看起来还行」的尺寸）
+  const standard = idPhoto.exportPixelsFor('one_inch', 25, 35);
+  assert.equal(standard.width, 295);
+  assert.equal(standard.height, 413);
+  const customPx = idPhoto.exportPixelsFor(idPhoto.CUSTOM_SPEC_ID, 30, 40);
+  assert.equal(customPx.width, 354);
+  assert.equal(customPx.height, 472);
+  assert.equal(idPhoto.exportPixelsFor(idPhoto.CUSTOM_SPEC_ID, 9, 40), undefined);
+  assert.equal(idPhoto.exportPixelsFor(idPhoto.CUSTOM_SPEC_ID, 151, 40), undefined);
+  assert.equal(idPhoto.exportPixelsFor(idPhoto.CUSTOM_SPEC_ID, 25.5, 40), undefined);
+  assert.equal(idPhoto.exportPixelsFor('nope', 25, 35), undefined);
+
+  // ⑥ 底色登记表与 hex 解析（色值是输出像素，不是界面主题色）
+  assert.equal(idPhoto.ID_PHOTO_BACKGROUNDS.length, 5);
+  assert.equal(new Set(idPhoto.ID_PHOTO_BACKGROUNDS.map((item) => item.id)).size, 5);
+  for (const item of idPhoto.ID_PHOTO_BACKGROUNDS) {
+    assert.ok(item.nameZh.length > 0 && item.nameEn.length > 0);
+    assert.notEqual(item.nameZh, item.nameEn);
+  }
+  assert.equal(idPhoto.backgroundById('blue').hex, '#438EDB');
+  assert.equal(idPhoto.backgroundById('nope').id, 'original', '未知底色回退原底色');
+  assert.equal(idPhoto.backgroundIndex('red'), 3);
+  assert.equal(idPhoto.backgroundIndex('nope'), 0);
+  const white = idPhoto.backgroundRgb('#FFFFFF');
+  assert.equal(white.red, 255);
+  assert.equal(white.green, 255);
+  assert.equal(white.blue, 255);
+  const blue = idPhoto.backgroundRgb('#438EDB');
+  assert.equal(blue.red, 0x43);
+  assert.equal(blue.green, 0x8E);
+  assert.equal(blue.blue, 0xDB);
+  const red = idPhoto.backgroundRgb('#D40000');
+  assert.equal(red.red, 212);
+  assert.equal(red.green, 0);
+  assert.equal(red.blue, 0);
+  for (const badHex of ['', 'nope', '#FFF', '#GGGGGG', '#FFFFFFF', 'FFFFFF']) {
+    const rgb = idPhoto.backgroundRgb(badHex);
+    assert.equal(rgb.red + rgb.green + rgb.blue, 765, `${badHex} 应回退纯白`);
+  }
+  assert.equal(idPhoto.backgroundRgb(undefined).red, 255, '原底色的空 hex 也要回退白');
+
+  // ⑦ cover 系数与缩放夹取
+  near(idPhoto.coverScale(200, 280, 4000, 3000), 280 / 3000, 1e-9);
+  assert.equal(idPhoto.coverScale(0, 280, 4000, 3000), 1);
+  assert.equal(idPhoto.coverScale(Number.NaN, 280, 4000, 3000), 1);
+  assert.equal(idPhoto.coverScale(200, 280, 0, 3000), 1);
+  assert.equal(idPhoto.clampZoom(0.5), idPhoto.ID_PHOTO_ZOOM_MIN);
+  assert.equal(idPhoto.clampZoom(10), idPhoto.ID_PHOTO_ZOOM_MAX);
+  assert.equal(idPhoto.clampZoom(Number.NaN), idPhoto.ID_PHOTO_ZOOM_MIN);
+  assert.equal(idPhoto.clampZoom(Number.POSITIVE_INFINITY), idPhoto.ID_PHOTO_ZOOM_MIN);
+  assert.equal(idPhoto.clampZoom(2.5), 2.5);
+
+  // ⑧ 平移夹取：绝不露白边（image 4000×3000、frame 200×280、scale 1 时纵向刚好铺满 → dy 恒 0）
+  const clamped = idPhoto.clampPan(1000, 1000, 200, 280, 4000, 3000, 1);
+  near(clamped.dx, (4000 * (280 / 3000) - 200) / 2, 1e-9);
+  assert.equal(clamped.dy, 0, '该方向刚好铺满，不允许平移');
+  assert.equal(idPhoto.clampPan(Number.NaN, 5, 200, 280, 4000, 3000, 1).dx, 0);
+  assert.equal(idPhoto.clampPan(Number.NaN, 5, 200, 280, 4000, 3000, 1).dy, 0);
+  const clampedZoomed = idPhoto.clampPan(1000, 1000, 200, 280, 4000, 3000, 2);
+  near(clampedZoomed.dx, (4000 * (280 / 3000) * 2 - 200) / 2, 1e-9);
+  near(clampedZoomed.dy, (3000 * (280 / 3000) * 2 - 280) / 2, 1e-9);
+
+  // ⑨ 取景矩形：唯一实现，界面与导出共用；任何参数组合都必须落在图像内且不露白边
+  const region = idPhoto.cropRegion(4000, 3000, 200, 280, 1, 0, 0);
+  assert.equal(region.width, 2143);
+  assert.equal(region.height, 3000);
+  assert.equal(region.y, 0);
+  assert.ok(region.x >= 0 && region.x + region.width <= 4000);
+  for (const scale of [1, 2, 4]) {
+    for (const dx of [-5000, -300, 0, 300, 5000]) {
+      for (const dy of [-5000, -300, 0, 300, 5000]) {
+        const box = idPhoto.cropRegion(4000, 3000, 200, 280, scale, dx, dy);
+        assert.ok(box.x >= 0 && box.y >= 0, `取景矩形越界：${box.x},${box.y}`);
+        assert.ok(box.x + box.width <= 4000 && box.y + box.height <= 3000,
+          `取景矩形越界：${JSON.stringify(box)}`);
+        assert.ok(box.width >= 1 && box.height >= 1);
+        near(box.width / box.height, 200 / 280, 0.02, '取景矩形必须保持取景框长宽比');
+      }
+    }
+  }
+  const degenerateFrame = idPhoto.cropRegion(4000, 3000, 0, 280, 2, 10, 10);
+  assert.equal(degenerateFrame.width, 4000, '取景框非法时回退整张图');
+  assert.equal(degenerateFrame.height, 3000);
+  const degenerateImage = idPhoto.cropRegion(0, 0, 200, 280, 1, 0, 0);
+  assert.equal(degenerateImage.width, 1);
+  assert.equal(degenerateImage.height, 1);
+
+  // ⑩ 预览 → 源图：同比换算并双向夹取
+  const previewRegion = idPhoto.cropRegionForSource(new idPhoto.IdPhotoRect(100, 200, 500, 700), 2048, 1536, 4096);
+  assert.equal(previewRegion.x, 200);
+  assert.equal(previewRegion.y, 400);
+  assert.equal(previewRegion.width, 1000);
+  assert.equal(previewRegion.height, 1400);
+  const largeRegion = idPhoto.cropRegionForSource(new idPhoto.IdPhotoRect(2000, 1400, 500, 700), 2048, 1536, 4096);
+  assert.equal(largeRegion.x, 4096 - 1000);
+  assert.equal(largeRegion.y, 3072 - 1400);
+  const badPreview = idPhoto.cropRegionForSource(new idPhoto.IdPhotoRect(10, 10, 10, 10), 0, 1536, 4096);
+  assert.equal(badPreview.width, 4096);
+
+  // ⑪ 自动构图：脸宽占输出宽 55%、水平居中、眼线落在输出高 42% 处
+  const auto = idPhoto.autoFrameParams(new idPhoto.FaceBox(460, 400, 280, 280), 1200, 1600, 200, 280);
+  assert.notEqual(auto, undefined);
+  const autoCoverage = 280 / 1600;
+  const autoVisibleWidth = 280 / idPhoto.AUTO_FACE_WIDTH_RATIO;
+  const autoVisibleHeight = autoVisibleWidth * 280 / 200;
+  const autoEyeY = 400 + 280 * idPhoto.AUTO_EYE_IN_FACE;
+  const autoCropCenterY = (autoEyeY - autoVisibleHeight * idPhoto.AUTO_EYE_LINE_RATIO) + autoVisibleHeight / 2;
+  near(auto.scale, 200 / (autoCoverage * autoVisibleWidth), 0.01);
+  near(auto.dx, 0, 0.01, '脸已水平居中时不应有横向平移');
+  near(auto.dy, (800 - autoCropCenterY) * autoCoverage * auto.scale, 0.1);
+  assert.ok(auto.scale >= idPhoto.ID_PHOTO_ZOOM_MIN && auto.scale <= idPhoto.ID_PHOTO_ZOOM_MAX);
+  near(280 / auto.region.width, idPhoto.AUTO_FACE_WIDTH_RATIO, 0.01, '脸宽应占输出宽 55%');
+  near((460 + 140) - (auto.region.x + auto.region.width / 2), 0, 2, '人脸水平居中');
+  near(((400 + 280 * idPhoto.AUTO_EYE_IN_FACE) - auto.region.y) / auto.region.height,
+    idPhoto.AUTO_EYE_LINE_RATIO, 0.01, '眼线位置');
+  // 退化人脸框与越界中心：一律 undefined（页面据此说「未检测到人脸」）
+  assert.equal(idPhoto.autoFrameParams(new idPhoto.FaceBox(10, 10, 0, 100), 1200, 1600, 200, 280), undefined);
+  assert.equal(idPhoto.autoFrameParams(new idPhoto.FaceBox(10, 10, 100, 0), 1200, 1600, 200, 280), undefined);
+  assert.equal(idPhoto.autoFrameParams(new idPhoto.FaceBox(-200, 10, 100, 100), 1200, 1600, 200, 280), undefined);
+  assert.equal(idPhoto.autoFrameParams(new idPhoto.FaceBox(Number.NaN, 10, 100, 100), 1200, 1600, 200, 280), undefined);
+  assert.equal(idPhoto.autoFrameParams(new idPhoto.FaceBox(10, 10, 100, 100), 0, 1600, 200, 280), undefined);
+  // 极小脸 / 极大脸：缩放被夹取但仍给出一组可用参数（不返回 undefined，不抛错）
+  // 脸太小要放大（夹到上限），脸太大要缩小（夹到下限）
+  const tinyFace = idPhoto.autoFrameParams(new idPhoto.FaceBox(590, 790, 20, 20), 1200, 1600, 200, 280);
+  assert.equal(tinyFace.scale, idPhoto.ID_PHOTO_ZOOM_MAX);
+  const hugeFace = idPhoto.autoFrameParams(new idPhoto.FaceBox(0, 0, 1200, 1600), 1200, 1600, 200, 280);
+  assert.equal(hugeFace.scale, idPhoto.ID_PHOTO_ZOOM_MIN);
+
+  // ⑫ 相纸登记表与排版
+  const previewLarge = idPhoto.previewDecodeSize(8000, 6000);
+  assert.equal(Math.max(previewLarge.width, previewLarge.height), idPhoto.ID_PHOTO_PREVIEW_MAX);
+  near(previewLarge.width / previewLarge.height, 8000 / 6000, 0.01, '预览必须等比缩小');
+  const previewSmall = idPhoto.previewDecodeSize(800, 600);
+  assert.equal(previewSmall.width, 800);
+  assert.equal(previewSmall.height, 600, '小图不放大');
+  assert.equal(idPhoto.previewDecodeSize(0, 600).width, 0);
+  assert.equal(idPhoto.previewDecodeSize(Number.NaN, 600).height, 0);
+  assert.equal(idPhoto.previewDecodeSize(2000, 6000).height, idPhoto.ID_PHOTO_PREVIEW_MAX);
+
+  assert.equal(idPhoto.ID_PHOTO_PAPERS.length, 2);
+  assert.equal(idPhoto.paperById('paper6').widthMm, 152);
+  assert.equal(idPhoto.paperById('paper6').heightMm, 102);
+  assert.equal(idPhoto.paperById(idPhoto.PAPER_NONE_ID), undefined);
+  assert.equal(idPhoto.paperIndex('paper5'), 0);
+  assert.equal(idPhoto.paperIndex(idPhoto.PAPER_NONE_ID), -1);
+  const paperSix = idPhoto.photoPixels(152, 102, idPhoto.SPEC_DPI);
+  assert.equal(paperSix.width, 1795);
+  assert.equal(paperSix.height, 1205);
+  const paperFive = idPhoto.photoPixels(127, 89, idPhoto.SPEC_DPI);
+  assert.equal(paperFive.width, 1500);
+  assert.equal(paperFive.height, 1051);
+
+  const twoInchPx = idPhoto.photoPixels(35, 49, idPhoto.SPEC_DPI);
+  const twoInchSheet = idPhoto.sheetLayout(idPhoto.paperById('paper6'), twoInchPx,
+    idPhoto.DEFAULT_SHEET_MARGIN_MM, idPhoto.DEFAULT_SHEET_GAP_MM, idPhoto.SPEC_DPI);
+  assert.equal(twoInchSheet.count, 4, '6 寸 + 二寸应排 4 张');
+  assert.equal(twoInchSheet.landscape, true, '横竖张数相同取横向');
+  assert.equal(twoInchSheet.columns, 4);
+  assert.equal(twoInchSheet.rows, 1);
+  assert.equal(twoInchSheet.paperWidth, 1795);
+  assert.equal(twoInchSheet.paperHeight, 1205);
+  assert.equal(twoInchSheet.cells[0].x, 35);
+  assert.equal(twoInchSheet.cells[0].y, 35);
+  assert.equal(twoInchSheet.cells[0].width, 413);
+  assert.equal(twoInchSheet.cells[0].height, 579);
+  assert.equal(twoInchSheet.cells[1].x, 35 + (413 + 24));
+
+  const oneInchSheet = idPhoto.sheetLayout(idPhoto.paperById('paper6'), oneInchPx,
+    idPhoto.DEFAULT_SHEET_MARGIN_MM, idPhoto.DEFAULT_SHEET_GAP_MM, idPhoto.SPEC_DPI);
+  assert.equal(oneInchSheet.count, 12, '6 寸 + 一寸竖排能排 12 张（比横排的 10 张多）');
+  assert.equal(oneInchSheet.landscape, false);
+  assert.equal(oneInchSheet.columns, 3);
+  assert.equal(oneInchSheet.rows, 4);
+  assert.equal(oneInchSheet.cells.length, 12);
+  // 所有格子都在相纸内、互不重叠、至少隔一个间距
+  for (const cell of oneInchSheet.cells) {
+    assert.ok(cell.x >= 0 && cell.y >= 0);
+    assert.ok(cell.x + cell.width <= oneInchSheet.paperWidth);
+    assert.ok(cell.y + cell.height <= oneInchSheet.paperHeight);
+  }
+  for (let first = 0; first < oneInchSheet.cells.length; first++) {
+    for (let second = first + 1; second < oneInchSheet.cells.length; second++) {
+      const a = oneInchSheet.cells[first];
+      const b = oneInchSheet.cells[second];
+      const overlaps = a.x < b.x + b.width && b.x < a.x + a.width &&
+        a.y < b.y + b.height && b.y < a.y + a.height;
+      assert.equal(overlaps, false, '相纸格子不能重叠');
+    }
+  }
+  // 放不下：5 寸 + 150×150 自定义（1772×1772）→ 空表（页面据此如实提示，而不是给一张白纸）
+  const tooBigSheet = idPhoto.sheetLayout(idPhoto.paperById('paper5'),
+    idPhoto.photoPixels(150, 150, idPhoto.SPEC_DPI), idPhoto.DEFAULT_SHEET_MARGIN_MM,
+    idPhoto.DEFAULT_SHEET_GAP_MM, idPhoto.SPEC_DPI);
+  assert.equal(tooBigSheet.count, 0);
+  assert.equal(tooBigSheet.cells.length, 0);
+  // 非法照片尺寸 → 空表，不抛错
+  assert.equal(idPhoto.sheetLayout(idPhoto.paperById('paper6'), new idPhoto.IdPhotoPixels(0, 0),
+    idPhoto.DEFAULT_SHEET_MARGIN_MM, idPhoto.DEFAULT_SHEET_GAP_MM, idPhoto.SPEC_DPI).count, 0);
+
+  // ⑬ 裁切参考线：每格四边各一条 1 px，且都落在相纸内
+  const lines = idPhoto.cutLineRects(oneInchSheet);
+  assert.equal(lines.length, 12 * 4);
+  for (const line of lines) {
+    assert.equal(line.width === 1 || line.height === 1, true, '参考线必须是 1 px 细线');
+    assert.ok(line.x >= 0 && line.y >= 0);
+    assert.ok(line.x + line.width <= oneInchSheet.paperWidth);
+    assert.ok(line.y + line.height <= oneInchSheet.paperHeight);
+  }
+  assert.deepEqual(idPhoto.cutLineRects(new idPhoto.SheetLayout('paper6', 0, 0, 0, 0, true, [])), []);
+  const white2 = idPhoto.paperWhiteRgb();
+  assert.equal(white2.red + white2.green + white2.blue, 765);
+  const gray = idPhoto.cutLineRgb();
+  assert.equal(gray.red, 200);
+  assert.equal(gray.green, 200);
+  assert.equal(gray.blue, 200);
+
+  // ⑭ 换底合成：底色铺满 + 按 alpha 叠加（alpha=0 保留底色，alpha=255 覆盖）
+  const canvas = new Uint8Array(2 * 1 * 4);
+  // 前景是 RGBA（`foregroundIsRgba = true`）：字节 10/20/30 是 R/G/B，落到 BGRA 画布上必须换位成 30/20/10
+  const foreground = new Uint8Array([0, 0, 0, 0, 10, 20, 30, 255]);
+  idPhoto.composeBackgroundPixels(canvas, 2, 1, foreground, 8, 2, 1, true,
+    idPhoto.backgroundRgb('#FFFFFF'));
+  assert.deepEqual([...canvas.slice(0, 4)], [255, 255, 255, 255], 'alpha=0 的像素保留底色');
+  assert.deepEqual([...canvas.slice(4, 8)], [30, 20, 10, 255], 'RGBA 入参 → BGRA 画布（红蓝换位）');
+  // 前景本来就是这个画布格式（BGRA）时不得换位，否则红蓝互串（与 QrCompose 同一坑）
+  const bgraCanvas = new Uint8Array(1 * 1 * 4);
+  idPhoto.composeBackgroundPixels(bgraCanvas, 1, 1, new Uint8Array([10, 20, 30, 255]), 4, 1, 1, false,
+    idPhoto.backgroundRgb('#FFFFFF'));
+  assert.deepEqual([...bgraCanvas], [10, 20, 30, 255]);
+  // 半透明像素：按比例混到底色上（128/255 → 约一半）
+  const blendCanvas = new Uint8Array(1 * 1 * 4);
+  idPhoto.composeBackgroundPixels(blendCanvas, 1, 1, new Uint8Array([0, 0, 0, 128]), 4, 1, 1, true,
+    idPhoto.backgroundRgb('#FFFFFF'));
+  assert.deepEqual([...blendCanvas], [127, 127, 127, 255]);
+
+  // ⑮ 相纸合成：白底 + 逐格贴图 + 可选参考线
+  const sheetBuffer = new Uint8Array(oneInchSheet.paperWidth * oneInchSheet.paperHeight * 4);
+  // 照片缓冲按画布同一格式（BGRA）给出：贴上去的字节必须逐字节一致（不换道、不错行）
+  const photo2x2 = new Uint8Array([7, 8, 9, 255, 7, 8, 9, 255, 7, 8, 9, 255, 7, 8, 9, 255]);
+  idPhoto.composeSheetPixels(sheetBuffer, oneInchSheet, photo2x2, 8, 2, 2, false, false);
+  const pixelAt = (buffer, width, x, y) => [...buffer.slice((y * width + x) * 4, (y * width + x) * 4 + 4)];
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 35, 35), [7, 8, 9, 255], '格子左上角贴上照片');
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 100, 200), [255, 255, 255, 255], '照片外仍是白底');
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 34, 40), [255, 255, 255, 255], '关掉参考线时不画线');
+  idPhoto.composeSheetPixels(sheetBuffer, oneInchSheet, photo2x2, 8, 2, 2, false, true);
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 34, 40), [200, 200, 200, 255], '左侧参考线');
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 35 + 295, 40), [200, 200, 200, 255], '右侧参考线');
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 40 + 295, 40), [255, 255, 255, 255],
+    '两条线之间仍是白底');
+  assert.deepEqual(pixelAt(sheetBuffer, oneInchSheet.paperWidth, 35, 35), [7, 8, 9, 255], '画线不影响已贴的照片');
+
+  // ⑯ 抠图诚实性守卫：整幅不透明 = 没抠出来
+  assert.equal(idPhoto.foregroundHasCutout(new Uint8Array([0, 0, 0, 255, 0, 0, 0, 255]), 8, 2, 1), false);
+  assert.equal(idPhoto.foregroundHasCutout(new Uint8Array([0, 0, 0, 255, 0, 0, 0, 0]), 8, 2, 1), true);
+  // 带行填充（stride > width*4）时也必须只看真正的 alpha 字节
+  assert.equal(idPhoto.foregroundHasCutout(new Uint8Array([0, 0, 0, 255, 0, 0, 0, 255, 9, 9, 9, 9,
+    0, 0, 0, 0, 0, 0, 0, 255, 9, 9, 9, 9]), 12, 2, 2), true);
+  assert.equal(idPhoto.foregroundHasCutout(new Uint8Array(4), 8, 2, 1), false, '缓冲不够时返回 false');
+  assert.equal(idPhoto.foregroundHasCutout(new Uint8Array(16), 8, 0, 1), false);
+
+  // ⑰ 上次设置：坏数据按字段回退，往返保持
+  const defaultState = idPhoto.defaultIdPhotoState();
+  assert.equal(defaultState.specId, 'one_inch');
+  assert.equal(defaultState.backgroundId, 'white');
+  assert.equal(defaultState.paperId, idPhoto.PAPER_NONE_ID);
+  assert.equal(defaultState.cutLines, true);
+  assert.equal(defaultState.customWidthMm, 25);
+  assert.equal(defaultState.customHeightMm, 35);
+  assert.deepEqual(idPhoto.parseIdPhotoState(''), defaultState);
+  assert.deepEqual(idPhoto.parseIdPhotoState('   '), defaultState);
+  assert.deepEqual(idPhoto.parseIdPhotoState('not json'), defaultState);
+  assert.deepEqual(idPhoto.parseIdPhotoState('null'), defaultState);
+  assert.deepEqual(idPhoto.parseIdPhotoState('[]'), defaultState);
+  const restored = idPhoto.parseIdPhotoState(idPhoto.encodeIdPhotoState(defaultState));
+  assert.deepEqual(restored, defaultState);
+  const custom = idPhoto.parseIdPhotoState(JSON.stringify({
+    specId: idPhoto.CUSTOM_SPEC_ID, customWidthMm: 30, customHeightMm: 40,
+    backgroundId: 'blue', paperId: 'paper6', cutLines: false
+  }));
+  assert.equal(custom.specId, idPhoto.CUSTOM_SPEC_ID);
+  assert.equal(custom.customWidthMm, 30);
+  assert.equal(custom.customHeightMm, 40);
+  assert.equal(custom.backgroundId, 'blue');
+  assert.equal(custom.paperId, 'paper6');
+  assert.equal(custom.cutLines, false);
+  // 未知 id 与越界毫米数：字段级回退（不整份丢弃）
+  const dirty = idPhoto.parseIdPhotoState(JSON.stringify({
+    specId: 'two_inch', customWidthMm: 999, customHeightMm: 40,
+    backgroundId: 'neon', paperId: 'a3', cutLines: 'yes'
+  }));
+  assert.equal(dirty.specId, 'two_inch', '已知规格要保留');
+  assert.equal(dirty.customWidthMm, 35, '越界毫米数回退该规格宽度');
+  assert.equal(dirty.customHeightMm, 40, '界内毫米数保留');
+  assert.equal(dirty.backgroundId, 'white', '未知底色回退默认');
+  assert.equal(dirty.paperId, idPhoto.PAPER_NONE_ID, '未知相纸回退不排版');
+  assert.equal(dirty.cutLines, true, '非布尔的开关回退默认');
+  // 序列化也归一：未知 specId/底色/相纸不写进存储
+  const encoded = idPhoto.encodeIdPhotoState({ specId: 'nope', backgroundId: 'nope', paperId: 'nope',
+    cutLines: true, customWidthMm: 999, customHeightMm: 999 });
+  const encodedState = JSON.parse(encoded);
+  assert.equal(encodedState.specId, 'one_inch');
+  assert.equal(encodedState.backgroundId, 'original');
+  assert.equal(encodedState.paperId, idPhoto.PAPER_NONE_ID);
+
+  // ⑱ 文案：尺寸/排版/按钮与错误码（互不相同、兜底不与具体码相同）
+  const sizeZh = idPhoto.idPhotoSizeText(standard, false);
+  const sizeEn = idPhoto.idPhotoSizeText(standard, true);
+  assert.ok(sizeZh.includes('295') && sizeZh.includes('413') && sizeZh.includes('300'));
+  assert.ok(sizeEn.includes('295') && sizeEn.includes('413'));
+  assert.equal(sizeZh.includes('\n'), false);
+  assert.notEqual(sizeZh, sizeEn);
+  const sheetZh = idPhoto.idPhotoSheetText(oneInchSheet, false);
+  assert.ok(sheetZh.includes('12'));
+  assert.ok(sheetZh.includes('6 寸相纸'));
+  assert.ok(sheetZh.includes('3 × 4'));
+  const sheetEn = idPhoto.idPhotoSheetText(oneInchSheet, true);
+  assert.ok(sheetEn.includes('12'));
+  assert.notEqual(sheetZh, sheetEn);
+  assert.notEqual(idPhoto.idPhotoSheetText(tooBigSheet, false), idPhoto.idPhotoSheetText(tooBigSheet, true));
+  assert.ok(idPhoto.idPhotoSheetText(tooBigSheet, false).includes('相纸'));
+  assert.equal(idPhoto.idPhotoActionText(idPhoto.PAPER_NONE_ID, 0, false), '生成证件照');
+  assert.equal(idPhoto.idPhotoActionText(idPhoto.PAPER_NONE_ID, 0, true), 'Create photo');
+  assert.ok(idPhoto.idPhotoActionText('paper6', 12, false).includes('12'));
+  assert.ok(idPhoto.idPhotoActionText('paper6', 12, true).includes('12'));
+  assert.notEqual(idPhoto.idPhotoActionText('paper6', 12, false), idPhoto.idPhotoActionText('paper6', 12, true));
+
+  const errorIds = ['nopick', 'decode', 'reread', 'toobig', 'segment', 'face', 'save', 'share'];
+  const errorZh = errorIds.map((id) => idPhoto.idPhotoErrorText(id, false));
+  const errorEn = errorIds.map((id) => idPhoto.idPhotoErrorText(id, true));
+  assert.equal(new Set(errorZh).size, errorIds.length, '每个错误码必须有独立文案');
+  assert.equal(new Set(errorEn).size, errorIds.length);
+  for (const text of errorZh.concat(errorEn)) {
+    assert.ok(text.length > 0);
+    assert.equal(text.includes('\n'), false);
+  }
+  const fallbackZh = idPhoto.idPhotoErrorText('nope', false);
+  const fallbackEn = idPhoto.idPhotoErrorText('nope', true);
+  assert.ok(errorZh.includes(fallbackZh) === false, '兜底文案不得与具体码相同');
+  assert.ok(errorEn.includes(fallbackEn) === false);
+  assert.notEqual(fallbackZh, fallbackEn);
+
+  // ⑲ 工具登记：证件照必须能被标题、别名与拼音首字母搜到，且归属「扫码与图像」
+  assert.equal(toolMeta.toolMetaById('idphoto').titleZh, '证件照');
+  assert.equal(toolMeta.toolMetaById('idphoto').titleEn, 'ID photo');
+  assert.equal(toolMeta.categoryOfTool('idphoto'), 'scan');
+  assert.deepEqual(toolMeta.matchTools('证件照'), ['idphoto']);
+  assert.deepEqual(toolMeta.matchTools('一寸'), ['idphoto']);
+  assert.deepEqual(toolMeta.matchTools('二寸'), ['idphoto']);
+  assert.deepEqual(toolMeta.matchTools('换底色'), ['idphoto']);
+  assert.deepEqual(toolMeta.matchTools('zjz'), ['idphoto'], '拼音首字母别名');
+  assert.deepEqual(toolMeta.matchTools('idphoto'), ['idphoto']);
 }
 
 console.log('All toolbox model assertions passed');

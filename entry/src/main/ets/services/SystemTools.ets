@@ -323,8 +323,77 @@ export async function decodeCodeFromImage(context: common.UIAbilityContext): Pro
 }
 
 async function qrPng(pixelMap: image.PixelMap): Promise<ArrayBuffer> {
-  let packer: image.ImagePacker = image.createImagePacker();
-  return await packer.packToData(pixelMap, { format: 'image/png', quality: 100 });
+  return await packPixelMap(pixelMap, 'image/png');
+}
+
+/**
+ * 把 `PixelMap` 打成图片字节（PNG/JPEG 由调用方给出）。
+ *
+ * `packer` 用完必须 `release()`：图像编码器持有原生内存，证件照那种几百万像素的输出漏一次就是几十 MB。
+ * 这里不做格式白名单——格式串由服务层按用途决定（码图纯白底走 png、证件照不透明走 jpeg）。
+ */
+async function packPixelMap(pixelMap: image.PixelMap, format: string): Promise<ArrayBuffer> {
+  const packer: image.ImagePacker = image.createImagePacker();
+  try {
+    return await packer.packToData(pixelMap, { format: format, quality: 100 });
+  } finally {
+    try { await packer.release(); } catch (_) {}
+  }
+}
+
+/**
+ * 把 `PixelMap` 以图片文件写进相册（系统新建相册条目对话框）。
+ *
+ * 契约（调用方要按它区分两种「没写成」）：**用户取消返回 `false`**，真正的写盘失败**抛异常**。
+ * `title` 只用作相册条目的显示名，因此不要传用户内容（文件名原则见 AGENTS「文件名只含日期时间」）。
+ */
+export async function savePixelMapToGallery(context: common.UIAbilityContext, pixelMap: image.PixelMap,
+  title: string, extension: string, format: string): Promise<boolean> {
+  let bytes: ArrayBuffer = await packPixelMap(pixelMap, format);
+  let path: string = context.cacheDir + '/' + title + '-gallery-source.' + extension;
+  let source: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+  try { fs.writeSync(source.fd, bytes); }
+  finally { fs.closeSync(source); }
+  let helper: photoAccessHelper.PhotoAccessHelper = photoAccessHelper.getPhotoAccessHelper(context);
+  try {
+    let config: photoAccessHelper.PhotoCreationConfig = {
+      title: title, fileNameExtension: extension, photoType: photoAccessHelper.PhotoType.IMAGE
+    };
+    let targets: string[] = await helper.showAssetsCreationDialog([fileUri.getUriFromPath(path)], [config]);
+    if (targets.length === 0) { return false; }
+    let target: fs.File = fs.openSync(targets[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    try { fs.writeSync(target.fd, bytes); }
+    finally { fs.closeSync(target); }
+    return true;
+  } finally {
+    try { await helper.release(); }
+    finally { try { fs.unlinkSync(path); } catch (_) {} }
+  }
+}
+
+/**
+ * 把 `PixelMap` 交给系统分享面板（先落到缓存文件，再以 UTD 类型分享）。
+ *
+ * 与相册保存同一套「中间文件」写法：`systemShare` 只认 URI，缓存文件是必须的；
+ * 文件名由调用方给（同样不含用户内容）。
+ */
+export async function sharePixelMap(context: common.UIAbilityContext, pixelMap: image.PixelMap,
+  fileName: string, extension: string, format: string, utdType: string): Promise<void> {
+  let bytes: ArrayBuffer = await packPixelMap(pixelMap, format);
+  let path: string = context.cacheDir + '/' + fileName + '.' + extension;
+  let file: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+  try {
+    fs.writeSync(file.fd, bytes);
+  } finally {
+    fs.closeSync(file);
+  }
+  let data: systemShare.SharedData = new systemShare.SharedData({
+    utd: utdType, uri: fileUri.getUriFromPath(path)
+  });
+  await new systemShare.ShareController(data).show(context, {
+    previewMode: systemShare.SharePreviewMode.DEFAULT,
+    selectionMode: systemShare.SelectionMode.SINGLE
+  });
 }
 
 export async function saveCodeImage(context: common.UIAbilityContext, pixelMap: image.PixelMap,
@@ -346,45 +415,12 @@ export async function saveCodeImage(context: common.UIAbilityContext, pixelMap: 
 }
 
 export async function saveCodeToGallery(context: common.UIAbilityContext, pixelMap: image.PixelMap): Promise<boolean> {
-  let bytes: ArrayBuffer = await qrPng(pixelMap);
-  let path: string = context.cacheDir + '/barcode-gallery-source.png';
-  let source: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-  try { fs.writeSync(source.fd, bytes); }
-  finally { fs.closeSync(source); }
-  let helper: photoAccessHelper.PhotoAccessHelper = photoAccessHelper.getPhotoAccessHelper(context);
-  try {
-    let config: photoAccessHelper.PhotoCreationConfig = {
-      title: 'PocketToolbox-Barcode', fileNameExtension: 'png', photoType: photoAccessHelper.PhotoType.IMAGE
-    };
-    let targets: string[] = await helper.showAssetsCreationDialog([fileUri.getUriFromPath(path)], [config]);
-    if (targets.length === 0) { return false; }
-    let target: fs.File = fs.openSync(targets[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-    try { fs.writeSync(target.fd, bytes); }
-    finally { fs.closeSync(target); }
-    return true;
-  } finally {
-    try { await helper.release(); }
-    finally { try { fs.unlinkSync(path); } catch (_) {} }
-  }
+  return await savePixelMapToGallery(context, pixelMap, 'PocketToolbox-Barcode', 'png', 'image/png');
 }
 
 export async function shareCodeImage(context: common.UIAbilityContext, pixelMap: image.PixelMap,
   label: string): Promise<void> {
-  let bytes: ArrayBuffer = await qrPng(pixelMap);
-  let path: string = context.cacheDir + '/shared-' + label + '.png';
-  let file: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-  try {
-    fs.writeSync(file.fd, bytes);
-  } finally {
-    fs.closeSync(file);
-  }
-  let data: systemShare.SharedData = new systemShare.SharedData({
-    utd: utd.UniformDataType.PNG, uri: fileUri.getUriFromPath(path)
-  });
-  await new systemShare.ShareController(data).show(context, {
-    previewMode: systemShare.SharePreviewMode.DEFAULT,
-    selectionMode: systemShare.SelectionMode.SINGLE
-  });
+  await sharePixelMap(context, pixelMap, 'shared-' + label, 'png', 'image/png', utd.UniformDataType.PNG);
 }
 
 export async function saveQr(context: common.UIAbilityContext, pixelMap: image.PixelMap): Promise<boolean> {

@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -52,6 +53,15 @@ export struct BasePage {
   private currentRadix(): number {
     const option: RadixOption | undefined = radixOption(this.radixId);
     return option === undefined ? 10 : option.radix;
+  }
+
+  /**
+   * 输入框的键盘类型**跟着所选进制走**（2026-10-22 全量排查）：十六进制要 A–F 与 `0x` 前缀，
+   * 只能给普通键盘；二/八/十进制是纯数字，给数字键盘（前缀 `0b`/`0o` 变成只能粘贴的写法，
+   * 但裸数字一样能解析，`parseRadix()` 对两种写法都接受）。
+   */
+  private radixKeyboard(id: string): string {
+    return id === 'hex' ? InputKeyboard.TEXT : InputKeyboard.INTEGER;
   }
 
   private radixLabel(id: string): string {
@@ -231,6 +241,8 @@ export struct BasePage {
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
+          // 操作数的键盘同样跟着操作数进制走（十六进制要字母）。
+          .type(inputTypeOf(this.radixKeyboard(this.operandRadix)))
           .accessibilityText(this.operandAccessibility(kind))
           .onChange((value: string) => {
             if (kind === 'a') { this.operandA = value; } else { this.operandB = value; }
@@ -264,6 +276,8 @@ export struct BasePage {
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
+          // 十进制/二进制/八进制给数字键盘，十六进制给普通键盘（要 A–F）。
+          .type(inputTypeOf(this.radixKeyboard(this.radixId)))
           .onChange((value: string) => { this.input = value; }).height(52)
       }
       this.radixSelect()

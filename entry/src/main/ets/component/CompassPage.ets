@@ -378,6 +378,8 @@ export struct CompassPage {
         })
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+          // 磁偏角**不**用数字键盘：`parseDeclination()` 接受 `7.5E`/`7.5W`/`东偏 7.5` 这些带方位词的写法
+          // （见 AGENTS「校正类参数」），数字键盘打不出字母。普通键盘是这里的正确选择（2026-10-22 排查）。
           .backgroundColor(Color.Transparent).height(48)
           .onChange((value: string) => {
             this.declinationInput = value;

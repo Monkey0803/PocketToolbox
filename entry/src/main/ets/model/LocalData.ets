@@ -42,9 +42,15 @@ export const LOCAL_KEYS: string[] = [
   // 工具页 / 收藏页「每行显示几个」（`model/GridColumns.ets` 的 `'auto'` 或 `'1'..'6'`），两页各自独立。
   'tools_columns',
   'favorites_columns',
+  // 工具页的分类筛选（`model/ToolMeta.ets` 的 `parseToolCategory()`：`'all'` 或某个已登记分类 id）。
+  // 与「每行显示几个」同口径：只存登记表 id，读取时校验、非法回退「全部」。
+  'tools_category',
   // 文档扫描的默认滤镜与拍摄方式（`model/DocumentScan.ets` 的 `serializeDocScanState()`）。
   // 与 `units_state` 同一口径：只存登记表 id，读取时逐个校验、非法回退默认值。
-  'doc_scan_state'
+  'doc_scan_state',
+  // 证件照的上次设置（`model/IdPhoto.ets` 的 `encodeIdPhotoState()`：规格/自定义毫米/底色/相纸/裁切参考线）。
+  // 与 `units_state`/`doc_scan_state` 同一口径：只存登记表 id 与界内整数，读取时逐字段校验、非法回退默认。
+  'id_photo_state'
 ];
 
 /** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */

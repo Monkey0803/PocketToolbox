@@ -15,14 +15,17 @@ export class ToolEntry {
   readonly icon: Resource;
   readonly titleZh: string;
   readonly titleEn: string;
+  // 所属分类 id（`ToolMeta.category` 原样透传）：页面按它分段渲染，不必再回查 `TOOL_META`。
+  readonly category: string;
   // 卡片底色现在是资源（浅色/深色各一份），不再是字符串字面量
   readonly color: Resource;
 
-  constructor(id: string, icon: Resource, titleZh: string, titleEn: string, color: Resource) {
+  constructor(id: string, icon: Resource, titleZh: string, titleEn: string, category: string, color: Resource) {
     this.id = id;
     this.icon = icon;
     this.titleZh = titleZh;
     this.titleEn = titleEn;
+    this.category = category;
     this.color = color;
   }
 }
@@ -56,6 +59,10 @@ function toolSpecs(): Map<string, ToolSpec> {
   specs.set('health', new ToolSpec($r('sys.symbol.heart'), ToolPalette.tintMint));
   specs.set('science', new ToolSpec($r('sys.symbol.calculator_1'), ToolPalette.tintSky));
   specs.set('documents', new ToolSpec($r('sys.symbol.doc_text'), ToolPalette.tintBlue));
+  // 证件照：原来的 `generate_portrait_white_border` 不在本机 SDK 的图标表里（构建报
+  // 「Unknown resource name」，真机/HAP 直接编不过），换成表里确实存在的 `person_crop_circle_fill`
+  // （人像 + 取景框，语义最接近）。想换别的：从 `toolchains/id_defined.json` 里挑一个存在的名字。
+  specs.set('idphoto', new ToolSpec($r('sys.symbol.person_crop_circle_fill'), ToolPalette.tintPurple));
   specs.set('level', new ToolSpec($r('sys.symbol.ruler'), ToolPalette.tintGreen));
   specs.set('compass', new ToolSpec($r('sys.symbol.compass'), ToolPalette.tintSky));
   specs.set('kinship', new ToolSpec($r('sys.symbol.family'), ToolPalette.tintAmber));
@@ -75,7 +82,7 @@ function catalogEntries(): ToolEntry[] {
       console.warn('PocketToolbox: no icon registered for tool ' + meta.id);
     }
     return new ToolEntry(meta.id, spec === undefined ? fallbackIcon : spec.icon,
-      meta.titleZh, meta.titleEn, spec === undefined ? ToolPalette.tintBlue : spec.color);
+      meta.titleZh, meta.titleEn, meta.category, spec === undefined ? ToolPalette.tintBlue : spec.color);
   });
 }
 

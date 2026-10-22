@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf, inputFilterOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -499,7 +500,11 @@ export struct RandomPage {
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
-            .type(InputType.Normal).onChange((value: string) => {
+            // 区间是**可带负号**的整数（`rangeSize()` 允许到 ±1000000，文案里也写着「如 -5、10」）：
+            // 数字小键盘 + `inputFilter` 放行负号，别让用户为了一个负号切回字母键盘（2026-10-22）。
+            .type(inputTypeOf(InputKeyboard.SIGNED_INTEGER))
+            .inputFilter(inputFilterOf(InputKeyboard.SIGNED_INTEGER))
+            .onChange((value: string) => {
               this.randomMin = value; this.randomNumberResult = '';
             }).height(52)
         }
@@ -517,7 +522,9 @@ export struct RandomPage {
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
-            .type(InputType.Normal).onChange((value: string) => {
+            .type(inputTypeOf(InputKeyboard.SIGNED_INTEGER))
+            .inputFilter(inputFilterOf(InputKeyboard.SIGNED_INTEGER))
+            .onChange((value: string) => {
               this.randomMax = value; this.randomNumberResult = '';
             }).height(52)
         }
@@ -613,7 +620,10 @@ export struct RandomPage {
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
-            .type(InputType.Normal).onChange((value: string) => {
+            // 加值是可带负号的整数（`2d6-2`）：同样用带符号整数键盘。
+            .type(inputTypeOf(InputKeyboard.SIGNED_INTEGER))
+            .inputFilter(inputFilterOf(InputKeyboard.SIGNED_INTEGER))
+            .onChange((value: string) => {
               this.diceModifier = value; this.diceResult = '';
             }).height(52)
         }

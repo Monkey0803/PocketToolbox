@@ -11,7 +11,8 @@ import { motion } from '@kit.MultimodalAwarenessKit';
 // 这里保留 `DocumentScanner` 组件与 `DocumentScannerConfig` 类型用于 `scanner` 路由。
 import lazy { DocumentScanner, DocumentScannerConfig, SaveOption } from '@kit.VisionKit';
 import { ToolEntry, TOOL_CATALOG, toolById } from '../model/ToolCatalog';
-import { matchTools, promoteFavorite, moveFavorite, allowedFavorites } from '../model/ToolMeta';
+import { matchTools, promoteFavorite, moveFavorite, allowedFavorites, CATEGORY_FILTER_ALL,
+  ToolCategory, TOOL_CATEGORIES, categoryById, parseToolCategory, serializeToolCategory } from '../model/ToolMeta';
 import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, maxGridColumns, resolveGridColumns,
   cardHeightVp, CARD_HEIGHT_BASE_VP,
   WIDTH_MD, actionHandSide } from '../model/LayoutAdaptive';
@@ -52,6 +53,7 @@ import { TorchPage } from '../component/TorchPage';
 import { QrPage } from '../component/QrPage';
 import { BarcodePage } from '../component/BarcodePage';
 import { DocumentsPage } from '../component/DocumentsPage';
+import { IdPhotoPage } from '../component/IdPhotoPage';
 import { LoanPage } from '../component/LoanPage';
 import { ColorPage } from '../component/ColorPage';
 import { HealthPage } from '../component/HealthPage';
@@ -146,6 +148,9 @@ struct Index {
   // 可选的档位按当前窗口收窄，实际生效的列数由 `LayoutAdaptive.resolveGridColumns()` 合并。
   @Local toolsColumns: string = DEFAULT_GRID_COLUMNS;
   @Local favoritesColumns: string = DEFAULT_GRID_COLUMNS;
+  // 工具页的分类筛选：`'all'` 或某个已登记分类 id（`model/ToolMeta.ets`），落盘键 `tools_category`。
+  // 只影响分段渲染，**不影响搜索**（搜索是全局的，见 `home()`）。
+  @Local toolCategory: string = CATEGORY_FILTER_ALL;
   @Local favoriteSaving: boolean = false;
   // 收藏页的拖拽排序模式：开启后卡片可拖动换位（长按菜单在模式内不再挂载，避免手势冲突）。
   @Local favoritesSorting: boolean = false;
@@ -518,6 +523,9 @@ struct Index {
         await this.data.getString('tools_columns', DEFAULT_GRID_COLUMNS));
       this.favoritesColumns = parseGridColumns(
         await this.data.getString('favorites_columns', DEFAULT_GRID_COLUMNS));
+      // 工具页分类筛选：空串/未登记 id（手改备份、已删掉的旧分类）由 `parseToolCategory()` 回退「全部」。
+      this.toolCategory = parseToolCategory(
+        await this.data.getString('tools_category', CATEGORY_FILTER_ALL));
       // 文档扫描设置（默认滤镜/拍摄方式）：空串、坏 JSON、未知 id 一律由 `parseDocScanState()` 回退默认值。
       const docScan: DocScanState = parseDocScanState(await this.data.getString('doc_scan_state', ''));
       this.docScanFilter = docScan.filter;
@@ -1037,6 +1045,8 @@ struct Index {
     // 「每行显示几个」同理回到默认（自动），否则清除后网格仍按旧列数渲染。
     this.toolsColumns = DEFAULT_GRID_COLUMNS;
     this.favoritesColumns = DEFAULT_GRID_COLUMNS;
+    // 分类筛选同理回到「全部」，否则清除后工具页仍停在上次选的分类上（只清存储不同步内存的旧缺陷）。
+    this.toolCategory = CATEGORY_FILTER_ALL;
     // 扫描设置同样回到默认（增强 + 手动拍摄），否则清除后界面仍显示旧的滤镜/拍摄方式。
     this.docScanFilter = DEFAULT_DOC_SCAN_FILTER;
     this.docScanShooting = DEFAULT_DOC_SCAN_SHOOTING;
@@ -1130,6 +1140,9 @@ struct Index {
       this.toolsColumns = parseGridColumns(await this.data.getString('tools_columns', DEFAULT_GRID_COLUMNS));
       this.favoritesColumns = parseGridColumns(
         await this.data.getString('favorites_columns', DEFAULT_GRID_COLUMNS));
+      // 分类筛选也按导入后的值重读（与上面几项同一原因：界面不能停在旧偏好上）。
+      this.toolCategory = parseToolCategory(
+        await this.data.getString('tools_category', CATEGORY_FILTER_ALL));
       // 扫描设置也按导入后的值重读（与上面几项同一原因：界面不能停在旧偏好上）。
       const importedScan: DocScanState = parseDocScanState(await this.data.getString('doc_scan_state', ''));
       this.docScanFilter = importedScan.filter;
@@ -1178,6 +1191,18 @@ struct Index {
     const available: number = (metrics.contentMaxWidth - (columns - 1) * metrics.gridGap) / columns;
     const width: number = Math.floor(available);
     return width < 96 ? 96 : (width > 200 ? 200 : width);
+  }
+
+  /**
+   * 证件照取景框宽度（vp）：与文档预览同一套换算，但夹到 140–260——取景框太小看不清人脸、
+   * 太大在窄窗里会把下面的规格与底色推出首屏（2026-10-22 新增工具）。
+   */
+  private idPhotoPreviewWidth(): number {
+    const metrics: LayoutMetrics = this.metrics();
+    const columns: number = metrics.columns > 0 ? metrics.columns : 2;
+    const available: number = (metrics.contentMaxWidth - (columns - 1) * metrics.gridGap) / columns;
+    const width: number = Math.floor(available);
+    return width < 140 ? 140 : (width > 260 ? 260 : width);
   }
 
   /**
@@ -1339,6 +1364,58 @@ struct Index {
     return TOOL_CATALOG.filter((tool: ToolEntry): boolean => ids.indexOf(tool.id) >= 0);
   }
 
+  /**
+   * 当前该渲染哪些分段：`'all'` 时按 `TOOL_CATEGORIES` 顺序返回「有可见工具的」分类，
+   * 选中某个分类时只返回它（该分类下没有命中就返回空数组，整页只剩空态）。
+   *
+   * 过滤依据是 `visibleTools`（已由 `@Computed` 缓存），因此搜索时也天然成立：搜索中不渲染分段
+   * （搜索结果是扁平的全局列表，见 `home()`），所以这里主要服务于非搜索态。
+   */
+  @Computed
+  get categorySections(): ToolCategory[] {
+    if (this.toolCategory !== CATEGORY_FILTER_ALL) {
+      const selected: ToolCategory | undefined = categoryById(this.toolCategory);
+      if (selected === undefined || this.toolsInCategory(selected.id).length === 0) { return []; }
+      return [selected];
+    }
+    return TOOL_CATEGORIES.filter((category: ToolCategory): boolean =>
+      this.toolsInCategory(category.id).length > 0);
+  }
+
+  /**
+   * 某个分类下当前可见的工具（保持 `TOOL_CATALOG` 顺序）。
+   *
+   * 用 `tool.category` 判定而不是回查 `TOOL_META`：分类在 `ToolCatalog` 里已随图标一起绑定。
+   * 分类未登记的工具（异常数据）不会落进任何分段，因此由 `ToolCatalog` 侧保证 `category` 合法
+   * （`ToolMeta` 构造函数的分类是必填参数，漏登记编译不过）。
+   */
+  private toolsInCategory(categoryId: string): ToolEntry[] {
+    return this.visibleTools.filter((tool: ToolEntry): boolean => tool.category === categoryId);
+  }
+
+  /**
+   * 工具页的分段网格：每段一个小标题 + 一个网格。
+   *
+   * 外层 `ForEach` 直接放在 `home()` 的 `Column` 里，段间距沿用 `sectionGap`；**不经过 `@Builder` 传参**
+   * （AGENTS：`@Builder` 按值传参不随状态刷新），分类名在构建函数体内用 `this.tr()` 现取。
+   */
+  @Builder private toolsSections() {
+    ForEach(this.categorySections, (category: ToolCategory) => {
+      Column({ space: 8 }) {
+        Text(this.tr(category.nameZh, category.nameEn)).fontSize(14)
+          .fontColor(ToolPalette.textSecondary).width('100%')
+        Grid() {
+          ForEach(this.toolsInCategory(category.id), (tool: ToolEntry) => {
+            GridItem() {
+              this.card(tool.icon, tool.color, tool.id)
+            }
+          }, (tool: ToolEntry): string => tool.id)
+        }.columnsTemplate(this.gridColumnsTemplateFor('tools'))
+          .columnsGap(this.metrics().gridGap).rowsGap(this.metrics().gridGap).width('100%')
+      }.width('100%')
+    }, (category: ToolCategory): string => category.id)
+  }
+
   // 收藏列表按「收藏顺序（新收藏在前）」渲染，而不是工具登记表顺序：
   // 之前收藏的先后完全看不出效果，用户收藏了一个工具却在收藏页找不到它放在哪。
   private favoriteTools(): ToolEntry[] {
@@ -1487,10 +1564,17 @@ struct Index {
       if (this.toolQuery.trim().length > 0 && this.visibleTools.length === 0) {
         Text(appText('tools.empty', this.english))
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
-      } else {
-        // 搜索时不再显示「最近使用」：搜索本身已经是在找工具，多一行反而干扰。
-        if (this.toolQuery.trim().length === 0) { this.recentRow(); }
+      } else if (this.toolQuery.trim().length > 0) {
+        // 搜索结果是**全局扁平**列表：此时不摆分类筛选、也不分段——两个筛选叠在一起时
+        // 「选了时间类却搜不到二维码」最容易让人以为工具没了（分类行与最近使用同一口径隐藏）。
         this.toolGrid(false)
+      } else {
+        // 分类筛选紧跟在「每行显示几个」之后（后者必须保持紧邻搜索框），搜索时隐藏。
+        this.categoryFilterRow()
+        // 搜索时不再显示「最近使用」：搜索本身已经是在找工具，多一行反而干扰。
+        this.recentRow();
+        // 分段渲染：每段一个小标题 + 网格（内容是「当前可见工具 ∩ 该分类」）。
+        this.toolsSections()
       }
     }.width('100%')
   }
@@ -1595,6 +1679,75 @@ struct Index {
       if (which === 'tools') { this.toolsColumns = previous; } else { this.favoritesColumns = previous; }
       this.status = appText('shell.could-not-save-the-3', this.english);
     }
+  }
+
+  /**
+   * 设置工具页的分类筛选：与「每行显示几个」同一套写入口径（先改内存 → 落盘 → 失败回滚 + toast）。
+   *
+   * 成功不弹 toast：分段当场跟着变就是反馈；只有落盘失败才说明，避免「这次看着变了、下次又变回去」。
+   */
+  private async setToolCategory(id: string): Promise<void> {
+    const value: string = serializeToolCategory(id);
+    const previous: string = this.toolCategory;
+    if (previous === value) { return; }
+    this.toolCategory = value;
+    if (this.data === undefined) { return; }
+    try {
+      await this.data.putString('tools_category', value);
+    } catch (_) {
+      this.toolCategory = previous;
+      this.status = appText('shell.could-not-save-the-3', this.english);
+    }
+  }
+
+  /**
+   * 分类下拉的可选档位：`'all'` + **当前真的有工具的**分类（按 `TOOL_CATEGORIES` 顺序）。
+   *
+   * 只列有工具的分类，与「分组选项按候选数收窄」同一口径——不让用户选到一个空分段；
+   * 兜底分类 `other` 正常情况恒为空，因此不会出现在列表里。
+   */
+  private categoryChoiceIds(): string[] {
+    const ids: string[] = [CATEGORY_FILTER_ALL];
+    for (const category of TOOL_CATEGORIES) {
+      if (this.toolsInCategory(category.id).length > 0) { ids.push(category.id); }
+    }
+    return ids;
+  }
+
+  /** 分类选项文案：`'all'` 用 `AppStrings` 的「全部分类」，其余取登记表的中英名（随语言现取）。 */
+  private categoryLabel(id: string): string {
+    if (id === CATEGORY_FILTER_ALL) { return appText('tools.allCategories', this.english); }
+    const category: ToolCategory | undefined = categoryById(id);
+    return category === undefined ? appText('tools.allCategories', this.english) :
+      this.tr(category.nameZh, category.nameEn);
+  }
+
+  private categoryOptionList(): SelectOption[] {
+    return this.categoryChoiceIds().map((id: string): SelectOption => ({ value: this.categoryLabel(id) }));
+  }
+
+  private categorySelectedIndex(): number {
+    const index: number = this.categoryChoiceIds().indexOf(this.toolCategory);
+    return index >= 0 ? index : 0;
+  }
+
+  /**
+   * 分类筛选行：与全应用的互斥选项同一套 `OptionSelect`（系统 `Select`）。
+   *
+   * 只有「当前语言下的分类名」与选中下标是变量，因此都由 `@Param` 现取（不能用 `@Builder` 传值）。
+   */
+  @Builder private categoryFilterRow() {
+    OptionSelect({
+      label: appText('tools.category', this.english),
+      options: this.categoryOptionList(),
+      selectedIndex: this.categorySelectedIndex(),
+      selectedText: this.categoryLabel(this.toolCategory),
+      a11yText: appText('tools.categoryA11y', this.english),
+      onSelected: (index: number): void => {
+        const ids: string[] = this.categoryChoiceIds();
+        if (index >= 0 && index < ids.length) { this.setToolCategory(ids[index]); }
+      }
+    })
   }
 
   /**
@@ -1895,6 +2048,12 @@ struct Index {
                 onSendToText: (text: string): void => { this.sendOcrTextToText(text); },
                 onCopy: (value: string): void => { this.copy(value); },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
+            }
+            else if (name === 'idphoto') {
+              IdPhotoPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(FlexAlign.Start),
+                previewWidth: this.idPhotoPreviewWidth(), data: this.data,
+                onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'level') {
               LevelPage({ english: this.english, materialLevel: this.materialLevel, active: this.appActive,

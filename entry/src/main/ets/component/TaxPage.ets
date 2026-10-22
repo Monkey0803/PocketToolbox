@@ -3,6 +3,7 @@ import { appText } from '../model/AppStrings';
 import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { WheelPickerButton } from './WheelPickerButton';
@@ -286,7 +287,8 @@ export struct TaxPage {
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
-          .type(InputType.Normal).height(48)
+          // 本页所有字段都是金额或百分比（非负、最多两位小数）：走小数键盘，不再弹 QWERTY（2026-10-22）。
+          .type(inputTypeOf(InputKeyboard.DECIMAL)).height(48)
           .accessibilityText(this.tr(this.taxFieldLabelZh(zh, dynamic), this.taxFieldLabelEn(en, dynamic)))
           .onChange((next: string) => { update(next); this.taxResult = undefined; })
       }

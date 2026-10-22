@@ -6,6 +6,7 @@ import { uiMaterial } from '@kit.ArkUI';
 import { HdsColorPicker } from '@kit.UIDesignKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf, inputFilterOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -155,6 +156,17 @@ export struct QrPage {
   private fieldPlaceholder(id: string): string {
     const spec: QrFieldSpec | undefined = FIELD_SPECS.get(id);
     return spec === undefined ? '' : this.tr(spec.zhPlaceholder, spec.enPlaceholder);
+  }
+
+  /**
+   * 字段 id → 键盘类型：电话/邮箱/网址各有系统键盘，其余（SSID、密码、姓名、组织、职务、主题、正文…）
+   * 都是普通文本。**经纬度不在这里**——它们要带负号，走单独的 `geoField()`（见该函数的说明）。
+   */
+  private fieldKeyboard(id: string): string {
+    if (id === 'cardPhone' || id === 'telNumber' || id === 'smsNumber') { return InputKeyboard.PHONE; }
+    if (id === 'cardEmail' || id === 'mailTo') { return InputKeyboard.EMAIL; }
+    if (id === 'url') { return InputKeyboard.URL; }
+    return InputKeyboard.TEXT;
   }
 
   private kindOptions(): SelectOption[] {
@@ -373,6 +385,33 @@ export struct QrPage {
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
+          // 键盘按字段语义走：电话/邮箱/网址用系统对应键盘，文本字段用普通键盘。
+          .type(inputTypeOf(this.fieldKeyboard(id)))
+          .onChange((input: string) => this.setFieldValue(id, input)).height(52)
+      }
+    }.width('100%')
+  }
+
+  /**
+   * 经纬度字段：与 `textField()` 同版式，唯一区别是键盘——经纬度是**可带负号**的小数
+   * （西经/南纬），因此用带符号小数键盘 + `inputFilter` 放行负号。
+   *
+   * 单独一个构建函数而不是在 `textField()` 里分支：非空 `inputFilter` 会接管 `type` 自带的过滤，
+   * 而**空正则的匹配语义不确定**（可能把所有输入都判为非法），所以这行只能挂在真正需要的字段上。
+   */
+  @Builder private geoField(id: string) {
+    Column({ space: 6 }) {
+      Text(this.fieldLabel(id)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+        corner: 16, interactive: true
+      }) {
+        TextInput({ text: this.fieldValue(id), placeholder: this.fieldPlaceholder(id) })
+          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+          .backgroundColor(Color.Transparent)
+          .type(inputTypeOf(InputKeyboard.SIGNED_DECIMAL))
+          .inputFilter(inputFilterOf(InputKeyboard.SIGNED_DECIMAL))
           .onChange((input: string) => this.setFieldValue(id, input)).height(52)
       }
     }.width('100%')
@@ -413,8 +452,8 @@ export struct QrPage {
       this.textField('mailSubject')
       this.textField('mailBody')
     } else if (this.kindId() === 'geo') {
-      this.textField('geoLatitude')
-      this.textField('geoLongitude')
+      this.geoField('geoLatitude')
+      this.geoField('geoLongitude')
     } else {
       this.textField(this.kindId() === 'url' ? 'url' : 'text')
     }

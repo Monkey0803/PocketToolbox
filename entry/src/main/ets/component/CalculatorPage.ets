@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -199,12 +200,22 @@ export struct CalculatorPage {
   }
 
   /**
+   * 本页输入框的键盘类型：金额/折数/比率都是**非负小数**，只有「均摊人数」是整数。
+   *
+   * 键盘类型按**字段语义**定（不按页面习惯）：2026-10-22 之前这里写的是 `numeric ? Number : Normal`，
+   * 而调用处只给「人数」传了 true，于是原价/折数/立减这些明显是数字的格子全都弹出 QWERTY 键盘。
+   */
+  private inputKeyboard(kind: string): string {
+    return kind === 'splitPeople' ? InputKeyboard.INTEGER : InputKeyboard.DECIMAL;
+  }
+
+  /**
    * 一个输入框：标签 + `MaterialSurface` 包裹的系统 `TextInput`。
    *
-   * 只收常量 `kind`（标签与值都在函数体内现取），因此切换语言与输入都会刷新；
+   * 只收常量 `kind`（标签、值与键盘类型都在函数体内按 `kind` 现取），因此切换语言与输入都会刷新；
    * 需要与其它控件同处一行时，在调用处再套一层带 `layoutWeight` 的普通 `Column`。
    */
-  @Builder private inputField(kind: string, placeholder: string, numeric: boolean) {
+  @Builder private inputField(kind: string, placeholder: string) {
     Column({ space: 6 }) {
       Text(this.inputLabel(kind)).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
       MaterialSurface({
@@ -218,7 +229,7 @@ export struct CalculatorPage {
           // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
-          .type(numeric ? InputType.Number : InputType.Normal)
+          .type(inputTypeOf(this.inputKeyboard(kind)))
           .onChange((value: string) => this.setInput(kind, value)).height(52)
       }
     }.width('100%')
@@ -523,11 +534,11 @@ export struct CalculatorPage {
       }
       if (this.calcMode === 'reverse') {
         this.sectionTitle('由折后价与折数反推原价', 'Recover the original price from the final price')
-        this.inputField('reverseFinal', '80', false)
-        this.inputField('reverseFold', '8', false)
+        this.inputField('reverseFinal', '80')
+        this.inputField('reverseFold', '8')
         this.resultCard('reverseOriginal')
         this.sectionTitle('由原价与折后价反推折数', 'Recover the price factor from both prices')
-        this.inputField('reverseOriginal', '100', false)
+        this.inputField('reverseOriginal', '100')
         this.resultCard('reverseFold')
         this.hint('折数为 0 无法反推；折后价高于原价时折数会大于 10 折并显示「贵」。金额与折数最多两位小数。',
           'A price factor of 0 cannot be reversed; when the final price is higher than the original, the ' +
@@ -536,12 +547,12 @@ export struct CalculatorPage {
         this.sectionTitle('求一个数的百分之几', 'Find a percentage of a number')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('percentBase', '100', false)
+            this.inputField('percentBase', '100')
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.multiply')).fontSize(18).fontColor([ToolPalette.textPrimary])
             .accessibilityText(appText('calc.multiply', this.english))
           Column() {
-            this.inputField('percentRate', '20', false)
+            this.inputField('percentRate', '20')
           }.layoutWeight(1)
           Text('%').fontSize(18)
         }.width('100%')
@@ -550,12 +561,12 @@ export struct CalculatorPage {
         this.sectionTitle('求部分占整体的百分比', 'Find a part as a percentage of the whole')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('ratioPart', '25', false)
+            this.inputField('ratioPart', '25')
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.divide_square_fill')).fontSize(18).fontColor([ToolPalette.textPrimary])
             .accessibilityText(appText('calc.divide', this.english))
           Column() {
-            this.inputField('ratioWhole', '100', false)
+            this.inputField('ratioWhole', '100')
           }.layoutWeight(1)
         }.width('100%')
         this.resultCard('percentRatio')
@@ -563,12 +574,12 @@ export struct CalculatorPage {
         this.sectionTitle('算上增加或减少的百分比', 'Apply an increase or a decrease')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('adjustBase', '100', false)
+            this.inputField('adjustBase', '100')
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.arrow_left_arrow_right')).fontSize(18).fontColor([ToolPalette.textPrimary])
             .accessibilityText(appText('calc.plus-or-minus', this.english))
           Column() {
-            this.inputField('adjustRate', '10', false)
+            this.inputField('adjustRate', '10')
           }.layoutWeight(1)
           Text('%').fontSize(18)
         }.width('100%')
@@ -577,12 +588,12 @@ export struct CalculatorPage {
         this.sectionTitle('从原值到新值变化了百分之几', 'Find the percentage change between two values')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('deltaFrom', '100', false)
+            this.inputField('deltaFrom', '100')
           }.layoutWeight(1)
           SymbolGlyph($r('sys.symbol.arrow_right')).fontSize(18).fontColor([ToolPalette.textPrimary])
             .accessibilityText(appText('calc.becomes', this.english))
           Column() {
-            this.inputField('deltaTo', '120', false)
+            this.inputField('deltaTo', '120')
           }.layoutWeight(1)
         }.width('100%')
         this.resultCard('percentDelta')
@@ -593,10 +604,10 @@ export struct CalculatorPage {
         this.sectionTitle('按加价率定价', 'Set a price from a markup rate')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('costPrice', '80', false)
+            this.inputField('costPrice', '80')
           }.layoutWeight(1)
           Column() {
-            this.inputField('markupRate', '25', false)
+            this.inputField('markupRate', '25')
           }.layoutWeight(1)
         }.width('100%')
         this.resultCard('markupPrice')
@@ -604,10 +615,10 @@ export struct CalculatorPage {
         this.sectionTitle('按成本与售价算毛利', 'Work out the margin from cost and price')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('marginCost', '80', false)
+            this.inputField('marginCost', '80')
           }.layoutWeight(1)
           Column() {
-            this.inputField('marginPrice', '100', false)
+            this.inputField('marginPrice', '100')
           }.layoutWeight(1)
         }.width('100%')
         this.resultCard('margin')
@@ -616,13 +627,13 @@ export struct CalculatorPage {
           'Markup is based on cost (profit ÷ cost) while margin is based on price (profit ÷ price); they are ' +
           'not the same number. A negative result means selling below cost. Amounts allow two decimals.')
       } else if (this.calcMode === 'split') {
-        this.inputField('splitAmount', '100.00', false)
+        this.inputField('splitAmount', '100.00')
         Row({ space: 8 }) {
           Column() {
-            this.inputField('splitPeople', '2', true)
+            this.inputField('splitPeople', '2')
           }.layoutWeight(1)
           Column() {
-            this.inputField('splitTip', '0', false)
+            this.inputField('splitTip', '0')
           }.layoutWeight(1)
         }.width('100%')
         this.resultCard('splitShares')
@@ -630,9 +641,9 @@ export struct CalculatorPage {
           'Amounts and tip rates allow two decimal places; tip is 0–100%. Remaining cents are assigned to ' +
           'people. Results use the same currency unit as the input.')
       } else {
-        this.inputField('discountAmount', '100.00', false)
-        this.inputField('discountFold', '8', false)
-        this.inputField('discountOff', '0', false)
+        this.inputField('discountAmount', '100.00')
+        this.inputField('discountFold', '8')
+        this.inputField('discountOff', '0')
         this.resultCard('discountFinal')
         this.hint('立减在折扣之后扣除；优惠额超过折后价时按 0 计（券额作废）。金额与折数最多两位小数，折数 0–10。',
           'The instant discount is taken after the percentage off; if it is larger than the discounted ' +

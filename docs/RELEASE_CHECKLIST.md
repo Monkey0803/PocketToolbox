@@ -2,6 +2,19 @@
 
 ## 当前状态
 
+- **工具页分类分组 + 搜索增强（2026-10-22，已完成单测、一致性检查与构建；**模拟器部分复核，设备验收未完成**）**：用户反馈「工具越来越多、查找繁琐」，把 2026-10-20 审计里被搁置的另一半（分类分组）补上，**原「分类分组 **或** 最近使用，二选一」的结论作废，两条路并存**。**不联网、不新增权限**；新增一个本机偏好键 `tools_category`（值为 `all` 或某个分类 id，只记住浏览的分类，不含任何输入内容）。
+  - **变更清单**：① **分类登记表**——`model/ToolMeta.ets` 新增 `ToolCategory`/`TOOL_CATEGORIES`（扫码与图像 / 计算与财务 / 文本与编码 / 时间与日期 / 生活与换算 / 系统与设备 + 兜底 `other`）与 `ToolMeta.category`（**构造函数第 4 个必填参数**，漏声明编译不过，`keywords` 仍是第 5 个可选参数）；`categoryOfTool()` 未登记时回落 `other` 而**不返回空串**（空串会让工具在分段网格里静默消失），`toolIdsInCategory()` + 单测断言「分区无重无漏、兜底桶恒空」；`ToolEntry` 透传 `category`。② **分段渲染**——`Index.toolsSections()` 每段「小标题 + `Grid`」，`@Computed categorySections` 只列有可见工具的分类；分类下拉走既有 `OptionSelect`（`'all'` 哨兵 + 只列当前有工具的分类），落盘键 `tools_category`（`parseToolCategory()` 非法回退「全部」、`clearAllLocalData()` 复位、`importLocalData()` 重读、导出按 `LOCAL_KEYS` 自动覆盖）；**「每行显示几个」仍紧邻搜索框**，分类行排在它下面、搜索时与「最近使用」一同隐藏（搜索结果是全局扁平列表，不受分类筛选影响）。③ **搜索增强**——24 个工具各补**拼音首字母**关键词（`ewm`/`sjc`/`dkjs`…，纯数据、不引入拼音库）；`matchTools()` 改**命中分级**（精确 → id/标题前缀 → 关键词前缀 → 任意子串 → **分类名**子串，同档内保持 `TOOL_IDS` 顺序，分桶拼接而非 `sort()`），因此分类名也参与搜索（搜「时间」一次列出全部时间类工具）、`TOOL_META` 的登记顺序**不得为分组重排**。④ 文案/披露：`AppStrings` 新增 `tools.category`/`tools.categoryA11y`/`tools.allCategories`，`settings.storageDisclosure` 与 `docs/PRIVACY.md` 同步补分类筛选。
+  - **门禁证据**：`node tools/build-hap.mjs --tests` → 一致性 16 项、`All toolbox model assertions passed`（含新增分类/分区/兜底/解析/拼音/分级断言，并更新 `'计算'`/`'cal'`/`'er'` 三处旧断言）、`BUILD SUCCESSFUL`、`EXIT=0`。
+  - **设备核对项（逐条勾选；完整现象见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 33 节）**：
+    - [x] 模拟器：工具页首屏出现「分类（全部分类）」与「扫码与图像」段标题及该段 3 张卡；下拉列出**1 + 6 项**（兜底「其他」因空而未出现，截图 `docs/screenshots/emulator/tools-category-menu-zh.jpeg`）。
+    - [x] 模拟器：连续上滑时段标题按登记表顺序出现（扫码与图像 → 计算与财务 → 文本与编码）。
+    - [ ] 选中某个分类 → **只剩该段卡片**且下拉显示所选分类名；强停重启后筛选仍在；「清除本机数据」后回「全部」；导出 → 清除 → 导入后恢复。
+    - [ ] 搜索 `ewm` → 二维码、`sjc` → 时间戳、`计` → 首条「计时」、`时间` → 时间戳/计时/日期计算/纪念日、`计算` → 「折扣与均摊」在末尾；**搜索时分类行与最近使用行隐藏、结果为扁平**。
+    - [ ] 滚动全程 24 张卡**各出现一次**（单测已在数据层证明分区无重无漏，界面层待复核）。
+    - [ ] 中英切换后段标题与下拉文案即时刷新；深色主题下段标题（`textSecondary`）对比度可读。
+    - [ ] 窄窗（阔折叠外屏 ~327 vp）与展开/平板形态下的分段观感、卡片宽度仍 ≥ 150 vp。
+  - **备注（诚实记录）**：本轮 `127.0.0.1:5555` 被另一个会话同时占用，多次点击后页面自行跳到「贷款计算」，交互类核对项因此**未闭环**，已如实列在上面并在 `DEVICE_ACCEPTANCE.md` 第 33 节标注「待复核」。
+
 - **二维码定制：自定义码色 + 居中 Logo（2026-10-22，已完成单测、一致性检查、构建与模拟器渲染复核；**成像与实扫的设备验收未做**）**：**不联网、不落盘、不新增权限**（相册仍走系统选择器的临时授权）。
   - **变更清单**：① **自定义码色**——`model/QrStyle.ets` 新增联合码色档（三预设 + `QR_CUSTOM_COLOR_ID`）、HEX 解析与判据（`qrCustomColorRgb()`/`qrCustomColorValid()`/`qrCustomColorVerdictText()`/`qrCustomColorErrorText()`/`resolveQrColor()`，门槛 `QR_MIN_CONTRAST_RATIO = 4.5`），背景**恒为纯白**；`QrPage` 选「自定义」后显示 HEX 输入框 + **与颜色工具页同一个** `HdsColorPicker`（`@kit.UIDesignKit`），手输与取色共用 `ColorTools` 的解析链（`ColorTools` 新增 `rgbToNumber()` 供 `0xRRGGBB` 数值输出）；非法/过浅的颜色**在生成之前被拦下**并给出实测对比度。② **居中 Logo**——Scan Kit 生成器无 Logo 参数，改为本机合成：`services/SystemTools.makeQr(content, style, logo?)` 生成底图后读像素、盖白底板、按 alpha 叠加并重建 `PixelMap`；几何与混合在纯逻辑 `QrStyle`（`qrLogoLayout()`/`qrLogoFit()`/`qrLogoDecodeSize()`）与新增 `model/QrCompose.ets`（`fillRectOpaque()`/`blendImageRect()`，处理行 stride、RGBA 换道与越界夹取）；相册选图 `pickQrLogo()` 只留内存 `PixelMap`（不留临时 URI，离开页面释放）；**仅容错 Q/H 可带 Logo**，等级不足时行内警示并拒绝生成；容量提示在带 Logo 时改为「缩短内容或移除 Logo」。③ 文案：`model/AppStrings.ets` 新增 8 条 `qrpage.*`。
   - **设备核对项（真机，逐条勾选；完整步骤见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的「二维码定制」一节）**：

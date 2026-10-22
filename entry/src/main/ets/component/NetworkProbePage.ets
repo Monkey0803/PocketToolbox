@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
@@ -513,7 +514,8 @@ export struct NetworkProbePage {
         // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
         .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
         .backgroundColor(Color.Transparent)
-        .type(InputType.Normal)
+        // 输入的是网址：用系统 URL 键盘（`/`、`.`、`:` 都在面上），不再弹普通文本键盘（2026-10-22）。
+        .type(inputTypeOf(InputKeyboard.URL))
         .height(52)
         .onChange((value: string) => {
           this.httpUrl = value;
@@ -612,7 +614,7 @@ export struct NetworkProbePage {
         // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
         .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
         .backgroundColor(Color.Transparent)
-        .type(InputType.Normal)
+        .type(inputTypeOf(InputKeyboard.URL))
         .height(52)
         .onChange((value: string) => {
           this.urlInput = value;

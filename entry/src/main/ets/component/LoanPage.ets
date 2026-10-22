@@ -2,6 +2,7 @@ import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
 import { IconActionButton } from './IconActionButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { WheelPickerButton } from './WheelPickerButton';
@@ -128,6 +129,14 @@ export struct LoanPage {
   }
 
   /**
+   * 输入框键盘类型：本金与年利率是**非负小数**，期限的年/月是**整数**（2026-10-22 全量排查——
+   * 此前四格统一用 `NUMBER_DECIMAL`，年/月两格的小数点其实没有意义）。
+   */
+  private inputKeyboard(id: string): string {
+    return id === 'years' || id === 'extraMonths' ? InputKeyboard.INTEGER : InputKeyboard.DECIMAL;
+  }
+
+  /**
    * 输入行只收**常量** `id` 与 `pickable`：文本、滚轮选项与下标都在构建函数体内按 `id` 现取。
    * 本金与年利率是连续量，`pickable` 传 false；期限的「年」「月」两行挂滚轮（选项按另一框收窄）。
    */
@@ -144,7 +153,7 @@ export struct LoanPage {
             // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
             .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
             .backgroundColor(Color.Transparent)
-            .type(InputType.NUMBER_DECIMAL)
+            .type(inputTypeOf(this.inputKeyboard(id)))
             .layoutWeight(1)
             .onChange((value: string) => this.setFieldText(id, value)).height(52)
           if (pickable) {
