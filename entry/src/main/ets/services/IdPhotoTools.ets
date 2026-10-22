@@ -26,6 +26,7 @@ import lazy { subjectSegmentation, faceDetector } from '@kit.CoreVisionKit';
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { MediaSource, openMediaSource } from './MediaSource';
 import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -79,9 +80,13 @@ export async function pickIdPhoto(context: common.UIAbilityContext): Promise<IdP
     maxSelectNumber: 1
   });
   if (selection.photoUris.length === 0) { return undefined; }
+  // 选择器给的 URI 必须经 fd 打开再解码（真机实测：直接 createImageSource(uri) 必失败，
+  // 现象就是用户说的「选不了图」）。详见 `services/MediaSource.ets`。
+  let opened: MediaSource | undefined = undefined;
   let source: image.ImageSource | undefined = undefined;
   try {
-    source = image.createImageSource(selection.photoUris[0]);
+    opened = await openMediaSource(selection.photoUris[0]);
+    source = opened.source;
     const info: image.ImageInfo = await source.getImageInfo();
     const target: IdPhotoPixels = previewDecodeSize(info.size.width, info.size.height);
     if (target.width <= 0 || target.height <= 0) { return undefined; }
@@ -108,9 +113,8 @@ export async function pickIdPhoto(context: common.UIAbilityContext): Promise<IdP
     hilog.error(DOMAIN, TAG, 'pickIdPhoto failed: %{public}s', JSON.stringify(error));
     return undefined;
   } finally {
-    if (source !== undefined) {
-      try { await source.release(); } catch (_) {}
-    }
+    // `release()` 会先释放 ImageSource 再关 fd（预览 `PixelMap` 已经独立出来，不受影响）。
+    if (opened !== undefined) { await opened.release(); }
   }
 }
 
@@ -189,11 +193,15 @@ export async function renderIdPhoto(uri: string, region: IdPhotoRect, outPx: IdP
     return outcome;
   }
   const wantCutout: boolean = backgroundById(backgroundId).id !== 'original';
+  let opened: MediaSource | undefined = undefined;
   let source: image.ImageSource | undefined = undefined;
   let decoded: image.PixelMap | undefined = undefined;
   try {
     try {
-      source = image.createImageSource(uri);
+      // 与选图同一口径：源图 URI 必须经 fd 打开（真机实测：直接 createImageSource(uri) 必失败，
+      // 表现为「生成证件照」时二次读取失败，错误码 `reread`）。
+      opened = await openMediaSource(uri);
+      source = opened.source;
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'createImageSource failed: %{public}s', JSON.stringify(error));
       outcome.error = 'reread';
@@ -240,9 +248,7 @@ export async function renderIdPhoto(uri: string, region: IdPhotoRect, outPx: IdP
     if (decoded !== undefined) {
       try { await decoded.release(); } catch (_) {}
     }
-    if (source !== undefined) {
-      try { await source.release(); } catch (_) {}
-    }
+    if (opened !== undefined) { await opened.release(); }
   }
 }
 

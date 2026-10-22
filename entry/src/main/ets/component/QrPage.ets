@@ -539,6 +539,15 @@ export struct QrPage {
             })
           }
         }.width('100%').padding({ left: 14, right: 14, top: 8, bottom: 8 })
+        // **整行可点**（2026-10-22 真机报障）：未选图时右侧那枚 30 vp 图标是唯一入口，用户点「未选择图片」
+        // 这行字**毫无反应**，看起来就是「二维码选不了图」。未选图时整行承接点击；已选图时交给右侧两枚
+        // 图标（替换 / 移除），行级处理器在那种情况下**直接返回**，避免嵌套点击触发两次。
+        .accessibilityText(this.qrLogo === undefined
+          ? appText('qrpage.choose-logo-image', this.english)
+          : appText('qrpage.replace-logo-image', this.english))
+        .onClick(() => {
+          if (this.qrLogo === undefined) { this.chooseLogo(); }
+        })
       }
       Text(appText('qrpage.logo-level-required', this.english)).fontSize(13)
         .fontColor(qrLogoLevelOk(this.qrLevel) ? ToolPalette.textMuted : ToolPalette.warning)

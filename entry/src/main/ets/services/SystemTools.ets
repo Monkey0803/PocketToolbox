@@ -6,6 +6,7 @@ import { reminderAgentManager } from '@kit.BackgroundTasksKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { picker, fileIo as fs, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { MediaSource, openMediaSource } from './MediaSource';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor as utd } from '@kit.ArkData';
 import { i18n } from '@kit.LocalizationKit';
@@ -204,12 +205,14 @@ export async function pickQrLogo(context: common.UIAbilityContext): Promise<imag
     maxSelectNumber: 1
   });
   if (selection.photoUris.length === 0) { return undefined; }
-  let source: image.ImageSource | undefined = undefined;
+  // 必须经 `openMediaSource()`（fd 打开）读：选择器给的 URI 直接喂 createImageSource 在真机上必然失败
+  // （2026-10-22 实测缺陷，详见 `services/MediaSource.ets` 的头注释）。
+  let opened: MediaSource | undefined = undefined;
   try {
-    source = image.createImageSource(selection.photoUris[0]);
-    const info: image.ImageInfo = await source.getImageInfo();
+    opened = await openMediaSource(selection.photoUris[0]);
+    const info: image.ImageInfo = await opened.source.getImageInfo();
     const target: QrLogoSize = qrLogoDecodeSize(info.size.width, info.size.height);
-    return await source.createPixelMap({
+    return await opened.source.createPixelMap({
       desiredSize: { width: target.width, height: target.height },
       desiredPixelFormat: image.PixelMapFormat.BGRA_8888
     });
@@ -217,7 +220,7 @@ export async function pickQrLogo(context: common.UIAbilityContext): Promise<imag
     hilog.error(DOMAIN, TAG, 'pickQrLogo failed: %{public}s', JSON.stringify(error));
     throw error as Error;
   } finally {
-    if (source !== undefined) { await source.release(); }
+    if (opened !== undefined) { await opened.release(); }
   }
 }
 

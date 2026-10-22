@@ -472,18 +472,23 @@ export struct IdPhotoPage {
     }
   }
 
-  /** 照片与取景：选图、可拖拽缩放的取景框、自动构图与重置。 */
+  /**
+   * 照片与取景：选图、可拖拽缩放的取景框、自动构图与重置。
+   *
+   * **整行都可点**（2026-10-22 真机报障）：原来只有左侧那枚 30 vp 的图标带 `onTap`，右侧「选择照片」
+   * 文字是纯标签——用户点文字**毫无反应**，看起来就是「证件照选不了图」。现在按设置页隐私行同一套做法，
+   * 整行 `Row` 承接点击（图标只是视觉装饰，不再嵌套可点组件，避免一次点击触发两次）。
+   */
   @Builder private photoPanel() {
     Column({ space: 10 }) {
-      Row({ space: 10 }) {
-        IconActionButton({
-          icon: $r('sys.symbol.picture'), tintColor: ToolPalette.primary,
-          a11yText: appText('idphoto.pick', this.english),
-          onTap: () => { this.choosePhoto(); }
-        })
+      Row({ space: 12 }) {
+        SymbolGlyph($r('sys.symbol.picture')).fontSize(22).fontColor([ToolPalette.primary])
         Text(appText('idphoto.pick', this.english)).fontSize(15).fontColor(ToolPalette.textPrimary)
           .layoutWeight(1)
-      }.width('100%')
+      }
+      .width('100%').height(48)
+      .accessibilityText(appText('idphoto.pick', this.english))
+      .onClick(() => { this.choosePhoto(); })
       if (this.previewPixel() === undefined) {
         Text(appText('idphoto.emptyPhoto', this.english)).fontSize(13)
           .fontColor(ToolPalette.textMuted).width('100%')
