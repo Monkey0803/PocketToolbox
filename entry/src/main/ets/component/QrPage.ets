@@ -230,6 +230,15 @@ export struct QrPage {
       this.releaseLogo();
       this.qrLogo = picked;
       this.genError = '';
+      // **加了 Logo 就自动把容错等级提到 Q**（2026-10-22 真机报障）：L/M 下带 Logo 的码生成会被拒绝
+      // （`qrLogoLevelOk()` 闸门），用户看到的现象就是「加了图片却生成不了二维码」，而且那句「请提高容错等级」
+      // 只是一行常驻说明、跟「点生成失败」隔着一行图标，很难联想到一起。这里替用户做掉这步并**如实说一句**：
+      // 容错等级不是内容，提高它只增加冗余、不会改变码里的数据，属于「用户意图（要 Logo）已经蕴含」的选择。
+      // 用户之后仍可手动把等级降回 L/M —— 那时闸门与 `qrpage.logo-level-required` 的说明依然生效。
+      if (!qrLogoLevelOk(this.qrLevel)) {
+        this.qrLevel = 'Q';
+        this.onStatus(appText('qrpage.logo-level-raised', this.english));
+      }
     } catch (_) {
       this.onStatus(appText('qrpage.logo-image-unreadable', this.english));
     }

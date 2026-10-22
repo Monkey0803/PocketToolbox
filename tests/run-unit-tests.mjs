@@ -3532,6 +3532,16 @@ assert.equal(qrStyle.qrLogoLevelOk('M'), false);
 assert.equal(qrStyle.qrLogoLevelOk('Q'), true);
 assert.equal(qrStyle.qrLogoLevelOk('H'), true);
 assert.equal(qrStyle.qrLogoLevelOk('nope'), false);
+// 2026-10-22 真机报障「加了图片就生成不了二维码」的根因就是这个组合：**默认等级 M 不允许带 Logo**，
+// 而页面原来只在点「生成」时才把这件事说成一句错误。现在选图后会自动提到 Q（页面 `chooseLogo()`），
+// 所以这里钉住三件事：默认等级确实与 Logo 不兼容、自动提升的目标 'Q' 确实在登记表里、且它确实允许 Logo。
+{
+  const autoRaiseLevel = 'Q';
+  assert.equal(qrStyle.qrLogoLevelOk(qrStyle.DEFAULT_QR_LEVEL), false,
+    '默认容错等级与居中 Logo 不兼容（这正是报障的前提）');
+  assert.ok(qrStyle.qrLevelIndex(autoRaiseLevel) >= 0, '自动提升到的等级必须在 QR_LEVELS 里');
+  assert.equal(qrStyle.qrLogoLevelOk(autoRaiseLevel), true, '自动提升后的等级必须允许居中 Logo');
+}
 assert.equal(qrStyle.qrLogoLevelOk(''), false);
 // 带 Logo 的容量提示不能建议「降低容错等级」（降了就带不了 Logo），但仍要说清两个数
 const capacityWithLogo = qrStyle.qrCapacityErrorText('a'.repeat(1274), 'H', false, true);
