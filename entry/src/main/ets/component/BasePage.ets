@@ -9,13 +9,17 @@ import { ToolPalette } from '../model/ToolPalette';
 import { RadixOption, BASE_RADIXES, radixIndex, radixOption, radixBase, radixInputPrefix, RadixParse,
   parseRadix, radixText, groupDigits,
   BitwiseOp, BITWISE_OPS, bitwiseOpIndex, bitwiseOpById, BitwiseResult, bitwiseOp,
-  baseErrorText, bitwiseParseError } from '../model/BaseTools';
+  baseErrorText, bitwiseParseError, signedInt32Text, byteText,
+  BaseMode, BASE_MODES, baseModeIndex, baseModeOption } from '../model/BaseTools';
 
 /**
- * 进制与位运算页：一个输入框在 2/8/10/16 进制间互转，另有 32 位无符号的位运算。
+ * 进制与位运算页：顶部「方式」下拉在**进制换算**（一个输入框在已登记的各进制间互转，2/8/10/16 + 32/36）
+ * 与**位运算**（32 位无符号，另给有符号 int32 与字节序解释）两块互斥面板之间切换，一次只显示一块——
+ * 与日期计算页/随机页/计时页同一套「登记表 `BASE_MODES` + 一张 `OptionSelect`」做法。
  *
- * 解析、换算与位运算全在纯逻辑 `model/BaseTools.ets`，本页只做输入、进制/运算符选择、展示与中英文文案。
+ * 解析、换算与位运算全在纯逻辑 `model/BaseTools.ets`，本页只做输入、方式/进制/运算符选择、展示与中英文文案。
  * 结果行按「`@Builder` 只收常量 kind、文本在构建函数体内现取」的方式渲染——值参数不随状态刷新。
+ * 两块面板各自的输入与结果状态都留在页面上，**切换方式不丢值、也不清空**。
  *
  * 结果卡只展示、复制按钮复制**纯值**（不带分组空格）；**没有一次性提示**——进制换算与位运算的错误
  * 都是持续性的输入错误，一律行内显示（`inputError()`/`bitwiseError()`），因此不声明 `onStatus`。
@@ -31,6 +35,8 @@ export struct BasePage {
   // （2026-10-21 智感握姿排查）。
   @Event onCopy: (value: string) => void = () => {};
 
+  /** 顶层方式：`radix` 进制换算 / `bitwise` 位运算（登记表 `BASE_MODES`）。 */
+  @Local baseMode: string = 'radix';
   @Local input: string = '';
   @Local radixId: string = 'dec';
   @Local operandA: string = '';
@@ -40,6 +46,43 @@ export struct BasePage {
   @Local opId: string = 'and';
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  // ---------- 顶层方式（进制换算 / 位运算）----------
+
+  // 方法名**故意**不与 `model/BaseTools` 的 `baseModeIndex()` 同名：同名时读起来像递归，
+  // 下一个人很容易改成 `this.baseModeIndex()` 而把导入的登记表函数挡掉。
+  private currentBaseModeIndex(): number {
+    const index: number = baseModeIndex(this.baseMode);
+    return index < 0 ? 0 : index;
+  }
+
+  private baseModeLabel(): string {
+    const mode: BaseMode | undefined = baseModeOption(this.baseMode);
+    if (mode === undefined) { return this.english ? BASE_MODES[0].en : BASE_MODES[0].zh; }
+    return this.english ? mode.en : mode.zh;
+  }
+
+  private modeOptions(): SelectOption[] {
+    return BASE_MODES.map((mode: BaseMode): SelectOption => {
+      const option: SelectOption = { value: this.english ? mode.en : mode.zh };
+      return option;
+    });
+  }
+
+  // 方式选择与日期计算页「方式」、随机页同一套 UI：切换只改 `baseMode`，两块面板的输入与结果都留在页面上。
+  @Builder private baseModeSelect() {
+    OptionSelect({
+      label: appText('field.method', this.english),
+      options: this.modeOptions(),
+      selectedIndex: this.currentBaseModeIndex(),
+      selectedText: this.baseModeLabel(),
+      a11yText: appText('base.base-tool', this.english),
+      onSelected: (index: number): void => {
+        const mode: BaseMode | undefined = BASE_MODES[index];
+        if (mode !== undefined) { this.baseMode = mode.id; }
+      }
+    })
+  }
 
   // ---------- 输入进制与解析 ----------
 
@@ -56,12 +99,15 @@ export struct BasePage {
   }
 
   /**
-   * 输入框的键盘类型**跟着所选进制走**（2026-10-22 全量排查）：十六进制要 A–F 与 `0x` 前缀，
-   * 只能给普通键盘；二/八/十进制是纯数字，给数字键盘（前缀 `0b`/`0o` 变成只能粘贴的写法，
+   * 输入框的键盘类型**跟着所选进制走**（2026-10-22 全量排查，2026-10-22 追加 32/36 进制）：
+   * 十六进制要 A–F、三十二/三十六进制要 A–V / A–Z（还有 `0x` 前缀），只能给普通键盘；
+   * 二/八/十进制是纯数字，给数字键盘（前缀 `0b`/`0o` 变成只能粘贴的写法，
    * 但裸数字一样能解析，`parseRadix()` 对两种写法都接受）。
    */
   private radixKeyboard(id: string): string {
-    return id === 'hex' ? InputKeyboard.TEXT : InputKeyboard.INTEGER;
+    const option: RadixOption | undefined = radixOption(id);
+    const radix: number = option === undefined ? 10 : option.radix;
+    return radix > 10 ? InputKeyboard.TEXT : InputKeyboard.INTEGER;
   }
 
   private radixLabel(id: string): string {
@@ -89,9 +135,16 @@ export struct BasePage {
     return radixText(parsed.value, option.radix);
   }
 
-  /** 显示用分组：二进制/十六进制每 4 位、八进制/十进制每 3 位。 */
+  /**
+   * 显示用分组：二进制/十六进制每 4 位、八进制/十进制每 3 位。
+   *
+   * 三十二/三十六进制**不分组**（返回 0，`groupDigits()` 原样返回）：这两个进制的「几位一组」
+   * 没有通用约定，硬切只会让人以为那是某种结构化编码。
+   */
   private groupSize(kind: string): number {
-    return kind === 'bin' || kind === 'hex' ? 4 : 3;
+    if (kind === 'bin' || kind === 'hex') { return 4; }
+    if (kind === 'b32' || kind === 'b36') { return 0; }
+    return 3;
   }
 
   private valueText(kind: string): string {
@@ -186,18 +239,43 @@ export struct BasePage {
     return bitwiseOp(this.opId, first.value, second);
   }
 
-  private bitwiseValueText(kind: string): string {
+  /**
+   * 位运算结果的**纯值**（复制出去的就是它，不带显示分组）。
+   *
+   * `int32`/`be`/`le` 是对同一个 32 位结果的**解释**（补码、字节序），不参与运算：
+   * 有符号行可能带 `-`、字节行本来就带空格（那是**字节分隔符**，去掉反而语义不明）。
+   */
+  private bitwiseRaw(kind: string): string {
     const result: BitwiseResult = this.bitwise;
     if (!result.ok) { return ''; }
     if (kind === 'dec') { return result.value.toString(); }
     if (kind === 'hex') { return radixText(result.value, 16); }
-    return radixText(result.value, 2);
+    if (kind === 'bin') { return radixText(result.value, 2); }
+    if (kind === 'int32') { return signedInt32Text(result.value); }
+    if (kind === 'le') { return byteText(result.value, true); }
+    return byteText(result.value, false);
+  }
+
+  /**
+   * 显示用文本：十进制/十六进制/二进制/有符号都按 `groupSize()` 分组（只影响显示），
+   * **字节行不分组**——它的空格已经是字节分隔符（`FF FF FF FF`），再套一层分组只会更乱。
+   *
+   * 分组是**从右往左**的（`groupDigits()` 的口径）：`4294967295` → `4 294 967 295`、
+   * 有符号 `-2147483648` → `-2 147 483 648`（负号只占首位，不会被切开）。
+   */
+  private bitwiseDisplayText(kind: string): string {
+    const raw: string = this.bitwiseRaw(kind);
+    if (kind === 'be' || kind === 'le') { return raw; }
+    return groupDigits(raw, this.groupSize(kind));
   }
 
   private bitwiseValueLabel(kind: string): string {
     if (kind === 'dec') { return appText('base.decimal', this.english); }
     if (kind === 'hex') { return appText('base.hexadecimal', this.english); }
-    return appText('base.binary', this.english);
+    if (kind === 'bin') { return appText('base.binary', this.english); }
+    if (kind === 'int32') { return appText('base.signed-int32', this.english); }
+    if (kind === 'le') { return appText('base.bytes-little-endian', this.english); }
+    return appText('base.bytes-big-endian', this.english);
   }
 
   private bitwiseError(): string {
@@ -207,12 +285,26 @@ export struct BasePage {
     return result.ok ? '' : bitwiseParseError(result.error, this.english);
   }
 
-  /** 位运算结果行：同样只收常量 `kind`，值在函数体内现取。 */
+  /**
+   * 位运算结果行：与进制换算的结果行**同一版式**（小标签 + 值 + 行尾复制），
+   * 只收常量 `kind`，行内文字在函数体内现取。
+   *
+   * 此前这里**没有复制入口**（只有进制换算那侧有），位运算的结果只能手抄
+   * （2026-10-20 审计 §3.5「新增：位运算结果行的复制入口」，2026-10-22 补上）。
+   */
   @Builder private bitwiseValueRow(kind: string) {
     Row({ space: 12 }) {
-      Text(this.bitwiseValueLabel(kind)).fontSize(13).fontColor(ToolPalette.textMuted).layoutWeight(1)
-      Text(groupDigits(this.bitwiseValueText(kind), this.groupSize(kind)))
-        .fontSize(18).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary)
+      Column({ space: 2 }) {
+        Text(this.bitwiseValueLabel(kind)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+        Text(this.bitwiseDisplayText(kind)).fontSize(18).fontWeight(FontWeight.Medium)
+          .fontColor(ToolPalette.textPrimary).width('100%')
+      }.layoutWeight(1)
+      IconActionButton({
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+        a11yText: appText('action.copy', this.english) + this.bitwiseValueLabel(kind),
+        boxSize: 44, iconSize: 22, usable: this.bitwiseRaw(kind).length > 0,
+        onTap: () => this.onCopy(this.bitwiseRaw(kind))
+      })
     }.width('100%')
   }
 
@@ -265,70 +357,97 @@ export struct BasePage {
     return which + this.tr('，' + base.toString() + ' 进制', ', base ' + base.toString());
   }
 
+  /** 进制换算面板：输入框 + 输入进制 + 每个已登记进制各一行结果（或行内错误）。 */
+  @Builder private radixPanel() {
+    // 输入区（页面标题由外壳提供，「方式」行下面直接从输入框开始）
+    MaterialSurface({
+      supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+      corner: 16, interactive: true
+    }) {
+      TextInput({ text: this.input, placeholder: appText('base.enter-a-number', this.english) })
+        // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
+        .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+        .backgroundColor(Color.Transparent)
+        // 二/八/十进制给数字键盘；十六/三十二/三十六进制给普通键盘（要字母）。
+        .type(inputTypeOf(this.radixKeyboard(this.radixId)))
+        .onChange((value: string) => { this.input = value; }).height(52)
+    }
+    this.radixSelect()
+    MaterialSurface({
+      supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
+      lightEffect: true
+    }) {
+      Column({ space: 12 }) {
+        if (!this.parsedInput().ok) {
+          Text(this.inputError()).fontSize(15)
+            .fontColor(this.parsedInput().error === 'empty' ? ToolPalette.textMuted : ToolPalette.warning)
+            .width('100%')
+        } else {
+          // 每个已登记进制一行，顺序就是 `BASE_RADIXES`：四档常用进制 + 32/36。
+          // 这里**刻意逐个写常量 id**（不用 `ForEach`）：`@Builder` 只收常量参数，
+          // 把 id 从数据里算出来传进去会踩「值参数不随状态刷新」的坑。
+          this.valueRow('bin')
+          this.valueRow('oct')
+          this.valueRow('dec')
+          this.valueRow('hex')
+          this.valueRow('b32')
+          this.valueRow('b36')
+        }
+      }.padding(16).width('100%')
+    }
+  }
+
+  /**
+   * 位运算面板（32 位无符号）：操作数进制 + 两个操作数 + 运算 + 六行结果。
+   *
+   * 面板开头用一句弱化说明点出「32 位无符号」口径（与日期计算页各面板同一写法）：
+   * 顶部「方式」行已经写着「位运算」，这里不再重复一个同名标题。
+   * 结果六行 = 十进制（无符号）/ 有符号（int32）/ 十六进制 / 二进制 / 字节（大端）/ 字节（小端）：
+   * 后三类是**对同一结果的解释**（补码与字节序），不是另外的运算。
+   */
+  @Builder private bitwisePanel() {
+    Text(appText('base.operands-and-results-are', this.english))
+      .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+    // 操作数进制：与进制换算面板共用同一张 `BASE_RADIXES` 登记表（此前位运算只认十进制，
+    // 想算 `0xFF & 0x0F` 得先自己换算，2026-10-20 审计 §3.5②）。
+    OptionSelect({
+      label: appText('base.operand-base', this.english),
+      options: this.radixOptions(),
+      selectedIndex: radixIndex(this.operandRadix),
+      selectedText: this.radixLabel(this.operandRadix),
+      a11yText: appText('base.base-of-the-bitwise', this.english),
+      onSelected: (index: number): void => {
+        if (index >= 0 && index < BASE_RADIXES.length) { this.operandRadix = BASE_RADIXES[index].id; }
+      }
+    })
+    Row({ space: 8 }) {
+      this.operandInput('a')
+      this.operandInput('b')
+    }.width('100%')
+    this.opSelect()
+    if (this.bitwiseError().length > 0) {
+      Text(this.bitwiseError()).fontSize(15)
+        .fontColor(this.bitwise.error === 'empty' ? ToolPalette.textMuted : ToolPalette.warning)
+        .width('100%')
+    } else {
+      this.bitwiseValueRow('dec')
+      this.bitwiseValueRow('int32')
+      this.bitwiseValueRow('hex')
+      this.bitwiseValueRow('bin')
+      this.bitwiseValueRow('be')
+      this.bitwiseValueRow('le')
+    }
+  }
+
   build() {
     Column({ space: 14 }) {
-      // 输入区（页面标题由外壳提供，这里直接从输入框开始）
-      MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
-        corner: 16, interactive: true
-      }) {
-        TextInput({ text: this.input, placeholder: appText('base.enter-a-number', this.english) })
-          // 一键清除走系统取消按钮：有内容才显示，清空同样触发 `onChange('')`。
-          .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
-          .backgroundColor(Color.Transparent)
-          // 十进制/二进制/八进制给数字键盘，十六进制给普通键盘（要 A–F）。
-          .type(inputTypeOf(this.radixKeyboard(this.radixId)))
-          .onChange((value: string) => { this.input = value; }).height(52)
-      }
-      this.radixSelect()
-      MaterialSurface({
-        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface, corner: 16,
-        lightEffect: true
-      }) {
-        Column({ space: 12 }) {
-          if (!this.parsedInput().ok) {
-            Text(this.inputError()).fontSize(15)
-              .fontColor(this.parsedInput().error === 'empty' ? ToolPalette.textMuted : ToolPalette.warning)
-              .width('100%')
-          } else {
-            this.valueRow('bin')
-            this.valueRow('oct')
-            this.valueRow('dec')
-            this.valueRow('hex')
-          }
-        }.padding(16).width('100%')
-      }
-
-      Text(appText('base.bitwise-32-bit-unsigned', this.english))
-        .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
-      // 操作数进制：与上半部分的进制换算共用同一张 `BASE_RADIXES` 登记表（此前位运算只认十进制，
-      // 想算 `0xFF & 0x0F` 得先自己换算，2026-10-20 审计 §3.5②）。
-      OptionSelect({
-        label: appText('base.operand-base', this.english),
-        options: this.radixOptions(),
-        selectedIndex: radixIndex(this.operandRadix),
-        selectedText: this.radixLabel(this.operandRadix),
-        a11yText: appText('base.base-of-the-bitwise', this.english),
-        onSelected: (index: number): void => {
-          if (index >= 0 && index < BASE_RADIXES.length) { this.operandRadix = BASE_RADIXES[index].id; }
-        }
-      })
-      Row({ space: 8 }) {
-        this.operandInput('a')
-        this.operandInput('b')
-      }.width('100%')
-      this.opSelect()
-      if (this.bitwiseError().length > 0) {
-        Text(this.bitwiseError()).fontSize(15)
-          .fontColor(this.bitwise.error === 'empty' ? ToolPalette.textMuted : ToolPalette.warning)
-          .width('100%')
+      // 两块面板互斥：切换方式只改 `baseMode`，各自的输入与结果都留在页面上（切回来照旧）。
+      this.baseModeSelect()
+      if (this.baseMode === 'bitwise') {
+        this.bitwisePanel()
       } else {
-        this.bitwiseValueRow('dec')
-        this.bitwiseValueRow('hex')
-        this.bitwiseValueRow('bin')
+        this.radixPanel()
       }
-      Text(appText('base.operands-and-results-are', this.english))
-        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
     }.width('100%')
   }
 }

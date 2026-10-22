@@ -16,6 +16,15 @@ export class Anniversary {
   date: string = '';
   yearly: boolean = false;
   createdAt: number = 0;
+  /**
+   * 「提醒」开关（默认关）。
+   *
+   * 提醒走**系统本地通知**（`reminderAgentManager` 的 calendar reminder），不联网、不新增权限；开关与
+   * `reminderId` 由页面一起维护：`reminderEnabled` 为 false 时 `reminderId` 一定是 `-1`。
+   */
+  reminderEnabled: boolean = false;
+  /** 系统提醒的排程 id；`-1` = 当前没有已排程的提醒（关着、排程失败、或排程后落盘失败已撤销）。 */
+  reminderId: number = -1;
 }
 
 /** 条数上限：与界面上的提示文案、添加按钮的置灰门槛共用这一个常量。 */
@@ -43,7 +52,28 @@ export function newAnniversary(title: string, date: string, yearly: boolean, cre
   item.date = date;
   item.yearly = yearly;
   item.createdAt = createdAt;
+  // 新建条目默认「不提醒」：只有用户亲手点开铃铛才会排系统提醒。
+  item.reminderEnabled = false;
+  item.reminderId = -1;
   return item;
+}
+
+/**
+ * 复制一条纪念日并改写提醒字段（**新对象**，不改入参）。
+ *
+ * 页面侧 `items` 是普通类实例（没有 `@ObservedV2`），就地改字段不会触发刷新；统一走这个纯函数生成新对象、
+ * 再换掉数组，既能刷新界面、也让这段口径可被单测覆盖。
+ */
+export function withAnniversaryReminder(item: Anniversary, enabled: boolean, reminderId: number): Anniversary {
+  const copy: Anniversary = new Anniversary();
+  copy.id = item.id;
+  copy.title = item.title;
+  copy.date = item.date;
+  copy.yearly = item.yearly;
+  copy.createdAt = item.createdAt;
+  copy.reminderEnabled = enabled;
+  copy.reminderId = reminderId;
+  return copy;
 }
 
 // 把一条可能残缺/类型不对的原始记录归一成合法字段；非法值用空串/NaN 表示，由调用方逐条丢弃。
@@ -54,6 +84,11 @@ function normalizeAnniversary(entry: Anniversary, index: number): Anniversary {
   item.createdAt = typeof entry.createdAt === 'number' ? entry.createdAt : NaN;
   // 旧数据可能没有 yearly（undefined）或写成 1/0：统一按「严格为 true」归一成布尔。
   item.yearly = entry.yearly === true;
+  // 旧数据没有提醒字段（undefined）、或类型写错（"7"/1/null/NaN/负数）：一律回退 false / -1，
+  // **绝不因为这两个字段而丢掉整条**（与「overflow 保留」同一口径）。有限数字只取整、不改语义。
+  item.reminderEnabled = entry.reminderEnabled === true;
+  item.reminderId = typeof entry.reminderId === 'number' && Number.isFinite(entry.reminderId) &&
+    entry.reminderId >= 0 ? Math.floor(entry.reminderId) : -1;
   // 缺失 id 的条目按「创建时间 + 原始下标」补一个，避免多条空 id 在去重时互相吃掉。
   item.id = typeof entry.id === 'string' && entry.id.length > 0 ? entry.id : 'a' + item.createdAt + '-' + index;
   return item;
@@ -249,6 +284,154 @@ export function anniversaryCountText(item: Anniversary, today: string, english: 
   const years: number = next.getUTCFullYear() - target.getUTCFullYear();
   if (years <= 0) { return ''; }
   return english ? 'Anniversary #' + years.toString() : '第 ' + years.toString() + ' 周年';
+}
+
+// ---------------------------------------------------------------------------------------------
+// 纪念日提醒（纯逻辑部分）
+//
+// 提醒本身由 `services/SystemTools.scheduleAnniversaryReminder()` 排进系统（本地通知、不联网、
+// 不新增权限）；这里只负责「下一次该在哪一年的哪一天哪一刻提醒」与全部固定文案，因此可被单测加载。
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * 提醒时刻（本地时间 24 小时制）。
+ *
+ * 纪念日只存日期、没有时刻，所以提醒统一放在当天上午——太早会打扰、太晚就过了当天的意义。
+ * 服务层构造 `ReminderRequestCalendar` 时用的就是这个常量，**不要在任何地方再写一份 9:00**。
+ */
+export const ANNIVERSARY_REMINDER_HOUR: number = 9;
+export const ANNIVERSARY_REMINDER_MINUTE: number = 0;
+
+/** 「下一次提醒」的本地日期时间（年/月/日/时/分），供服务层直接构造 calendar reminder。 */
+export class ReminderDateTime {
+  year: number = 0;
+  month: number = 0;
+  day: number = 0;
+  hour: number = ANNIVERSARY_REMINDER_HOUR;
+  minute: number = ANNIVERSARY_REMINDER_MINUTE;
+}
+
+/**
+ * 下一次提醒的日期时间；没有可排的提醒时返回 `undefined`。
+ *
+ * 口径与列表完全一致（共用 `nextOccurrence()`）：`yearly` 取今年或明年的同一月日，2 月 29 日在平年
+ * 按 2 月 28 日；**一次性**条目就是它自己的那一天，已经过去则 `undefined`（系统不接受过去的时间）。
+ * 今天正好是纪念日时返回今天（不推到明年）。任何一侧日期无法解析都返回 `undefined`，不抛异常。
+ */
+export function nextReminderDate(entry: Anniversary, todayIso: string): ReminderDateTime | undefined {
+  const occurrence: string = nextOccurrence(entry.date, todayIso, entry.yearly);
+  if (occurrence.length === 0) { return undefined; }
+  const base: Date | undefined = parseDate(todayIso);
+  const target: Date | undefined = parseDate(occurrence);
+  if (base === undefined || target === undefined) { return undefined; }
+  if (target.getTime() < base.getTime()) { return undefined; }
+  const value: ReminderDateTime = new ReminderDateTime();
+  value.year = target.getUTCFullYear();
+  value.month = target.getUTCMonth() + 1;
+  value.day = target.getUTCDate();
+  value.hour = ANNIVERSARY_REMINDER_HOUR;
+  value.minute = ANNIVERSARY_REMINDER_MINUTE;
+  return value;
+}
+
+/** `ReminderDateTime` → 本机时区下的毫秒时间戳（用于判断这个时刻是否已经过去）。 */
+export function reminderDateTimeMillis(value: ReminderDateTime): number {
+  return new Date(value.year, value.month - 1, value.day, value.hour, value.minute, 0, 0).getTime();
+}
+
+/** 闰年判断（2 月 29 日的年重复要用它决定落 2/29 还是 2/28）。 */
+export function anniversaryLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+/**
+ * 下一次**仍在未来**的提醒时刻。
+ *
+ * 真机实测（2026-10-22）：`nextReminderDate()` 对「今天就是纪念日」返回**今天 09:00**，
+ * 而用户上午 10 点去开提醒时这个时刻**已经过去**，`publishReminder()` 直接失败——
+ * 界面只弹出笼统的「提醒设置失败」，用户完全不知道问题出在「今天 09:00 已过」。两种条目分开处理：
+ *
+ * - **年重复**：今天的 09:00 过去了就顺延到**下一年的同一天**（2 月 29 日在平年落 2 月 28 日，
+ *   与列表口径一致）——这是用户真正想要的下一次提醒；
+ * - **一次性**：已经过去就是没有下一次，返回 `undefined`，页面据此给专门的说明
+ *   （`anniversaryReminderPastText()`），而不是把它当成一次普通的失败。
+ */
+export function nextFutureReminderDate(entry: Anniversary, todayIso: string,
+  nowMs: number): ReminderDateTime | undefined {
+  const first: ReminderDateTime | undefined = nextReminderDate(entry, todayIso);
+  if (first === undefined) { return undefined; }
+  if (reminderDateTimeMillis(first) > nowMs) { return first; }
+  if (!entry.yearly) { return undefined; }
+  const nextYear: number = first.year + 1;
+  const day: number = first.month === 2 && first.day === 29 && !anniversaryLeapYear(nextYear)
+    ? 28 : first.day;
+  const value: ReminderDateTime = new ReminderDateTime();
+  value.year = nextYear;
+  value.month = first.month;
+  value.day = day;
+  value.hour = first.hour;
+  value.minute = first.minute;
+  return value;
+}
+
+/** 一次性的纪念日已经过去、没有下一次可排时的说明（**不是**失败原因，而是结论与下一步）。 */
+export function anniversaryReminderPastText(english: boolean): string {
+  return english
+    ? 'That date has already passed, so this one-off anniversary has no reminder left to schedule. ' +
+      'Turn on “repeats yearly” to get next year’s reminder.'
+    : '这个纪念日的日期（当天 09:00）已经过去，一次性纪念日没有下一次可排。打开「每年重复」即可排到下一年的提醒。';
+}
+export function reminderDateText(value: ReminderDateTime | undefined): string {
+  if (value === undefined) { return ''; }
+  return value.year.toString().padStart(4, '0') + '-' + value.month.toString().padStart(2, '0') + '-' +
+    value.day.toString().padStart(2, '0') + ' ' + value.hour.toString().padStart(2, '0') + ':' +
+    value.minute.toString().padStart(2, '0');
+}
+
+/** 开关的标题（列表行里不塞标签文字，这里主要给说明区与无障碍文案共用）。 */
+export function anniversaryReminderTitle(english: boolean): string {
+  return english ? 'Anniversary reminder' : '纪念日提醒';
+}
+
+/**
+ * 开关下方的说明（中英各一份）。
+ *
+ * 必须写清三件事：**什么时候提醒**（当天 `ANNIVERSARY_REMINDER_HOUR` 点）、**由系统本地通知发出、
+ * 不联网、不新增权限**、以及**只在本机生效**（换机/重装不会跟着走）。
+ */
+export function anniversaryReminderNoteText(english: boolean): string {
+  const time: string = ANNIVERSARY_REMINDER_HOUR.toString().padStart(2, '0') + ':' +
+    ANNIVERSARY_REMINDER_MINUTE.toString().padStart(2, '0');
+  return english
+    ? 'Switch the bell on a row to get a reminder at ' + time + ' on the day. Reminders are local system ' +
+      'notifications: no network and no new permissions, and they stay on this device only.'
+    : '点每行的铃铛即可开启提醒，到当天 ' + time + ' 由系统本地通知发出：提醒不联网、不新增权限，' +
+      '且只在本机生效。';
+}
+
+/** 开关的无障碍文字：读屏要先听到「这是什么」再听到「当前是开还是关」。 */
+export function anniversaryReminderA11yText(enabled: boolean, english: boolean): string {
+  if (english) { return 'Anniversary reminder, ' + (enabled ? 'on' : 'off'); }
+  return '纪念日提醒，' + (enabled ? '已开启' : '已关闭');
+}
+
+export function anniversaryReminderOnText(english: boolean): string {
+  return english ? 'Reminder set' : '已设置提醒';
+}
+
+export function anniversaryReminderOffText(english: boolean): string {
+  return english ? 'Reminder turned off' : '已关闭提醒';
+}
+
+export function anniversaryReminderFailedText(english: boolean): string {
+  return english ? 'Could not set the reminder.' : '提醒设置失败。';
+}
+
+/** 取消失败要如实说：条目可以删，但那条系统提醒可能还会响，不能让用户以为删干净了。 */
+export function anniversaryReminderCancelFailedText(english: boolean): string {
+  return english
+    ? 'Could not cancel the system reminder; it may still fire.'
+    : '未能取消系统提醒，它可能仍会响。';
 }
 
 /** 同 id 替换（保持原位置），否则追加；最后截断到上限。 */

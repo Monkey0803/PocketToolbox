@@ -23,6 +23,10 @@ import { localTimeZoneId, timeZoneOffsetMinutes } from '../services/SystemTools'
 import { lunarOf } from '../services/LunarCalendar';
 import { loadHolidayTable, holidayDataDownloaded } from '../services/HolidayData';
 import { holidayCoverageText } from '../model/HolidayIcs';
+// 节气与农历传统节日：随包数据包（构建期生成，见 tools/fetch-solar-terms.mjs），也可在线更新。
+import { SolarTermTable, lunarFestivalLabel, packRangeText, solarTermLabel } from '../model/SolarTerms';
+import { netCacheAgeText } from '../model/NetCache';
+import { loadSolarTermTable, solarPackDownloaded } from '../services/DataPackService';
 
 const WEEKDAY_LABELS_ZH: string[] = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const WEEKDAY_LABELS_EN: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -59,6 +63,10 @@ export struct DatesPage {
   @Local holidayDownloaded: boolean = false;
   /** 数据是否已载入完成（载入前不宣称「仅排除周末」，避免短暂显示错误的结论）。 */
   @Local holidayLoaded: boolean = false;
+  /** 节气与农历节日表（随包数据包；离线可用，坏数据或缺失时为「未加载」→ 不显示相关行）。 */
+  @Local solarTermTable: SolarTermTable = new SolarTermTable();
+  /** 节气数据是否来自在线更新（决定「随包数据 / 已在线更新」的标注）。 */
+  @Local solarPackUpdated: boolean = false;
   /**
    * 「以哪个时区的今天为准」（2026-10-21，C 项的自定义时区）。
    *
@@ -98,6 +106,7 @@ export struct DatesPage {
     this.localZoneId = localTimeZoneId();
     this.refreshLunar();
     this.refreshHolidays();
+    this.refreshSolarPack();
   }
 
   private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
@@ -200,8 +209,58 @@ export struct DatesPage {
     this.holidayLoaded = true;
   }
 
+  /**
+   * 载入节气/农历节日数据包。
+   *
+   * 与节假日数据同一套：默认用随包那份，用户在线更新过就优先用沙箱里下载的那份；坏数据或文件缺失
+   * 时 `loaded === false`，界面**不显示任何节气行、也不显示覆盖年份**（而不是显示空白或猜一个日期）。
+   */
+  private async refreshSolarPack(): Promise<void> {
+    try {
+      this.solarTermTable = await loadSolarTermTable(this.ctx());
+    } catch (_) {
+      this.solarTermTable = new SolarTermTable();
+    }
+    try {
+      this.solarPackUpdated = solarPackDownloaded(this.ctx());
+    } catch (_) {
+      this.solarPackUpdated = false;
+    }
+  }
+
   private lunarText(): string {
     return this.lunarDate === undefined ? '' : lunarDateText(this.lunarDate, this.english);
+  }
+
+  /** 节气行（`立冬` / `Start of Winter`）；当天不是节气返回空串，界面跳过这一行。 */
+  private solarTermText(): string {
+    const label: string = solarTermLabel(this.solarTermTable, this.firstDate.trim(), this.english);
+    if (label.length === 0) { return ''; }
+    return (this.english ? 'Solar term: ' : '节气：') + label;
+  }
+
+  /** 农历传统节日行（`春节` / `Spring Festival`）；当天不是节日返回空串。 */
+  private festivalText(): string {
+    const label: string = lunarFestivalLabel(this.solarTermTable, this.firstDate.trim(), this.english);
+    if (label.length === 0) { return ''; }
+    return (this.english ? 'Festival: ' : '传统节日：') + label;
+  }
+
+  /**
+   * 数据包来源与覆盖年份（一行小字）：`覆盖年份 2020–2040 · 数据时间 2026-10-22（今天）`。
+   *
+   * 覆盖年份来自数据本身（与节假日页同一口径），用户看不出数据管到哪一年时会把「查不到」
+   * 误当成「没有这个节气」。数据没加载时返回空串。
+   */
+  private packNoteText(): string {
+    const range: string = packRangeText(this.solarTermTable, this.english);
+    if (range.length === 0) { return ''; }
+    const age: string = this.solarTermTable.dataDate.length > 0
+      ? netCacheAgeText(this.solarTermTable.dataDate, todayDate(), this.english) : '';
+    const source: string = this.solarPackUpdated
+      ? (this.english ? 'Updated online' : '已在线更新')
+      : (this.english ? 'Bundled data' : '随包数据');
+    return age.length > 0 ? range + ' · ' + source + ' · ' + age : range + ' · ' + source;
   }
 
   // 星座只由公历「月-日」决定（固定日期区间口径，与年份无关），因此直接由 firstDate 现算，
@@ -698,6 +757,17 @@ export struct DatesPage {
               .fontSize(22).fontWeight(FontWeight.Bold).width('100%')
             Text(appText('dates.lunar-date-computed-on', this.english))
               .fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            // 节气与农历节日来自随包数据包（也可在线更新，见 `services/DataPackService.ets`）：
+            // 不是节气/节日就整行不显示，**绝不显示占位**——「今天不是节气」是正常结论。
+            if (this.solarTermText().length > 0) {
+              Text(this.solarTermText()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            }
+            if (this.festivalText().length > 0) {
+              Text(this.festivalText()).fontSize(15).fontColor(ToolPalette.textSecondary).width('100%')
+            }
+            if (this.packNoteText().length > 0) {
+              Text(this.packNoteText()).fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
+            }
           }.padding(16).width('100%')
         }
       } else if (this.dateMode === 'zodiac') {

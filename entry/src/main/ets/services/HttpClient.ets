@@ -1,7 +1,11 @@
 /**
- * 全工程唯一的 HTTP 出口（联网工具「状态与响应头」用）。
+ * 全工程唯一的 HTTP 出口（联网工具「状态与响应头」、汇率、节假日、数据包、链接信息、网络查询都用它）。
  *
  * 设计要点：
+ * - **调用前必须过 `services/NetGate.ets` 的门控**：总开关/单项开关/仅 Wi-Fi 三层判据在那边；
+ *   本文件不认识偏好，只负责「真的放行之后把这一次请求发对、把结果收干净」。
+ * - **只发 JSON**：`POST` 的正文是字符串 JSON，不做表单与 multipart（见 `httpPostSpec()`）。
+ * - **二进制响应**用 `spec.binary` 显式声明，结果落在 `HttpOutcome.bytes`（此时 `body` 保持空串）。
  * - **只有用户显式点按钮时才会被调用**：本文件不注册任何监听、不在启动或后台自行发请求，
  *   也不做任何静默重试；一次调用对应一次请求。
  * - **强制 HTTPS**：`http://` 与非 `https://` 的输入直接返回 `invalid`，不发起任何连接
@@ -33,7 +37,7 @@ export const APP_USER_AGENT: string = 'PocketToolbox/1.0 (HarmonyOS NEXT)';
 export class HttpRequestSpec {
   /** 必须是 `https://` 开头的绝对网址。 */
   url: string = '';
-  /** `GET` / `HEAD`（默认 `GET`）。 */
+  /** `GET` / `HEAD` / `OPTIONS` / `POST` / `PUT` / `DELETE`（默认 `GET`）。 */
   method: string = 'GET';
   /** 最多跟随的重定向次数：0 表示「只看响应头」不跟随。 */
   maxRedirects: number = 0;
@@ -41,6 +45,24 @@ export class HttpRequestSpec {
   timeoutMs: number = DEFAULT_TIMEOUT_MS;
   /** 截断提示行是否用英文（跟随界面语言；默认中文，与 `truncateLines` 的默认值一致）。 */
   english: boolean = false;
+  /** 请求体（`POST`/`PUT` 用；放在这里而不是 `Object`，避免 ArkTS 对动态对象的容忍度问题）。 */
+  body: string = '';
+  /** 请求体的 `Content-Type`；为空时按 `application/json` 处理（本应用只发 JSON）。 */
+  contentType: string = '';
+  /**
+   * 额外请求头，每项写成 `'Key: value'`。
+   *
+   * 用字符串数组而不是 `Record`：`Record` 作为**类字段**在 ArkTS 上的对象字面量初始化限制较多，
+   * 而调用点本来就只有一两行（例如 RDAP 的 `Accept: application/rdap+json`）。
+   */
+  headerLines: string[] = [];
+  /**
+   * 响应体是否按二进制取（`ArrayBuffer`）。
+   *
+   * 为真时 `HttpOutcome.body` 保持空串、结果在 `HttpOutcome.bytes` 上——两者**只填一个**，
+   * 这样调用方不会误把「二进制没解析」当成「响应体是空的」。
+   */
+  binary: boolean = false;
 }
 
 /**
@@ -58,6 +80,25 @@ export function httpGetSpec(url: string, timeoutMs: number, maxRedirects: number
   return spec;
 }
 
+/**
+ * `POST` JSON 请求的便捷构造（与 `httpGetSpec()` 同一取舍：用 `new` 再逐字段赋值）。
+ *
+ * 本应用只发 JSON：`Content-Type` 固定为 `application/json`（除非调用点显式给了别的），
+ * 不做表单、不做 multipart——那两类都需要把用户内容编码进去，属于隐私声明要单独过的另一件事。
+ */
+export function httpPostSpec(url: string, jsonBody: string, timeoutMs: number,
+  english: boolean = false): HttpRequestSpec {
+  const spec: HttpRequestSpec = new HttpRequestSpec();
+  spec.url = url;
+  spec.method = 'POST';
+  spec.body = jsonBody;
+  spec.contentType = 'application/json';
+  spec.timeoutMs = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
+  spec.maxRedirects = 0;
+  spec.english = english;
+  return spec;
+}
+
 /** 一次 HTTP 请求的结果。`error` 取值只可能是 `''`/`offline`/`timeout`/`http`/`invalid`/`https`/`parse`。 */
 export class HttpOutcome {
   /** 是否拿到响应；为 true 时 `error` 一定为空串。 */
@@ -66,8 +107,10 @@ export class HttpOutcome {
   error: string = '';
   /** HTTP 状态码；出错时为 0。 */
   status: number = 0;
-  /** 响应体（已按 `expectDataType: STRING` 取回；超长时被截断）。 */
+  /** 响应体（已按 `expectDataType: STRING` 取回；超长时被截断）。`binary` 请求下恒为空串。 */
   body: string = '';
+  /** 二进制响应体（`spec.binary` 为真时才有值；文本请求下恒为 `undefined`）。 */
+  bytes: ArrayBuffer | undefined = undefined;
   /** 响应体是否因超过 `MAX_BODY_BYTES` 被截断。 */
   bodyTruncated: boolean = false;
   /** 整理好的响应头行（`Key: value`，已排序并截断到 `HEADER_MAX` 行）。 */
@@ -81,19 +124,40 @@ function requestMethod(method: string): http.RequestMethod {
   const methods: Record<string, http.RequestMethod> = {
     'GET': http.RequestMethod.GET,
     'HEAD': http.RequestMethod.HEAD,
-    'OPTIONS': http.RequestMethod.OPTIONS
+    'OPTIONS': http.RequestMethod.OPTIONS,
+    'POST': http.RequestMethod.POST,
+    'PUT': http.RequestMethod.PUT,
+    'DELETE': http.RequestMethod.DELETE
   };
   const upper: string = method.trim().toUpperCase();
   const found: http.RequestMethod | undefined = methods[upper];
   return found === undefined ? http.RequestMethod.GET : found;
 }
 
-/** 请求头：应用 UA + 常见接受类型。先在局部 `Record<string, string>` 上赋值再作为 `Object` 传入。 */
-function requestHeaders(): Object {
+/**
+ * 请求头：应用 UA + 常见接受类型，再叠加 `spec.headerLines` 里的自定义头与 `Content-Type`。
+ *
+ * 自定义头**覆盖**同名默认头（`Record` 的下标赋值即覆盖），这样调用点可以改 `Accept`；
+ * 先冒号拆分的写法与 `headerLinesOf()` 的输出格式对称（`'Key: value'`），没有冒号的行直接忽略。
+ */
+function requestHeaders(spec: HttpRequestSpec): Object {
   const headers: Record<string, string> = {
     'User-Agent': APP_USER_AGENT,
     'Accept': '*/*'
   };
+  for (let index: number = 0; index < spec.headerLines.length; index++) {
+    const line: string = spec.headerLines[index];
+    const colon: number = line.indexOf(':');
+    if (colon <= 0) { continue; }
+    const key: string = line.substring(0, colon).trim();
+    const value: string = line.substring(colon + 1).trim();
+    if (key.length === 0) { continue; }
+    headers[key] = value;
+  }
+  const hasBody: boolean = spec.body.length > 0;
+  if (hasBody) {
+    headers['Content-Type'] = spec.contentType.length > 0 ? spec.contentType : 'application/json';
+  }
   return headers as Object;
 }
 
@@ -216,7 +280,7 @@ export async function httpRequest(spec: HttpRequestSpec): Promise<HttpOutcome> {
     ? spec.timeoutMs : DEFAULT_TIMEOUT_MS;
   const redirects: number = Number.isFinite(spec.maxRedirects) && spec.maxRedirects > 0
     ? Math.floor(spec.maxRedirects) : 0;
-  const headers: Object = requestHeaders();
+  const headers: Object = requestHeaders(spec);
   const options: http.HttpRequestOptions = {
     method: requestMethod(spec.method),
     header: headers,
@@ -225,8 +289,13 @@ export async function httpRequest(spec: HttpRequestSpec): Promise<HttpOutcome> {
     usingCache: false,
     maxRedirects: redirects,
     maxLimit: MAX_BODY_BYTES,
-    expectDataType: http.HttpDataType.STRING
+    // 二进制请求按 ArrayBuffer 取：`expectDataType` 决定 `response.result` 的类型，
+    // 我们只在这里选一次，下游按 `outcome.bytes` / `outcome.body` 哪个有值来判断。
+    expectDataType: spec.binary ? http.HttpDataType.ARRAY_BUFFER : http.HttpDataType.STRING
   };
+  if (spec.body.length > 0) {
+    options.extraData = spec.body;
+  }
 
   let request: http.HttpRequest | undefined = undefined;
   const timeoutState: TimeoutState = new TimeoutState();
@@ -251,6 +320,14 @@ export async function httpRequest(spec: HttpRequestSpec): Promise<HttpOutcome> {
     outcome.error = '';
     outcome.headerLines = headerLinesOf(response.header, spec.english);
     const raw: string | Object | ArrayBuffer = response.result;
+    if (spec.binary) {
+      // 二进制：只认 `ArrayBuffer`。系统按别的类型给回来时保持 `bytes === undefined`——
+      // 调用方据此判「没拿到二进制内容」，而不是拿到一个被强制转成字符串的乱码。
+      outcome.bytes = raw instanceof ArrayBuffer ? raw : undefined;
+      outcome.body = '';
+      outcome.bodyTruncated = false;
+      return outcome;
+    }
     const text: string = typeof raw === 'string' ? raw : '';
     if (utf8ByteLength(text) > MAX_BODY_BYTES) {
       outcome.body = clampToBytes(text, MAX_BODY_BYTES);

@@ -12,7 +12,7 @@
 
 import { LocalData } from '../model/LocalData';
 import { FxParse, FxTable, parseFxPayload, parseFxCache, serializeFxTable } from '../model/FxTools';
-import { httpRequest, HttpRequestSpec, HttpOutcome } from './HttpClient';
+import { httpRequest, httpGetSpec, HttpRequestSpec, HttpOutcome } from './HttpClient';
 
 /** 本机缓存键：`serializeFxTable()` 写出的单个 JSON 字符串。 */
 export const FX_CACHE_KEY: string = 'fx_rates';
@@ -69,15 +69,9 @@ export async function fetchFxRates(base: string, now: number): Promise<FxFetchOu
   for (let index: number = 0; index < FX_SOURCES.length; index++) {
     let outcome: HttpOutcome;
     try {
-      const spec: HttpRequestSpec = {
-        url: FX_SOURCES[index] + code,
-        method: 'GET',
-        // ArkTS 的对象字面量必须把类的字段写全，这里显式给出「不跟随重定向」。
-        maxRedirects: 0,
-        timeoutMs: 5000,
-        // 汇率快照不展示响应头，截断提示用不到语言。
-        english: false
-      };
+      // 用 `httpGetSpec()` 而不是对象字面量：`HttpRequestSpec` 的字段会增加（POST/二进制/自定义头），
+      // 字面量必须写全所有字段，加一个字段就会让所有调用点跟着编不过。
+      const spec: HttpRequestSpec = httpGetSpec(FX_SOURCES[index] + code, 5000, 0);
       outcome = await httpRequest(spec);
     } catch (_) {
       // 请求本身抛出（权限缺失、连接中断等）与 `offline` 同一处理。

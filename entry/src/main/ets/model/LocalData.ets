@@ -50,7 +50,12 @@ export const LOCAL_KEYS: string[] = [
   'doc_scan_state',
   // 证件照的上次设置（`model/IdPhoto.ets` 的 `encodeIdPhotoState()`：规格/自定义毫米/底色/相纸/裁切参考线）。
   // 与 `units_state`/`doc_scan_state` 同一口径：只存登记表 id 与界内整数，读取时逐字段校验、非法回退默认。
-  'id_photo_state'
+  'id_photo_state',
+  // 联网偏好（`model/NetPolicy.ets` 的 `serializeNetPrefs()`：总开关 / 仅 Wi-Fi / 逐项开关）。
+  // 登记表驱动，读取时按 `NET_ACTIONS` 校验动作 id、非法回退默认；清除本机数据必须一起复位。
+  // 数据包/汇率/节假日这些**联网缓存**不在这里：它们的正文是沙箱文件（`services/DataPackService.ets`
+  // 与 `services/HolidayData.ets`），设置页的「清除联网缓存」专门删它们。
+  'net_prefs'
 ];
 
 /** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */

@@ -137,7 +137,11 @@ export const TOOL_META: ToolMeta[] = [
   new ToolMeta('anniversary', '纪念日', 'Anniversaries', 'time',
     ['纪念日', 'jnr', '倒数日', 'anniversary', '还有几天', '数日子']),
   new ToolMeta('net', '网络工具', 'Network tools', 'system',
-    ['dns', 'wlgj', '域名解析', 'ping', '延迟', '端口', '响应头', 'http', '短链', 'port'])
+    ['dns', 'wlgj', '域名解析', 'ping', '延迟', '端口', '响应头', 'http', '短链', 'port']),
+  // 网络查询（第 26 个）：IP 归属地 / 域名 WHOIS(RDAP) / TLS 证书。关键词覆盖「whois/rdap/证书/ssl」
+  // 与拼音首字母，标题里只有「网络查询」四个字，不补关键词就搜不到。
+  new ToolMeta('netinfo', '网络查询', 'Network lookup', 'system',
+    ['ip', 'whois', 'rdap', 'wlcx', '归属地', '证书', 'ssl', 'tls', '域名注册', 'certificate'])
 ];
 
 /** 全部工具 id，顺序即工具网格顺序。 */

@@ -12,6 +12,8 @@ import { CATEGORIES, UnitCategory, UnitDef, PRECISION_OPTIONS, DEFAULT_PRECISION
 import { FxCurrency, FxTable, FX_CURRENCIES, FX_DEFAULT_BASE, fxDataAgeText,
   fxErrorText, convertFx, mergeFxTable, formatFxAmount } from '../model/FxTools';
 import { FxFetchOutcome, fetchFxRates, loadCachedFx, saveCachedFx } from '../services/FxService';
+import { NetGateResult, allowNet } from '../services/NetGate';
+import { netGateReasonText } from '../model/NetPolicy';
 
 /**
  * 单位换算页。
@@ -316,6 +318,20 @@ export struct UnitsPage {
   /** 用户显式点击「更新汇率」：联网取一次，成功才写缓存；失败沿用上次缓存并 toast。 */
   private async updateRates(): Promise<void> {
     if (this.fxLoading) { return; }
+    const store: LocalData | undefined = this.data;
+    /**
+     * **联网前先过门控**（`services/NetGate.ets`）：总开关、`fx.rates` 单项开关、仅 Wi-Fi 三层判据。
+     *
+     * 存储还没打开（`data === undefined`）时无法读出用户偏好，按登记表默认值放行——这是启动期的
+     * 极短窗口，且此时用户也点不到这个按钮；真正被用户关掉的情况一定读得到偏好。
+     */
+    if (store !== undefined) {
+      const gate: NetGateResult = await allowNet(store, 'fx.rates');
+      if (!gate.allowed) {
+        this.onStatus(netGateReasonText(gate.reason, this.english));
+        return;
+      }
+    }
     this.fxLoading = true;
     const base: string = this.currencyCode(this.fromUnit);
     let outcome: FxFetchOutcome;
@@ -340,7 +356,6 @@ export struct UnitsPage {
     const merged: FxTable = mergeFxTable(this.fxTable, outcome.table);
     this.fxTable = merged;
     this.fxError = '';
-    const store: LocalData | undefined = this.data;
     if (store !== undefined) {
       try {
         await saveCachedFx(store, merged);

@@ -1,6 +1,7 @@
 import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
+import { FIELD_INPUT_HEIGHT, OPERATOR_SLOT_WIDTH, SUFFIX_SLOT_WIDTH, FieldSlot } from './FieldSlot';
 import { IconActionButton } from './IconActionButton';
 import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
@@ -60,6 +61,12 @@ export struct CalculatorPage {
   @Local splitAmount: string = '100';
   @Local splitPeople: string = '3';
   @Local splitTip: string = '0';
+
+  /**
+   * 输入框高度、运算符槽宽度、单位槽宽度都来自 `component/FieldSlot.ets` 的共用几何
+   * （2026-10-22 用户截图报障后模拟器实测：图标与「%」恒比输入框中线高约 11 vp，
+   * 且带 `%` 的行会少一个槽位、分栏与其它行不一致）。这里不再各写一份常量。
+   */
 
   /**
    * 当前计算方式下**第一条输入错误**的中英文案（没有错误返回空串）。
@@ -230,9 +237,35 @@ export struct CalculatorPage {
           .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
           .backgroundColor(Color.Transparent)
           .type(inputTypeOf(this.inputKeyboard(kind)))
-          .onChange((value: string) => this.setInput(kind, value)).height(52)
+          .onChange((value: string) => this.setInput(kind, value)).height(FIELD_INPUT_HEIGHT)
       }
     }.width('100%')
+  }
+
+  /**
+   * 一行两列里的**一列输入框**：`inputField` 放进 `layoutWeight(1)` 的普通 Column。
+   * 运算符槽与「%」槽也用同样的「空标签行 + 同高控件」结构，四列才能对齐（见 `FieldSlot`）。
+   */
+  @Builder private fieldColumn(kind: string, placeholder: string) {
+    Column() {
+      this.inputField(kind, placeholder)
+    }.layoutWeight(1)
+  }
+
+  /**
+   * 运算符槽的无障碍文案：**只按常量 `kind` 取**。
+   *
+   * 四句固定文案刻意留在这个函数里（而不是把取值结果当参数传进 `@Builder`）：
+   * ① 值参数不随状态刷新（切换语言不会重取）；② 一致性检查第 16 项是**正则扫源码文本**判断 id 有没有人用，
+   * 把 id 藏在 `@Builder` 的参数里，那四个 id 会被判成「登记了但没人用」的僵尸条目（2026-10-22 被门禁抓回）。
+   * **注意**：那条检查连注释一起扫，所以注释里也**不要**写出「函数名 + 括号 + 带引号的 id」这种字样，
+   * 否则会被当成一个真的使用点（本轮就因此在注释里造出一个不存在的 id，又被门禁抓了一次）。
+   */
+  private operatorA11yText(kind: string): string {
+    if (kind === 'multiply') { return appText('calc.multiply', this.english); }
+    if (kind === 'divide') { return appText('calc.divide', this.english); }
+    if (kind === 'plusMinus') { return appText('calc.plus-or-minus', this.english); }
+    return appText('calc.becomes', this.english);
   }
 
   // ---------- 各类型的结果文本（供结果卡与复制共用）----------
@@ -544,58 +577,56 @@ export struct CalculatorPage {
           'A price factor of 0 cannot be reversed; when the final price is higher than the original, the ' +
           'factor exceeds 10 and the card says how much more. Amounts and price factors allow two decimals.')
       } else if (this.calcMode === 'percentage') {
+        // 本段的四行都是「两列输入 + 中间运算符（+ 右端可选的 %）」：四行共用同一套槽位结构
+        // （`fieldColumn()` + `FieldSlot`）与 `VerticalAlign.Top`，
+        // 所以标签、输入框、运算符、百分号各自对齐成竖线（2026-10-22 修）。
         this.sectionTitle('求一个数的百分之几', 'Find a percentage of a number')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('percentBase', '100')
-          }.layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.multiply')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(appText('calc.multiply', this.english))
-          Column() {
-            this.inputField('percentRate', '20')
-          }.layoutWeight(1)
-          Text('%').fontSize(18)
-        }.width('100%')
+          this.fieldColumn('percentBase', '100')
+          FieldSlot({
+            slotWidth: OPERATOR_SLOT_WIDTH, icon: $r('sys.symbol.multiply'),
+            a11yText: this.operatorA11yText('multiply')
+          })
+          this.fieldColumn('percentRate', '20')
+          FieldSlot({ slotWidth: SUFFIX_SLOT_WIDTH, text: '%' })
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('percentOf')
 
         this.sectionTitle('求部分占整体的百分比', 'Find a part as a percentage of the whole')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('ratioPart', '25')
-          }.layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.divide_square_fill')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(appText('calc.divide', this.english))
-          Column() {
-            this.inputField('ratioWhole', '100')
-          }.layoutWeight(1)
-        }.width('100%')
+          this.fieldColumn('ratioPart', '25')
+          FieldSlot({
+            slotWidth: OPERATOR_SLOT_WIDTH, icon: $r('sys.symbol.divide_square_fill'),
+            a11yText: this.operatorA11yText('divide')
+          })
+          this.fieldColumn('ratioWhole', '100')
+          // 这一行不显示百分号，但**必须占住同一个槽位**，否则它会比上下两行宽 35 px、运算符右移
+          FieldSlot({ slotWidth: SUFFIX_SLOT_WIDTH })
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('percentRatio')
 
         this.sectionTitle('算上增加或减少的百分比', 'Apply an increase or a decrease')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('adjustBase', '100')
-          }.layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.arrow_left_arrow_right')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(appText('calc.plus-or-minus', this.english))
-          Column() {
-            this.inputField('adjustRate', '10')
-          }.layoutWeight(1)
-          Text('%').fontSize(18)
-        }.width('100%')
+          this.fieldColumn('adjustBase', '100')
+          FieldSlot({
+            slotWidth: OPERATOR_SLOT_WIDTH, icon: $r('sys.symbol.arrow_left_arrow_right'),
+            a11yText: this.operatorA11yText('plusMinus')
+          })
+          this.fieldColumn('adjustRate', '10')
+          FieldSlot({ slotWidth: SUFFIX_SLOT_WIDTH, text: '%' })
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('percentAdjust')
 
         this.sectionTitle('从原值到新值变化了百分之几', 'Find the percentage change between two values')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('deltaFrom', '100')
-          }.layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.arrow_right')).fontSize(18).fontColor([ToolPalette.textPrimary])
-            .accessibilityText(appText('calc.becomes', this.english))
-          Column() {
-            this.inputField('deltaTo', '120')
-          }.layoutWeight(1)
-        }.width('100%')
+          this.fieldColumn('deltaFrom', '100')
+          FieldSlot({
+            slotWidth: OPERATOR_SLOT_WIDTH, icon: $r('sys.symbol.arrow_right'),
+            a11yText: this.operatorA11yText('becomes')
+          })
+          this.fieldColumn('deltaTo', '120')
+          FieldSlot({ slotWidth: SUFFIX_SLOT_WIDTH })
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('percentDelta')
         this.hint('增减百分比以基数为准，一次给出加后与减后；百分比变化以原值为基数，负数表示下降。',
           'The increase/decrease result applies the rate to the base in both directions; the change result ' +
@@ -603,24 +634,16 @@ export struct CalculatorPage {
       } else if (this.calcMode === 'markup') {
         this.sectionTitle('按加价率定价', 'Set a price from a markup rate')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('costPrice', '80')
-          }.layoutWeight(1)
-          Column() {
-            this.inputField('markupRate', '25')
-          }.layoutWeight(1)
-        }.width('100%')
+          this.fieldColumn('costPrice', '80')
+          this.fieldColumn('markupRate', '25')
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('markupPrice')
 
         this.sectionTitle('按成本与售价算毛利', 'Work out the margin from cost and price')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('marginCost', '80')
-          }.layoutWeight(1)
-          Column() {
-            this.inputField('marginPrice', '100')
-          }.layoutWeight(1)
-        }.width('100%')
+          this.fieldColumn('marginCost', '80')
+          this.fieldColumn('marginPrice', '100')
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('margin')
         this.hint('加价率按成本算（利润 ÷ 成本），毛利率按售价算（利润 ÷ 售价），两者不是同一个数；' +
           '成本高于售价时比率为负，表示亏本。金额最多两位小数。',
@@ -629,13 +652,9 @@ export struct CalculatorPage {
       } else if (this.calcMode === 'split') {
         this.inputField('splitAmount', '100.00')
         Row({ space: 8 }) {
-          Column() {
-            this.inputField('splitPeople', '2')
-          }.layoutWeight(1)
-          Column() {
-            this.inputField('splitTip', '0')
-          }.layoutWeight(1)
-        }.width('100%')
+          this.fieldColumn('splitPeople', '2')
+          this.fieldColumn('splitTip', '0')
+        }.width('100%').alignItems(VerticalAlign.Top)
         this.resultCard('splitShares')
         this.hint('金额与小费比例最多两位小数；小费为 0–100%。余下的分按人数分配，结果沿用输入金额的货币单位。',
           'Amounts and tip rates allow two decimal places; tip is 0–100%. Remaining cents are assigned to ' +

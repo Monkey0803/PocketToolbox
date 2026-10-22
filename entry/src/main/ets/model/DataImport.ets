@@ -104,6 +104,7 @@ export function importKeyLabel(key: string, english: boolean): string {
   if (key === 'compass_declination') { return english ? 'compass declination' : '磁偏角'; }
   if (key === 'level_unit') { return english ? 'level unit' : '水平仪单位'; }
   if (key === 'level_tolerance') { return english ? 'level tolerance' : '水平仪容差'; }
+  if (key === 'net_prefs') { return english ? 'networking preferences' : '联网偏好'; }
   if (key === 'schema') { return english ? 'data version' : '数据版本'; }
   return key;
 }

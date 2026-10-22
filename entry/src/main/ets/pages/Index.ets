@@ -20,11 +20,17 @@ import { LayoutMetrics, layoutMetrics, gridColumnsTemplate, maxGridColumns, reso
 import { appText } from '../model/AppStrings';
 import { DEFAULT_GRID_COLUMNS, GRID_COLUMNS_AUTO, gridColumnCount, gridColumnIdForColumns,
   gridColumnLabel, parseGridColumns, serializeGridColumns } from '../model/GridColumns';
-// 文档扫描的纯逻辑：设置登记表/状态解析、结果码文案、结果页操作（页删除与追加）。
+// 文档扫描的纯逻辑：设置登记表/状态解析、结果码文案、结果页操作（页删除/追加/换位与可编辑页）。
 import { DEFAULT_DOC_SCAN_FILTER, DEFAULT_DOC_SCAN_SHOOTING, DOC_SCAN_MAX_SHOT, DocScanState,
   parseDocScanState, serializeDocScanState, docScanResultText, docScanFileNames, removePageAt,
-  appendPages } from '../model/DocumentScan';
+  appendPages, movePage, docScanEditUris } from '../model/DocumentScan';
+// 识别文本导出的文件名（与扫描件共用同一个时间戳口径）。
+import { ocrTextFileName } from '../model/OcrText';
 import { DEFAULT_HAND_POSTURE, parseHandPosture, serializeHandPosture } from '../model/HandPosture';
+import { NetPrefs, defaultNetPrefs, resetNetPrefs } from '../model/NetPolicy';
+import { loadNetPrefs, saveNetPrefs } from '../services/NetGate';
+import { resetHolidayData } from '../services/HolidayData';
+import { clearDataPacks } from '../services/DataPackService';
 import { DEFAULT_HAPTIC_FEEDBACK, parseHapticFeedback, serializeHapticFeedback } from '../model/Haptics';
 import { setHapticEnabled } from '../services/Haptics';
 import { ToolPalette } from '../model/ToolPalette';
@@ -62,14 +68,15 @@ import { BasePage } from '../component/BasePage';
 import { DiffPage } from '../component/DiffPage';
 import { AnniversaryPage } from '../component/AnniversaryPage';
 import { NetworkProbePage } from '../component/NetworkProbePage';
+import { NetInfoPage } from '../component/NetInfoPage';
 import { StartupIntentValue, consumeStartupIntent, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
   normalizeLanguagePreference } from '../model/LanguagePreference';
 import { SettingsPage } from '../component/SettingsPage';
 import { TimersPage } from '../component/TimersPage';
-import { DocumentExportResult, GallerySaveResult, buildDocumentScannerConfig, saveScannedDocuments,
-  saveScannedImagesToGallery, systemPreferredLanguage, saveTextFile,
-  pickTextFile, TextExportResult, TextImportResult } from '../services/SystemTools';
+import { DocumentExportResult, GallerySaveResult, ShareScansResult, buildDocumentScannerConfig,
+  saveScannedDocuments, saveScannedImagesToGallery, shareScannedDocuments, systemPreferredLanguage,
+  saveTextFile, pickTextFile, TextExportResult, TextImportResult, cancelReminder } from '../services/SystemTools';
 import { refreshQuickToolsCards } from '../services/WidgetData';
 import { WindowSizeVp, currentWindowSizeVp, subscribeFoldStatus,
   unsubscribeFoldStatus } from '../services/WindowLayout';
@@ -162,6 +169,9 @@ struct Index {
   @Local docScanShooting: string = DEFAULT_DOC_SCAN_SHOOTING;
   // 「继续扫描并追加」：由两个入口显式设置（追加=true、主扫描按钮=false），扫描回调无论成功/取消都复位。
   private docScanAppending: boolean = false;
+  // 「重新编辑」：把当前结果回填系统编辑界面（`originalUris`）。非空时配置直接落到编辑页；
+  // 扫描回调无论成功/取消都复位（与 `docScanAppending` 同一处），避免下次扫描莫名进编辑页。
+  private pendingEditUris: string[] = [];
   @Local holdingSide: number = 0;
   // 系统明确报了「双手持握」：动作行保持默认版式（不跟随操作手，理由见 `actionHandSide()`）。
   // **「未持握」（平放/立在桌上）不再冻结**——2026-10-22 按用户决定改为仍按操作手靠边：
@@ -174,6 +184,20 @@ struct Index {
   @Local handPostureSupported: boolean = false;
   // 触觉反馈开关（设置页可关，键 `haptic_feedback`）：关掉后一律不震（见 `Index.setHapticFeedback()`）。
   @Local hapticFeedback: boolean = DEFAULT_HAPTIC_FEEDBACK;
+  /**
+   * 联网偏好（设置页「联网」区块，键 `net_prefs`）：总开关 / 仅 Wi-Fi / 逐项开关。
+   *
+   * 它是**不可变对象**（`model/NetPolicy.netPrefsWith*()` 每次换新实例），这样 ArkUI V2 才能刷新；
+   * 门控读取一律走 `services/NetGate.ets`（它自己读存储），本字段只用于设置页的渲染。
+   */
+  @Local netPrefs: NetPrefs = defaultNetPrefs();
+  /**
+   * 纪念日页当前排出去的**本地提醒 id**（由页面的 `onReminderIds` 回传）。
+   *
+   * 只有清除本机数据时会用到：存储清空后页面读不到那些 id，必须在这里逐个取消，否则清完数据
+   * 通知仍会按时响（与「清除本机数据要把握姿开关复位并同步订阅」同类的收尾义务）。
+   */
+  private anniversaryReminderIds: number[] = [];
   // 本机是否提供振动能力（`SystemCapability.Sensors.MiscDevice`）。设置页据此禁用开关并如实说明。
   private readonly hapticSupported: boolean = canIUse('SystemCapability.Sensors.MiscDevice');
   @Local immersiveSupported: boolean = false;
@@ -530,6 +554,8 @@ struct Index {
       const docScan: DocScanState = parseDocScanState(await this.data.getString('doc_scan_state', ''));
       this.docScanFilter = docScan.filter;
       this.docScanShooting = docScan.shooting;
+      // 联网偏好：坏 JSON / 未知动作 id 一律由 `parseNetPrefs()` 回退默认（读失败也不抛）。
+      this.netPrefs = await loadNetPrefs(this.data);
       this.syncHandPostureSubscription();
     } catch (_) { this.fatalError = appText('shell.could-not-load-local', this.english); }
     this.refreshIcon();
@@ -615,7 +641,9 @@ struct Index {
       return false;
     }
     try {
-      this.scanConfig = buildDocumentScannerConfig(this.docScanFilter, this.docScanShooting);
+      // `pendingEditUris` 非空时系统直接落到编辑界面（「重新编辑」入口）；其余情况为空数组。
+      this.scanConfig = buildDocumentScannerConfig(this.docScanFilter, this.docScanShooting,
+        this.pendingEditUris);
     } catch (_) {
       this.status = appText('shell.could-not-start-system', this.english);
       return false;
@@ -684,12 +712,15 @@ struct Index {
    * - **替换**：默认路径（主扫描按钮、PDF 结果、无已有结果）；
    * - **取消/失败**：只提示，不动已有结果（`-1` 与 `1008601001` 的文案由 `docScanResultText()` 分开给）。
    *
-   * `docScanAppending` 在这里统一复位：取消/失败/异常路径都不能让它留到下一次扫描。
+   * `docScanAppending` 与 `pendingEditUris` 都在这里统一复位：取消/失败/异常路径都不能让它们留到下一次扫描
+   * （否则下一次从主按钮进来会被当成追加、或莫名进到编辑界面）。
    */
   private documentScanResult(code: number, saveType: SaveOption, uris: string[]): void {
     this.pathStack.pop();
     const appending: boolean = this.docScanAppending;
     this.docScanAppending = false;
+    // 编辑结果与普通扫描结果同一条回填路径：都是「替换当前结果」（编辑不是追加）。
+    this.pendingEditUris = [];
     if (code !== 200 || uris.length === 0) {
       this.status = docScanResultText(code, this.english);
       return;
@@ -729,7 +760,77 @@ struct Index {
    */
   private startAppendScan(): void {
     this.docScanAppending = !this.documentPdf && this.documentUris.length > 0;
+    this.pendingEditUris = [];
     this.navigate('scanner');
+  }
+
+  /**
+   * 「重新编辑」：把当前页回填进系统编辑界面（旋转 / 裁剪 / 换滤镜 / 重拍），确认后**替换**当前结果。
+   *
+   * 只对 JPG 结果开放（`docScanEditUris()` 对 PDF 返回空）：PDF 是单个文档文件，图片编辑界面接不了；
+   * 界面上那一侧已置灰并在无障碍名里写明原因，这里再守一道，不把用户送进注定失败的路径。
+   */
+  private startEditScan(): void {
+    const editable: string[] = docScanEditUris(this.documentUris, this.documentPdf);
+    if (editable.length === 0) {
+      this.status = appText('docs.edit-unsupported-pdf', this.english);
+      return;
+    }
+    this.docScanAppending = false;
+    this.pendingEditUris = editable;
+    this.navigate('scanner');
+  }
+
+  /** 页序换位（结果页拖拽排序）。结果只在本机内存里，无需落盘与回滚。 */
+  private moveDocumentPage(from: number, to: number): void {
+    const next: string[] = movePage(this.documentUris, from, to);
+    this.documentUris = next;
+  }
+
+  /**
+   * 分享扫描结果（多页 JPG 逐条 / PDF 单条）走系统分享面板。
+   *
+   * 文件在服务层复制到缓存再分享、用完即删；**分享面板不回报「是否真的分享」**，
+   * 因此成功只说「已打开分享面板」，只有复制失败（`stage`）与面板失败（`share`）才算失败。
+   */
+  private async shareDocuments(): Promise<void> {
+    if (this.documentSaving || this.documentUris.length === 0) { return; }
+    this.documentSaving = true;
+    try {
+      const result: ShareScansResult = await shareScannedDocuments(this.ctx(), this.documentUris,
+        this.documentPdf, docScanFileNames(this.documentUris.length, this.documentPdf, Date.now()));
+      if (result.error === 'stage') {
+        this.status = appText('docs.share-stage-failed', this.english);
+      } else if (result.error.length > 0) {
+        this.status = appText('scan.shareFailed', this.english);
+      } else if (result.shown) {
+        this.status = appText('docs.share-opened', this.english);
+      }
+    } catch (_) {
+      this.status = appText('scan.shareFailed', this.english);
+    } finally { this.documentSaving = false; }
+  }
+
+  /**
+   * 「导出识别文本」：把页面里的识别文本落成 `.txt`（走系统保存器）。
+   * 取消不算失败（`saved=false` 且 `error=''`），写盘失败才有 `error`——与设置页导出同一口径。
+   */
+  private async exportOcrText(text: string): Promise<void> {
+    if (text.length === 0) { return; }
+    const fileName: string = ocrTextFileName(Date.now());
+    try {
+      const result: TextExportResult = await saveTextFile(this.ctx(), fileName, text);
+      if (result.error.length > 0) {
+        this.status = appText('shell.export-failed-try-again', this.english);
+      } else if (!result.saved) {
+        this.status = appText('shell.export-cancelled', this.english);
+      } else {
+        // 固定句走登记表，文件名是变量、按 inline 拼接（AGENTS「带变量的文案不进登记表」）。
+        this.status = appText('docs.ocr-exported', this.english) + ' ' + fileName;
+      }
+    } catch (_) {
+      this.status = appText('shell.export-failed-try-again', this.english);
+    }
   }
 
   /** 把 JPG 扫描结果写入系统相册（PDF 不是图片，界面上也不显示这个入口）。 */
@@ -998,6 +1099,44 @@ struct Index {
       : appText('shell.haptic-feedback-off', this.english);
   }
 
+  /**
+   * 设置页改「联网」偏好（先改内存 → 落盘 → 失败回滚 + toast，与握姿/触觉开关同一套写入口口径）。
+   *
+   * 页面每次交回来的都是**新对象**（`netPrefsWith*()` 换实例），因此这里只做落盘与回滚；
+   * 成功不弹 toast——开关自身已经把状态显示出来了，每拨一下都弹一句是噪音。
+   */
+  private async setNetPrefs(next: NetPrefs): Promise<void> {
+    const previous: NetPrefs = this.netPrefs;
+    this.netPrefs = next;
+    if (this.data) {
+      try {
+        await saveNetPrefs(this.data, next);
+      } catch (_) {
+        this.netPrefs = previous;
+        this.status = appText('shell.could-not-save-the', this.english);
+      }
+    }
+  }
+
+  /**
+   * 清除联网缓存（设置页确认后调用）：汇率快照、数据包、下载的节假日数据。
+   *
+   * **只删缓存，不删用户数据**：删掉之后汇率类别会回到「还没有可用的汇率」、假日/节气回到随包数据，
+   * 都需要重新联网获取——这正是确认框里写明的代价。清完刷新设置页展示的数据日期（走同一份 `@Local`）。
+   */
+  private async clearNetCache(): Promise<void> {
+    if (!this.data) { return; }
+    try {
+      await this.data.putString('fx_rates', '');
+      resetHolidayData(this.ctx());
+      clearDataPacks(this.ctx());
+    } catch (_) {
+      this.status = appText('settings.networkCacheFailed', this.english);
+      return;
+    }
+    this.status = appText('settings.networkCacheCleared', this.english);
+  }
+
   private async clearHistory(): Promise<void> {
     const previous: HistoryItem[] = this.history;
     this.history = [];
@@ -1050,6 +1189,20 @@ struct Index {
     // 扫描设置同样回到默认（增强 + 手动拍摄），否则清除后界面仍显示旧的滤镜/拍摄方式。
     this.docScanFilter = DEFAULT_DOC_SCAN_FILTER;
     this.docScanShooting = DEFAULT_DOC_SCAN_SHOOTING;
+    // 联网偏好同样回到默认（总开关开、仅 Wi-Fi 关、逐项按登记表默认），否则清除后开关仍显示旧状态
+    // （与握姿/触觉开关同类缺陷：只删存储不同步内存）。
+    this.netPrefs = resetNetPrefs();
+    // 纪念日的本地提醒：存储清空后页面再也读不到那些 reminderId，这里先把它们取消掉，
+    // 否则「清除了本机数据，纪念日通知还在响」。取消失败不阻断清空（通知可能仍在，但数据已清）。
+    const staleReminderIds: number[] = this.anniversaryReminderIds;
+    this.anniversaryReminderIds = [];
+    for (const reminderId of staleReminderIds) {
+      try {
+        await cancelReminder(reminderId);
+      } catch (_) {
+        // 单个取消失败不影响其它 id 与整体流程。
+      }
+    }
     this.refreshWidgets();
     this.status = appText('shell.on-device-data-erased', this.english);
   }
@@ -1212,9 +1365,10 @@ struct Index {
    * （返回或切 Tab）时清空，下次进入就是干净状态（2026-10-20 审计 §3.23③）。
    */
   private clearDocumentUris(): void {
-    // 「追加」意图只在「点追加 → 立刻拿到结果」这一条路径上有效：清空结果时必须一起复位，
-    // 否则下一次从主扫描按钮进来会被当成追加。
+    // 「追加」与「重新编辑」两种意图只在「点入口 → 立刻拿到结果」这一条路径上有效：清空结果时必须
+    // 一起复位，否则下一次从主扫描按钮进来会被当成追加、或直接落进编辑界面。
     this.docScanAppending = false;
+    this.pendingEditUris = [];
     if (this.documentUris.length === 0) { return; }
     this.documentUris = [];
     this.documentPdf = false;
@@ -1882,6 +2036,11 @@ struct Index {
       onClearAllData: (): void => { this.clearAllLocalData(); },
       onExportData: (): void => { this.exportLocalData(); },
       onImportData: (): void => { this.importLocalData(); },
+      // 联网偏好与联网缓存（联网放开那一批）：页面只渲染与派发，落盘/回滚/删除都在 `Index`。
+      netPrefs: this.netPrefs,
+      onNetPrefsChange: (next: NetPrefs): void => { this.setNetPrefs(next); },
+      onClearNetCache: (): void => { this.clearNetCache(); },
+      data: this.data,
       // 2026-10-21 修复：设置页声明了 `onStatus`，但这里**一直没传**——`@Event` 的默认值是空函数，
       // 于是页内所有 toast（节假日检查更新的成功/失败、远端更旧、确认框打不开，以及「关于」区
       // 隐私政策打不开的提示）都被**静默丢弃**。其它页面都在这里接了 `onStatus`，只有设置页漏了。
@@ -2038,11 +2197,25 @@ struct Index {
                 docScanFilter: this.docScanFilter, docScanShooting: this.docScanShooting,
                 // 主扫描按钮必须显式清掉「追加」意图：两者都会推 `scanner` 路由，只靠结果回调复位
                 // 会在「点了追加又直接从主按钮扫」时把两批页混在一起。
-                onScan: (): void => { this.docScanAppending = false; this.navigate('scanner'); },
+                // 主扫描按钮：清掉「追加」与「重新编辑」两种意图——否则上一次编辑被取消后残留的
+                // `pendingEditUris` 会让这次普通扫描莫名落进编辑界面。
+                onScan: (): void => {
+                  this.docScanAppending = false;
+                  this.pendingEditUris = [];
+                  this.navigate('scanner');
+                },
                 onExport: (): void => { this.exportDocuments(); },
                 onAppendScan: (): void => { this.startAppendScan(); },
                 onSaveToGallery: (): void => { this.saveDocumentsToGallery(); },
                 onRemovePage: (index: number): void => { this.removeDocumentPage(index); },
+                onMove: (from: number, to: number): void => { this.moveDocumentPage(from, to); },
+                // 清空确认框在页面里弹（`DocumentsPage.confirmClear()`，与历史页同一套写法）：
+                // 确认之后才回调到这里，这里只负责真正清掉内存里的结果。
+                onClear: (): void => { this.clearDocumentUris(); },
+                onShare: (): void => { this.shareDocuments(); },
+                onEdit: (): void => { this.startEditScan(); },
+                onExportOcr: (text: string): void => { this.exportOcrText(text); },
+                onStatus: (message: string): void => { this.status = message; },
                 onFilterChange: (id: string): void => { this.setDocScanOption(id, this.docScanShooting); },
                 onShootingChange: (id: string): void => { this.setDocScanOption(this.docScanFilter, id); },
                 onSendToText: (text: string): void => { this.sendOcrTextToText(text); },
@@ -2087,12 +2260,26 @@ struct Index {
               AnniversaryPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, data: this.data,
                 handSide: this.actionSide(),
+                // 页面把「已排程的本地提醒 id」交回来：清除本机数据时逐个取消，
+                // 否则存储清空后页面再也读不到这些 id，通知仍会按时响。
+                onReminderIds: (ids: number[]): void => { this.anniversaryReminderIds = ids; },
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }
             else if (name === 'net') {
               NetworkProbePage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                // 联网门控要读联网偏好，把父组件已打开的存储句柄交给页面（省掉每次现开一份）。
+                data: this.data,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'netinfo') {
+              // 网络查询：结果**不写历史**（与「网络工具」同一口径：查询类结果的价值在于当下核对，
+              // 写进历史只会把 50 条上限挤满）。
+              NetInfoPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                data: this.data,
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }

@@ -32,6 +32,22 @@ export function appVersionText(): string {
 }
 
 /**
+ * 只要 `versionName`（不带 `versionCode`）：应用内更新检查拿它与远端清单比较。
+ *
+ * 与 `appVersionText()` 分开是**刻意**的：`'1.0.0 (1000000)'` 直接喂进版本比较会在第二段就断掉
+ * （`'1000000...'` 不是纯数字段），两个版本会永远「相等」。
+ */
+export function appVersionName(): string {
+  try {
+    const info: bundleManager.BundleInfo =
+      bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+    return info.versionName === undefined ? '' : info.versionName;
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
  * 设备信息行：型号、系统版本、API 版本、应用版本。
  * 数量与顺序稳定，界面按数组渲染即可；空值行由界面过滤。
  */

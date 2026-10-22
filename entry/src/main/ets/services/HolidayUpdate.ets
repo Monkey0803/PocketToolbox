@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { HolidayTable, holidayDataIsStale, parseHolidayIcs } from '../model/HolidayIcs';
 import { markHolidayDownloaded, readCachedIcs, writeHolidayIcs } from './HolidayData';
-import { httpRequest, HttpRequestSpec, HttpOutcome } from './HttpClient';
+import { httpRequest, httpGetSpec, HttpRequestSpec, HttpOutcome } from './HttpClient';
 
 /**
  * 节假日数据在线更新（系统能力封装）。
@@ -87,15 +87,8 @@ export async function updateHolidayData(context: common.Context): Promise<Holida
 
   let outcome: HttpOutcome;
   try {
-    const spec: HttpRequestSpec = {
-      url: HOLIDAY_ICS_URL,
-      method: 'GET',
-      // ArkTS 的对象字面量必须把类的字段写全；数据源是固定 URL，不需要跟随重定向。
-      maxRedirects: 0,
-      timeoutMs: 5000,
-      // 节假日 `.ics` 不展示响应头，截断提示用不到语言。
-      english: false
-    };
+    // 与 `FxService` 同一取舍：走 `httpGetSpec()`，字段增加时不用改调用点。
+    const spec: HttpRequestSpec = httpGetSpec(HOLIDAY_ICS_URL, 5000, 0);
     outcome = await httpRequest(spec);
   } catch (_) {
     result.error = 'offline';

@@ -43,6 +43,44 @@ SOFTWARE.
 - 访问方式：**只在用户点击单位换算货币类别的「更新汇率」时请求一次**；请求内容只有基准币种代码（例如 `CNY`），不发送任何用户数据，不在启动/后台/定时任务中访问，失败也不静默重试。结果缓存在本机（键 `fx_rates`，含数据时间），失败时回退上次成功缓存。
 - 许可口径：两者均为**公开接口，使用时请以其站点条款为准**；本仓库未随包分发其数据（缓存只存在用户设备本机），因此不在此附许可全文。若上游条款变化或需要离线随包分发汇率数据，必须先核对许可再发布。
 
+## 节气与农历传统节日数据（lunar-javascript，构建期使用）
+
+- 用途：`entry/src/main/resources/rawfile/solar_terms.json`，供「日期计算 → 农历」显示当天的节气与农历传统节日，并由设置页的「节气与农历节日」区块在线更新。
+- 来源：<https://github.com/6tail/lunar-javascript>（dist-tag `latest`，本次生成用的是 `1.7.7`），在**构建期**由 `node tools/fetch-solar-terms.mjs` 调用其 UMD 单文件 `lunar.js` 计算节气时刻（太阳视黄经每 15°）与农历节日日期，**只把结果数据随包分发，不把库代码打进 HAP**。
+- 为什么不自己写历表：节气要精确到「日」需要 VSOP87 级别的黄经级数，手写极易出现「差一天」的静默错误（AGENTS 已定下「不得自写历表」的口径），因此与节假日数据同一路数——构建期用有许可的来源生成、运行时只读数据。
+- 覆盖范围：数据文件里记着 `rangeStart`/`rangeEnd`（本次为 2020–2040）与生成日期；界面显示「覆盖年份」并由单测断言数据文件的形状（每年必须正好 24 个节气）。年份推进时重跑脚本即可。
+- 在线更新：设置页的更新按钮拉取的是应用自己的数据包（`model/NetPolicy.SOLAR_PACK_URL`，**地址未定稿时按钮如实提示、不发起请求**），不发送任何用户数据；校验失败或网络失败一律保留随包数据。仓库许可为 MIT，全文如下。
+
+```
+MIT License
+
+Copyright (c) 2016-2026 6tail
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## 域名/IP 注册信息查询（RDAP 引导服务）
+
+- 用途：工具的「网络查询」方式（IP 归属地与域名 WHOIS），登记在 `model/NetPolicy.ets` 的 `RDAP_BASE_URL`（当前为 `https://rdap.org/`）。
+- 访问方式：**只在用户填入 IP 或域名并点击查询时**请求一次，请求内容只有该 IP/域名；服务会 302 跳到该目标在 IANA 注册的**权威 RDAP 服务器**，因此实现会跟随至多重定向。结果不落盘、不写历史。
+- 许可口径：RDAP 是公开的注册数据协议，`rdap.org` 是社区维护的**引导**服务；使用时以其站点条款为准。本仓库不分发其数据（结果只在用户设备的界面里显示），因此不在此附许可全文。**发布前请核对 `rdap.org` 的可用性与条款**；若条款变化，只需改 `RDAP_BASE_URL` 一行（登记表是单一数据源）。
+
 ## 系统能力
 
 农历换算、法定节假日判定、扫码、文档扫描、打印与分享等均由 HarmonyOS 系统能力（`@kit.*`）提供，随设备系统分发，不在本仓库内。

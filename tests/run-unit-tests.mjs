@@ -91,6 +91,12 @@ const aboutInfo = await loadEts('../entry/src/main/ets/model/AboutInfo.ets');
 const numberOptions = await loadEts('../entry/src/main/ets/model/NumberOptions.ets');
 // 证件照（2026-10-22）：规格登记表、取景映射、自动构图、相纸排版、像素合成与状态/文案。
 const idPhoto = await loadEts('../entry/src/main/ets/model/IdPhoto.ets');
+// 联网放开那一批（2026-10-22）：登记表/门控偏好、缓存信封、版本比较、节气数据包、网络查询解析。
+const netPolicy = await loadEts('../entry/src/main/ets/model/NetPolicy.ets');
+const netCache = await loadEts('../entry/src/main/ets/model/NetCache.ets');
+const appUpdate = await loadEts('../entry/src/main/ets/model/AppUpdate.ets');
+const solarTerms = await loadEts('../entry/src/main/ets/model/SolarTerms.ets');
+const netInfo = await loadEts('../entry/src/main/ets/model/NetInfo.ets');
 const { createHash } = await import('node:crypto');
 
 // --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
@@ -539,6 +545,16 @@ assert.ok(timers.reminderGuidanceText('denied', true).includes('system settings'
 assert.ok(timers.reminderGuidanceText('unsupported', false).length > 0);
 assert.ok(timers.reminderGuidanceText('other', false).length > 0);
 assert.notEqual(timers.reminderGuidanceText('denied', false), timers.reminderGuidanceText('other', false));
+// 2026-10-22 拆出 `reminderReasonText()`：只讲原因与下一步，不带「应用内计时不受影响」这类页面专属收尾句
+// （纪念日页复用整句会写出与当前界面无关的话）。
+assert.equal(timers.reminderReasonText('', false), '');
+assert.equal(timers.reminderReasonText('unknown-code', true), '');
+assert.ok(timers.reminderReasonText('denied', false).includes('通知未允许'));
+assert.ok(timers.reminderReasonText('denied', true).includes('system settings'));
+assert.ok(timers.reminderReasonText('unsupported', false).length > 0);
+assert.ok(timers.reminderReasonText('other', true).length > 0);
+assert.equal(timers.reminderReasonText('denied', false).includes('应用内计时'), false);
+assert.equal(timers.reminderGuidanceText('denied', false).includes('应用内计时'), true);
 
 // --- §3.15 计时到点的应用内提示文案（2026-10-20 第 11 轮）---
 assert.equal(timers.finishedAlertText(['煮蛋'], false), '计时结束：煮蛋');
@@ -2537,11 +2553,11 @@ assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-01', fa
 assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', true, [], []), undefined);
 
 // --- 工具元数据：单一数据源（收藏白名单与工具搜索都由它派生）---
-assert.equal(toolMeta.TOOL_META.length, 25);
-assert.equal(toolMeta.TOOL_IDS.length, 25);
-assert.equal(new Set(toolMeta.TOOL_IDS).size, 25);
+assert.equal(toolMeta.TOOL_META.length, 26);
+assert.equal(toolMeta.TOOL_IDS.length, 26);
+assert.equal(new Set(toolMeta.TOOL_IDS).size, 26);
 assert.equal(toolMeta.TOOL_IDS[0], 'qr');
-assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'net');
+assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'netinfo');
 assert.ok(toolMeta.TOOL_IDS.includes('timestamp'), 'timestamp must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('loan'), 'loan must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('color'), 'color must be a known tool id');
@@ -2582,7 +2598,7 @@ assert.deepEqual(toolMeta.allowedFavorites(['qr', 'qr']), ['qr']);
 assert.deepEqual(toolMeta.allowedFavorites([]), []);
 assert.deepEqual(toolMeta.allowedFavorites(['history']), []);
 assert.deepEqual(toolMeta.allowedFavorites(undefined), []);
-assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 25);
+assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 26);
 assert.deepEqual(toolMeta.allowedFavorites(toolMeta.TOOL_IDS), toolMeta.TOOL_IDS);
 
 // 工具搜索：空查询返回全部；中英双语与 id 都能命中；无命中返回空
@@ -2654,10 +2670,11 @@ assert.deepEqual(toolMeta.matchTools('zzz'), []);
 assert.deepEqual(toolMeta.matchTools('历史'), []);
 // 命中分级后结果**不再是全局 TOOL_IDS 顺序**，但同一档位内仍按 TOOL_IDS 顺序：
 // 'er' = ③标题子串（Converter/Timers/Random picker/Password generator/Document scanner/Anniversaries）
-//        → [units, timers, random, password, documents, anniversary]
+//      + netinfo 的关键词 `certificate` 里也含 'er'（2026-10-22 第 26 个工具加入后属同一档）
+//      → [units, timers, random, password, documents, anniversary, netinfo]
 //      + ④分类名 Everyday → [color, kinship]
 assert.deepEqual(toolMeta.matchTools('er'),
-  ['units', 'timers', 'random', 'password', 'documents', 'anniversary', 'color', 'kinship']);
+  ['units', 'timers', 'random', 'password', 'documents', 'anniversary', 'netinfo', 'color', 'kinship']);
 
 // --- 工具分类与搜索增强（2026-10-22：分类分组 + 拼音首字母 + 命中分级）---
 assert.equal(toolMeta.TOOL_CATEGORIES.length, 7);
@@ -2681,7 +2698,7 @@ assert.deepEqual(toolMeta.toolIdsInCategory('calc'), ['calculator', 'tax', 'loan
 assert.deepEqual(toolMeta.toolIdsInCategory('text'), ['text', 'password', 'base', 'diff']);
 assert.deepEqual(toolMeta.toolIdsInCategory('time'), ['timers', 'dates', 'timestamp', 'anniversary']);
 assert.deepEqual(toolMeta.toolIdsInCategory('life'), ['units', 'random', 'color', 'kinship']);
-assert.deepEqual(toolMeta.toolIdsInCategory('system'), ['torch', 'level', 'compass', 'net']);
+assert.deepEqual(toolMeta.toolIdsInCategory('system'), ['torch', 'level', 'compass', 'net', 'netinfo']);
 assert.deepEqual(toolMeta.toolIdsInCategory('nope'), []);
 // 兜底分类「其他」必须恒为空（漏登记守卫）：有工具落进去说明分类表与工具表脱节
 assert.deepEqual(toolMeta.toolIdsInCategory(toolMeta.CATEGORY_FALLBACK_ID), []);
@@ -2694,7 +2711,7 @@ for (const category of toolMeta.TOOL_CATEGORIES) {
   }
   for (const id of ids) { groupedIds.push(id); }
 }
-assert.equal(groupedIds.length, 25);
+assert.equal(groupedIds.length, 26);
 assert.deepEqual(groupedIds.slice().sort(), toolMeta.TOOL_IDS.slice().sort());
 // categoryOfTool：已知工具 → 声明分类；未知 id → 显式兜底桶（绝不返回空串，否则工具会静默消失）
 for (const meta of toolMeta.TOOL_META) {
@@ -2732,7 +2749,8 @@ assert.equal(toolMeta.matchTools('计')[0], 'timers');
 assert.equal(toolMeta.matchTools('计算')[5], 'calculator');
 // 分类名参与搜索（最低档）：搜「时间」一次列出全部时间类工具，标题命中的时间戳排最前
 assert.deepEqual(toolMeta.matchTools('时间'), ['timestamp', 'timers', 'dates', 'anniversary']);
-assert.deepEqual(toolMeta.matchTools('设备'), ['torch', 'level', 'compass', 'net']);
+// 分类名参与搜索（最低档）：搜「设备」列出全部「系统与设备」类工具（2026-10-22 起含网络查询）
+assert.deepEqual(toolMeta.matchTools('设备'), ['torch', 'level', 'compass', 'net', 'netinfo']);
 // 「扫码」：二维码/条形码按关键词命中，「文档扫描」「证件照」由分类名「扫码与图像」以最低档补在末尾
 assert.deepEqual(toolMeta.matchTools('扫码'), ['qr', 'barcode', 'documents', 'idphoto']);
 // 精确命中仍排在子串命中之前（`hex` 是两个工具的关键词精确命中，顺序仍按 TOOL_IDS）
@@ -6765,22 +6783,54 @@ assert.equal(dates.timeSpanBetween('2024-02-29 00:00:00', '2024-03-01 00:00:00')
 assert.equal(dates.timeSpanBetween('0099-12-31 23:59:59', '0100-01-01 00:00:00').seconds, 1);
 
 // --- 进制转换与位运算（纯逻辑）---
-assert.deepEqual(baseTools.BASE_RADIXES.map((option) => option.id), ['bin', 'oct', 'dec', 'hex']);
-assert.deepEqual(baseTools.BASE_RADIXES.map((option) => option.radix), [2, 8, 10, 16]);
+// 顶层方式登记表（进制换算 / 位运算两块互斥面板）：页面靠它渲染「方式」下拉并按 id 分支。
+assert.deepEqual(baseTools.BASE_MODES.map((mode) => mode.id), ['radix', 'bitwise']);
+assert.equal(baseTools.BASE_MODES[0].zh, '进制换算');
+assert.equal(baseTools.BASE_MODES[0].en, 'Base conversion');
+assert.equal(baseTools.BASE_MODES[1].zh, '位运算');
+assert.equal(baseTools.BASE_MODES[1].en, 'Bitwise');
+assert.equal(baseTools.baseModeIndex('bitwise'), 1);
+assert.equal(baseTools.baseModeIndex('nope'), -1);
+assert.equal(baseTools.baseModeOption('radix').zh, '进制换算');
+assert.equal(baseTools.baseModeOption('nope'), undefined);
+// 每个登记项的中英都得非空且不相同（漏写英文会静默显示中文）
+for (const mode of baseTools.BASE_MODES) {
+  assert.ok(mode.zh.length > 0 && mode.en.length > 0, `${mode.id} 的中英文案都不能为空`);
+  assert.notEqual(mode.zh, mode.en, `${mode.id} 的中英文案不能相同`);
+}
+// 登记表比「常用四档」宽：32/36 是**数字进制**口径（0–9+A–V / A–Z），不是 RFC 4648 的 Base32 编码。
+// **前四项的 id/下标是既有断言钉住的**（`radixIndex('hex')` 必须仍是 3），新档位一律追加在末尾。
+assert.deepEqual(baseTools.BASE_RADIXES.map((option) => option.id), ['bin', 'oct', 'dec', 'hex', 'b32', 'b36']);
+assert.deepEqual(baseTools.BASE_RADIXES.map((option) => option.radix), [2, 8, 10, 16, 32, 36]);
 assert.equal(baseTools.radixIndex('hex'), 3);
+assert.equal(baseTools.radixIndex('b32'), 4);
+assert.equal(baseTools.radixIndex('b36'), 5);
 assert.equal(baseTools.radixIndex('nope'), -1);
 assert.equal(baseTools.radixOption('hex').radix, 16);
+assert.equal(baseTools.radixOption('b36').radix, 36);
 assert.equal(baseTools.radixOption('nope'), undefined);
+// 每项的中英文案都要非空且不相同，且基数必须是 2–36 的整数（`parseRadix`/`radixText` 的口径）
+for (const option of baseTools.BASE_RADIXES) {
+  assert.ok(option.zh.length > 0 && option.en.length > 0, `${option.id} 的中英文案都不能为空`);
+  assert.notEqual(option.zh, option.en, `${option.id} 的中英文案不能相同`);
+  assert.equal(Number.isInteger(option.radix) && option.radix >= 2 && option.radix <= 36, true,
+    `${option.id} 的基数必须是 2–36 的整数`);
+}
 // §3.5② 位运算操作数可选进制：id → 基数/前缀（未知 id 回退十进制口径）
 assert.equal(baseTools.radixBase('bin'), 2);
 assert.equal(baseTools.radixBase('oct'), 8);
 assert.equal(baseTools.radixBase('dec'), 10);
 assert.equal(baseTools.radixBase('hex'), 16);
+assert.equal(baseTools.radixBase('b32'), 32);
+assert.equal(baseTools.radixBase('b36'), 36);
 assert.equal(baseTools.radixBase('nope'), 10);
 assert.equal(baseTools.radixInputPrefix('hex'), '0x');
 assert.equal(baseTools.radixInputPrefix('bin'), '0b');
 assert.equal(baseTools.radixInputPrefix('oct'), '0o');
 assert.equal(baseTools.radixInputPrefix('dec'), '');
+// 32/36 没有前缀（`0x`/`0b`/`0o` 只属于 16/2/8），未知 id 也不编一个出来
+assert.equal(baseTools.radixInputPrefix('b32'), '');
+assert.equal(baseTools.radixInputPrefix('b36'), '');
 assert.equal(baseTools.radixInputPrefix('nope'), '');
 // 位运算按所选进制解析：同样的字符串在不同进制下是不同的数
 assert.equal(baseTools.parseRadix('10', baseTools.radixBase('bin')).value, 2);
@@ -6822,17 +6872,52 @@ assert.equal(baseTools.radixText(10, 10), '10');
 assert.equal(baseTools.radixText(-1, 16), '');
 assert.equal(baseTools.radixText(1.5, 10), '');
 assert.equal(baseTools.radixText(10, 1), '');
+// 分组是**从右往左**的（2026-10-22 模拟器实测修正）：十进制分组就是千分位，
+// `4294967295` 必须显示成 `4 294 967 295`——旧实现「从头每 N 个插空格」会给出 `429 496 729 5`，
+// 任何位数不是 N 的整数倍的数都被切错（`1000` → `100 0`）。
 assert.equal(baseTools.groupDigits('111100001111', 4), '1111 0000 1111');
 assert.equal(baseTools.groupDigits('1010', 4), '1010');
 assert.equal(baseTools.groupDigits('abc', 0), 'abc');
-assert.deepEqual(baseTools.BITWISE_OPS.map((op) => op.id), ['and', 'or', 'xor', 'not', 'shl', 'shr']);
+assert.equal(baseTools.groupDigits('4294967295', 3), '4 294 967 295', '十进制按千分位分组');
+assert.equal(baseTools.groupDigits('1000', 3), '1 000');
+assert.equal(baseTools.groupDigits('255', 3), '255', '正好一组就不插空格');
+assert.equal(baseTools.groupDigits('100', 3), '100');
+assert.equal(baseTools.groupDigits('1000000', 3), '1 000 000');
+assert.equal(baseTools.groupDigits('-2147483648', 3), '-2 147 483 648', '负号只占首位、不被切开');
+assert.equal(baseTools.groupDigits('37777777777', 3), '37 777 777 777', '低位对齐，首组可短一截');
+assert.equal(baseTools.groupDigits('1111111111', 4), '11 1111 1111', '二进制 4 位一组同样低位对齐');
+assert.equal(baseTools.groupDigits('11111111111111111111111111111111', 4),
+  '1111 1111 1111 1111 1111 1111 1111 1111', '32 位二进制正好 8 组');
+// 与独立参照对照：= 从右往左每 step 个字符插空格（低位对齐），逐值比一遍
+{
+  const reference = (text, step) => {
+    const groups = [];
+    for (let end = text.length; end > 0; end -= step) groups.unshift(text.slice(Math.max(0, end - step), end));
+    return groups.join(' ');
+  };
+  for (const step of [2, 3, 4, 5]) {
+    for (const text of ['1', '12', '123', '1234', '12345', '123456', '1234567', '12345678', '123456789',
+      '1234567890', '12345678901', '123456789012']) {
+      assert.equal(baseTools.groupDigits(text, step), reference(text, step),
+        `groupDigits(${text}, ${step}) 应与右对齐参照一致`);
+    }
+  }
+}
+// 前六项的 id/下标是既有断言钉住的（`shl` 必须仍是 4），`rol`/`ror` 追加在末尾。
+assert.deepEqual(baseTools.BITWISE_OPS.map((op) => op.id),
+  ['and', 'or', 'xor', 'not', 'shl', 'shr', 'rol', 'ror']);
 assert.equal(baseTools.bitwiseOpIndex('shl'), 4);
+assert.equal(baseTools.bitwiseOpIndex('rol'), 6);
+assert.equal(baseTools.bitwiseOpIndex('ror'), 7);
 assert.equal(baseTools.bitwiseOpIndex('nope'), -1);
 assert.equal(baseTools.bitwiseOpById('not').unary, true);
 assert.equal(baseTools.bitwiseOpById('and').unary, false);
+// 循环移位是**二元**运算（要移位量），不能像 `not` 那样标成 unary，否则页面会少渲染一个操作数框
+assert.equal(baseTools.bitwiseOpById('rol').unary, false);
+assert.equal(baseTools.bitwiseOpById('ror').unary, false);
 assert.equal(baseTools.bitwiseOpById('nope'), undefined);
 assert.equal(baseTools.UINT32_MAX, 4294967295);
-// 第 34 轮探针补充：**全部四个进制**做 radixText → parseRadix 往返（含 0 与 UINT32_MAX 两端），
+// 第 34 轮探针补充：**每个已登记进制**做 radixText → parseRadix 往返（含 0 与 UINT32_MAX 两端），
 // 单点样例只能证明「那几个数对」，往返才能证明两条实现没有单边偏差。
 for (const option of baseTools.BASE_RADIXES) {
   for (const value of [0, 1, 9, 10, 15, 16, 255, 256, 4095, 65535, 1000000, 2147483647, 4294967295]) {
@@ -6864,7 +6949,11 @@ assert.equal(baseTools.bitwiseOp('and', 240, 15).value, 0);
     xor: (a, b) => u32Ref(BigInt(a) ^ BigInt(b)),
     not: (a) => u32Ref(~BigInt(a)),
     shl: (a, b) => u32Ref(BigInt(a) << BigInt(b)),
-    shr: (a, b) => u32Ref(BigInt(a) >> BigInt(b))
+    shr: (a, b) => u32Ref(BigInt(a) >> BigInt(b)),
+    // 循环移位：在 32 位内「左移 b 位」与「右移 32-b 位」拼起来（b = 0 时两边都是原值）。
+    // 参照同样用 BigInt 手算（不共享被测实现的 `<<`/`>>>` 写法），所以实现若把 rol 写成丢位的 shl 就会报红。
+    rol: (a, b) => u32Ref((BigInt(a) << BigInt(b)) | (BigInt(a) >> BigInt(32 - b))),
+    ror: (a, b) => u32Ref((BigInt(a) >> BigInt(b)) | (BigInt(a) << BigInt(32 - b)))
   };
   // 覆盖 0、1、边界位（0x7FFFFFFF / 0x80000000 / 0xFFFFFFFF）与一个普通值
   const operands = [0, 1, 255, 65535, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFE, 0xFFFFFFFF, 123456789];
@@ -6884,6 +6973,11 @@ assert.equal(baseTools.bitwiseOp('and', 240, 15).value, 0);
     for (let b = 0; b < 32; b++) {
       assert.equal(baseTools.bitwiseOp('shl', a, b).value, reference.shl(a, b), `shl(${a}, ${b})`);
       assert.equal(baseTools.bitwiseOp('shr', a, b).value, reference.shr(a, b), `shr(${a}, ${b})`);
+      // 循环移位与普通移位的**唯一区别**就是「溢出的位绕回」：b = 0 时两者都应等于原值，
+      // 而实现里如果写成 `(a << b) | (a >>> (32 - b))`，`>>> 32` 在 JS 里等于 `>>> 0`，
+      // b = 0 会得到 `a | a`（碰巧也对）——所以 b = 0 不是判别点，专门用 a = 1、b = 1 那类钉住绕回。
+      assert.equal(baseTools.bitwiseOp('rol', a, b).value, reference.rol(a, b), `rol(${a}, ${b})`);
+      assert.equal(baseTools.bitwiseOp('ror', a, b).value, reference.ror(a, b), `ror(${a}, ${b})`);
       checked += 2;
     }
     checked += 1;
@@ -6892,6 +6986,83 @@ assert.equal(baseTools.bitwiseOp('and', 240, 15).value, 0);
   // 最锋利的两个判别点单独再钉一次
   assert.equal(baseTools.bitwiseOp('shr', 0x80000000, 1).value, 0x40000000, 'shr 必须是逻辑右移');
   assert.equal(baseTools.bitwiseOp('shl', 0xFFFFFFFF, 1).value, 0xFFFFFFFE, 'shl 溢出仍是无符号 32 位');
+}
+// 循环移位（2026-10-22 新增）：**最高位绕回最低位**——这正是与 `shl`/`shr` 的区别所在，
+// 所以判别点必须挑「会溢出的那一位」，而不是 b = 0（那时两者都一样）。
+assert.equal(baseTools.bitwiseOp('rol', 1, 1).value, 2, 'rol 普通值');
+assert.equal(baseTools.bitwiseOp('rol', 0x80000000, 1).value, 1, 'rol 把最高位绕回最低位');
+assert.notEqual(baseTools.bitwiseOp('rol', 0x80000000, 1).value,
+  baseTools.bitwiseOp('shl', 0x80000000, 1).value, 'rol 必须有别于 shl（后者丢位）');
+assert.equal(baseTools.bitwiseOp('ror', 1, 1).value, 0x80000000, 'ror 把最低位绕回最高位');
+assert.notEqual(baseTools.bitwiseOp('ror', 1, 1).value,
+  baseTools.bitwiseOp('shr', 1, 1).value, 'ror 必须有别于 shr（后者丢位）');
+assert.equal(baseTools.bitwiseOp('rol', 0x12345678, 0).value, 0x12345678, '移位量 0 返回原值');
+assert.equal(baseTools.bitwiseOp('ror', 0x12345678, 0).value, 0x12345678, '移位量 0 返回原值');
+// 移 32 位在数学上等于原值，但移位量守卫与 `shl`/`shr` **同一口径**（0–31），一律报 `shift`：
+// 让「32 位循环移位」走另一套合法范围，用户就得记两套边界（JS 的 `<<` 在这里还会静默取模）。
+assert.equal(baseTools.bitwiseOp('rol', 0x12345678, 32).error, 'shift');
+assert.equal(baseTools.bitwiseOp('ror', 0x12345678, 32).error, 'shift');
+assert.equal(baseTools.bitwiseOp('rol', 0xFFFFFFFF, 31).value, 0xFFFFFFFF);
+assert.equal(baseTools.bitwiseOp('ror', 0xFFFFFFFF, 31).value, 0xFFFFFFFF);
+// 位移量守卫与 `shl`/`shr` **同一口径**（越界一律 `shift`，不静默取模）
+assert.equal(baseTools.bitwiseOp('rol', 1, 33).error, 'shift');
+assert.equal(baseTools.bitwiseOp('ror', 1, -1).error, 'shift');
+assert.equal(baseTools.bitwiseOp('rol', 1, 1.5).error, 'shift');
+assert.equal(baseTools.bitwiseOp('rol', -1, 1).error, 'invalid');
+// 有符号（int32 补码）解释：只是**解释**，不改无符号结果
+assert.equal(baseTools.signedInt32Text(0), '0');
+assert.equal(baseTools.signedInt32Text(2147483647), '2147483647');
+assert.equal(baseTools.signedInt32Text(2147483648), '-2147483648', 'int32 下 0x80000000 是最小负数');
+assert.equal(baseTools.signedInt32Text(4294967295), '-1', 'int32 下 0xFFFFFFFF 是 -1');
+assert.equal(baseTools.signedInt32Text(4294967294), '-2');
+assert.equal(baseTools.signedInt32Text(-1), '', '负数不是合法的无符号操作数');
+assert.equal(baseTools.signedInt32Text(4294967296), '', '超出 32 位');
+assert.equal(baseTools.signedInt32Text(1.5), '');
+// 与独立参照（BigInt 的有符号解释）对照一圈：无符号 u → Number(BigInt.asIntN(32, u))
+for (const value of [0, 1, 2147483646, 2147483647, 2147483648, 2147483649, 4294967295, 0x80000001]) {
+  assert.equal(baseTools.signedInt32Text(value), String(Number(BigInt.asIntN(32, BigInt(value)))),
+    `signedInt32Text(${value}) 应与 asIntN(32) 一致`);
+}
+// 字节视图（大端/小端）：空格是**字节分隔符**，不是显示分组
+assert.equal(baseTools.byteText(0, false), '00 00 00 00');
+assert.equal(baseTools.byteText(0, true), '00 00 00 00');
+assert.equal(baseTools.byteText(0xFF000001, false), 'FF 00 00 01', '大端：高位字节在前');
+assert.equal(baseTools.byteText(0xFF000001, true), '01 00 00 FF', '小端：低位字节在前');
+assert.equal(baseTools.byteText(4294967295, false), 'FF FF FF FF');
+assert.equal(baseTools.byteText(4294967295, true), 'FF FF FF FF');
+assert.equal(baseTools.byteText(255, false), '00 00 00 FF', '不足四字节要补零（不能写成 FF）');
+assert.equal(baseTools.byteText(255, true), 'FF 00 00 00');
+assert.equal(baseTools.byteText(-1, false), '');
+assert.equal(baseTools.byteText(4294967296, false), '');
+assert.equal(baseTools.byteText(1.5, false), '');
+// 与独立参照对照：按 BigInt 逐字节分解，并断言「大端倒过来就是小端」
+for (const value of [0, 1, 255, 256, 65535, 0x12345678, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF]) {
+  const big = BigInt(value);
+  const expected = [24n, 16n, 8n, 0n].map((shift) =>
+    Number((big >> shift) & 0xFFn).toString(16).toUpperCase().padStart(2, '0')).join(' ');
+  assert.equal(baseTools.byteText(value, false), expected, `byteText(${value}) 大端应与 BigInt 分解一致`);
+  assert.equal(baseTools.byteText(value, true), expected.split(' ').reverse().join(' '),
+    `byteText(${value}) 小端应是大端的倒序`);
+  // 字节文本必须是 11 个字符（4×2 位 + 3 个空格），且每段恰好两位十六进制
+  const parts = baseTools.byteText(value, false).split(' ');
+  assert.equal(parts.length, 4, `${value} 应恰好 4 个字节`);
+  for (const part of parts) { assert.equal(part.length, 2, `字节段 ${part} 应补足两位`); }
+}
+// 每个 `BITWISE_OPS` 登记项都要有中英文案，且**一元运算只有 `not`**（循环移位是二元的）
+for (const op of baseTools.BITWISE_OPS) {
+  assert.ok(op.zh.length > 0 && op.en.length > 0, `${op.id} 的中英文案都不能为空`);
+  assert.notEqual(op.zh, op.en, `${op.id} 的中英文案不能相同`);
+}
+// 八种运算在随机操作数上结果都必须落在 [0, UINT32_MAX]（无符号口径不出现负数）
+for (const op of baseTools.BITWISE_OPS) {
+  for (const a of [0, 1, 0x80000000, 0xFFFFFFFF, 123456789]) {
+    for (const b of [0, 1, 7, 31]) {
+      const got = baseTools.bitwiseOp(op.id, a, b);
+      assert.equal(got.ok, true, `${op.id}(${a}, ${b}) 应成功`);
+      assert.ok(got.value >= 0 && got.value <= baseTools.UINT32_MAX && Number.isInteger(got.value),
+        `${op.id}(${a}, ${b}) = ${got.value} 应是无符号 32 位整数`);
+    }
+  }
 }
 assert.equal(baseTools.bitwiseOp('or', 240, 15).value, 255);
 assert.equal(baseTools.bitwiseOp('xor', 255, 15).value, 240);
@@ -6908,7 +7079,7 @@ assert.equal(baseTools.bitwiseOp('and', -1, 0).error, 'invalid');
 assert.equal(baseTools.bitwiseOp('and', 4294967296, 0).error, 'invalid');
 // 第 79 轮：补上两处**此前确实没有断言**的能力（其余部分已被上面的 BigInt 参照矩阵、移位量守卫、
 // 内部分隔符容忍、溢出与前缀不匹配等覆盖；本轮核对确认了这一点，故只补缺口，不重复造断言）。
-// ① `radixText` 的有效进制是 **2–36**（登记表只暴露 4 个选项，但函数本身是通用的）——
+// ① `radixText` 的有效进制是 **2–36**（登记表现在暴露 6 档：2/8/10/16 + 32/36，函数本身是通用的）——
 //    `radix` 不合法（1/37）才返回空串。用 `Number#toString(radix)` 当参照逐值比。
 for (const radix of [3, 5, 7, 17, 36]) {
   for (const value of [0, 1, 255, 1234567, 4294967295]) {
@@ -6919,7 +7090,7 @@ for (const radix of [3, 5, 7, 17, 36]) {
 assert.equal(baseTools.radixText(255, 1), '', 'radix 1 非法');
 assert.equal(baseTools.radixText(255, 37), '', 'radix 37 非法');
 assert.equal(baseTools.radixText(255, 36), '73', 'radix 36 合法（255 = 7×36 + 3）');
-// 任意合法进制下「输出 → 解析」都要能回到原值（现有往返断言只覆盖 4 个登记进制）
+// 任意合法进制下「输出 → 解析」都要能回到原值（现有往返断言只覆盖登记的 6 档）
 for (let radix = 2; radix <= 36; radix++) {
   for (const value of [0, 1, 255, 1234567]) {
     assert.equal(baseTools.parseRadix(baseTools.radixText(value, radix), radix).value, value,
@@ -6941,10 +7112,26 @@ assert.ok(baseTools.baseErrorText('overflow', false).length > 0);
 assert.ok(baseTools.baseErrorText('shift', true).length > 0);
 
 // --- 联网工具纯逻辑：登记表、输入校验、网址分解、响应头与错误码 ---
-assert.deepEqual(networkTools.NETWORK_MODES.map((mode) => mode.id), ['dns', 'port', 'http', 'url']);
+// 第 5 种方式「链接信息」（2026-10-22）：登记项**追加在末尾**，既有四项的顺序不动
+// （顺序就是下拉里的显示顺序，重排会让用户肌肉记忆漂移）。
+assert.deepEqual(networkTools.NETWORK_MODES.map((mode) => mode.id),
+  ['dns', 'port', 'http', 'url', 'linkinfo']);
 assert.equal(networkTools.NETWORK_MODES[3].online, false);
 assert.equal(networkTools.NETWORK_MODES[0].online, true);
 assert.equal(networkTools.networkModeIndex('url'), 3);
+assert.equal(networkTools.networkModeIndex('linkinfo'), 4);
+assert.equal(networkTools.networkModeById('linkinfo').zh, '链接信息');
+assert.equal(networkTools.networkModeById('linkinfo').en, 'Link info');
+assert.equal(networkTools.networkModeById('linkinfo').online, true, '链接信息要联网');
+assert.ok(networkTools.networkModeById('linkinfo').hintZh.length > 0, '链接信息要有中文输入提示');
+assert.ok(networkTools.networkModeById('linkinfo').hintEn.length > 0, '链接信息要有英文输入提示');
+assert.equal(networkTools.networkModeHint(networkTools.networkModeById('linkinfo'), false),
+  networkTools.networkModeById('linkinfo').hintZh);
+assert.equal(networkTools.networkModeHint(networkTools.networkModeById('linkinfo'), true),
+  networkTools.networkModeById('linkinfo').hintEn);
+// 其余四种方式本来就不带提示（页面各自写 placeholder），不要为了「整齐」给它们编一个
+assert.equal(networkTools.networkModeById('dns').hintZh, '');
+assert.equal(networkTools.networkModeById('url').hintEn, '');
 assert.equal(networkTools.networkModeIndex('nope'), -1);
 assert.equal(networkTools.networkModeById('dns').zh, '域名解析');
 assert.equal(networkTools.networkModeById('nope'), undefined);
@@ -7056,16 +7243,23 @@ assert.equal(networkTools.parsePort('-1').error, 'invalid');
 assert.equal(networkTools.parsePort('8.5').error, 'invalid');
 assert.equal(networkTools.parsePort('1e3').error, 'invalid');
 assert.equal(networkTools.parsePort('99999999').error, 'invalid');
-// 第 76 轮：网络方式登记表（此前测试里 0 引用）——4 项、id 唯一、文案齐全，且「URL 分解」**离线可做**
+// 第 76 轮：网络方式登记表（此前测试里 0 引用）——项数、id 唯一、文案齐全，且「URL 分解」**离线可做**
 {
-  assert.equal(networkTools.NETWORK_MODES.length, 4);
-  assert.equal(new Set(networkTools.NETWORK_MODES.map((mode) => mode.id)).size, 4);
+  assert.equal(networkTools.NETWORK_MODES.length, 5);
+  assert.equal(new Set(networkTools.NETWORK_MODES.map((mode) => mode.id)).size, 5);
   assert.ok(networkTools.NETWORK_MODES.every((mode) => mode.zh.length > 0 && mode.en.length > 0));
-  assert.deepEqual(networkTools.NETWORK_MODES.map((mode) => mode.id), ['dns', 'port', 'http', 'url']);
+  assert.deepEqual(networkTools.NETWORK_MODES.map((mode) => mode.id),
+    ['dns', 'port', 'http', 'url', 'linkinfo']);
   const urlMode = networkTools.NETWORK_MODES.find((mode) => mode.id === 'url');
   assert.equal(urlMode.online, false, 'URL 分解不需要联网，应标注为离线能力');
-  assert.ok(networkTools.NETWORK_MODES.filter((mode) => mode.id !== 'url')
-    .every((mode) => mode.online === true), '其余三种是联网能力');
+  // 「唯一离线的那一项」改由**值**判定：既有断言用 `id !== 'url'` 筛选，新增第 5 项后
+  // 它会把链接信息也算进「其余三种」，数量对不上才发现（这里显式钉住离线项只有 url）。
+  assert.deepEqual(networkTools.NETWORK_MODES.filter((mode) => mode.online === false).map((mode) => mode.id),
+    ['url'], '只有网址分解是纯离线能力');
+  assert.ok(networkTools.NETWORK_MODES.filter((mode) => mode.online === true)
+    .every((mode) => mode.id !== 'url'), '四种联网能力都要标注 online');
+  // 链接信息必须联网，且**必须与 `NET_ACTIONS` 的 `net.linkinfo` 对得上**（登记表已存在，不要新增）
+  assert.equal(networkTools.networkModeById('linkinfo').online, true);
   for (let index = 0; index < networkTools.NETWORK_MODES.length; index++) {
     assert.equal(networkTools.networkModeIndex(networkTools.NETWORK_MODES[index].id), index);
   }
@@ -7611,6 +7805,111 @@ assert.equal(anniversaryTools.anniversaryErrorText('limit', true), 'Up to 20 ent
 assert.ok(anniversaryTools.anniversaryErrorText('date', false).length > 0);
 assert.ok(anniversaryTools.anniversaryErrorText('title', true).length > 0);
 assert.equal(anniversaryTools.anniversaryErrorText('', false), '');
+
+// --- 纪念日提醒（纯逻辑：旧数据兼容 / 序列化往返 / 下一次提醒日期 / 文案）----------------------
+// 默认：新建条目不开提醒、没有排程 id
+assert.equal(anniversaryTools.ANNIVERSARY_REMINDER_HOUR, 9);
+assert.equal(anniversaryTools.ANNIVERSARY_REMINDER_MINUTE, 0);
+const anniversaryBlank = new anniversaryTools.Anniversary();
+assert.equal(anniversaryBlank.reminderEnabled, false);
+assert.equal(anniversaryBlank.reminderId, -1);
+assert.equal(anniversaryNew.reminderEnabled, false);
+assert.equal(anniversaryNew.reminderId, -1);
+// 旧 JSON（没有这两个字段）按 false / -1 处理，且**绝不因此丢条目**
+const legacyReminderRaw = JSON.stringify([
+  { id: 'old1', title: '老条目', date: '2026-05-01', yearly: true, createdAt: 10 }
+]);
+const legacyReminder = anniversaryTools.parseAnniversariesDetailed(legacyReminderRaw);
+assert.equal(legacyReminder.droppedInvalid, 0);
+assert.equal(legacyReminder.items.length, 1);
+assert.equal(legacyReminder.items[0].reminderEnabled, false);
+assert.equal(legacyReminder.items[0].reminderId, -1);
+// 字段类型不符（数字布尔 / 字符串 id / 负数 / 小数 / null）一律回退默认，绝不抛异常、绝不丢条目
+const badReminderRaw = JSON.stringify([
+  { id: 'b1', title: 'A', date: '2026-05-01', yearly: true, createdAt: 1, reminderEnabled: 1, reminderId: '7' },
+  { id: 'b2', title: 'B', date: '2026-05-02', yearly: true, createdAt: 2, reminderEnabled: 'true', reminderId: -3 },
+  { id: 'b3', title: 'C', date: '2026-05-03', yearly: true, createdAt: 3, reminderEnabled: true, reminderId: 12.7 },
+  { id: 'b4', title: 'D', date: '2026-05-04', yearly: true, createdAt: 4, reminderEnabled: null, reminderId: null }
+]);
+const badReminder = anniversaryTools.parseAnniversariesDetailed(badReminderRaw);
+assert.equal(badReminder.droppedInvalid, 0);
+assert.equal(badReminder.items.length, 4);
+assert.equal(badReminder.items[0].reminderEnabled, false);
+assert.equal(badReminder.items[0].reminderId, -1);
+assert.equal(badReminder.items[1].reminderEnabled, false);
+assert.equal(badReminder.items[1].reminderId, -1);
+assert.equal(badReminder.items[2].reminderEnabled, true);
+assert.equal(badReminder.items[2].reminderId, 12);   // 有限数字只取整，不改类型口径
+assert.equal(badReminder.items[3].reminderEnabled, false);
+assert.equal(badReminder.items[3].reminderId, -1);
+// 序列化往返：两个字段要写回去，且 `withAnniversaryReminder()` 生成新对象（不改原条目）
+const anniversaryReminderOn = anniversaryTools.withAnniversaryReminder(anniversaryNew, true, 42);
+assert.equal(anniversaryReminderOn.reminderEnabled, true);
+assert.equal(anniversaryReminderOn.reminderId, 42);
+assert.equal(anniversaryReminderOn.id, anniversaryNew.id);
+assert.equal(anniversaryReminderOn.title, anniversaryNew.title);
+assert.equal(anniversaryReminderOn.date, anniversaryNew.date);
+assert.equal(anniversaryReminderOn.yearly, anniversaryNew.yearly);
+assert.equal(anniversaryReminderOn.createdAt, anniversaryNew.createdAt);
+assert.equal(anniversaryNew.reminderEnabled, false);   // 原条目不受影响
+const reminderRoundTrip = anniversaryTools.parseAnniversaries(
+  anniversaryTools.serializeAnniversaries([anniversaryReminderOn]));
+assert.equal(reminderRoundTrip.length, 1);
+assert.equal(reminderRoundTrip[0].reminderEnabled, true);
+assert.equal(reminderRoundTrip[0].reminderId, 42);
+const reminderOffRound = anniversaryTools.parseAnniversaries(
+  anniversaryTools.serializeAnniversaries([anniversaryTools.withAnniversaryReminder(anniversaryNew, false, -1)]));
+assert.equal(reminderOffRound[0].reminderEnabled, false);
+assert.equal(reminderOffRound[0].reminderId, -1);
+// 下一次提醒：默认 9:00，闰年 2/29、平年按 2/28、今天就是纪念日不推到明年
+const reminderLeap = anniversaryTools.newAnniversary('生日', '2000-02-29', true, 1, 0);
+const leapNext = anniversaryTools.nextReminderDate(reminderLeap, '2027-03-01');
+assert.ok(leapNext instanceof anniversaryTools.ReminderDateTime);
+assert.equal(anniversaryTools.reminderDateText(leapNext), '2028-02-29 09:00');
+assert.equal(leapNext.year, 2028);
+assert.equal(leapNext.month, 2);
+assert.equal(leapNext.day, 29);
+assert.equal(leapNext.hour, 9);
+assert.equal(leapNext.minute, 0);
+const leapFlat = anniversaryTools.nextReminderDate(reminderLeap, '2027-01-01');
+assert.equal(anniversaryTools.reminderDateText(leapFlat), '2027-02-28 09:00');   // 平年按 2 月 28 日
+const reminderToday = anniversaryTools.newAnniversary('今天', '2026-05-01', true, 2, 0);
+assert.equal(anniversaryTools.reminderDateText(anniversaryTools.nextReminderDate(reminderToday, '2026-05-01')),
+  '2026-05-01 09:00');
+assert.equal(anniversaryTools.reminderDateText(anniversaryTools.nextReminderDate(reminderToday, '2026-05-02')),
+  '2027-05-01 09:00');   // 今年已过 → 顺延到明年
+// 一次性：当天可以排；过去了就没有可排的提醒（系统不接受过去的时间）
+const reminderOnce = anniversaryTools.newAnniversary('截止', '2026-05-10', false, 3, 0);
+assert.equal(anniversaryTools.reminderDateText(anniversaryTools.nextReminderDate(reminderOnce, '2026-05-10')),
+  '2026-05-10 09:00');
+assert.equal(anniversaryTools.nextReminderDate(reminderOnce, '2026-05-11'), undefined);
+// 非法输入不抛异常：坏日期 / 坏 today / undefined 的格式化
+assert.equal(anniversaryTools.nextReminderDate(anniversaryBad, '2026-05-01'), undefined);
+assert.equal(anniversaryTools.nextReminderDate(reminderToday, 'nope'), undefined);
+assert.equal(anniversaryTools.reminderDateText(undefined), '');
+// 提醒开关的文案：中英各一份、非空且不相同；说明里必须写清「不联网」与默认提醒时刻
+[anniversaryTools.anniversaryReminderTitle,
+  anniversaryTools.anniversaryReminderNoteText,
+  anniversaryTools.anniversaryReminderOnText,
+  anniversaryTools.anniversaryReminderOffText,
+  anniversaryTools.anniversaryReminderFailedText,
+  anniversaryTools.anniversaryReminderCancelFailedText].forEach((textFn) => {
+  assert.ok(textFn(false).length > 0, '中文提醒文案不能为空');
+  assert.ok(textFn(true).length > 0, '英文提醒文案不能为空');
+  assert.notEqual(textFn(false), textFn(true), '提醒文案中英必须不同');
+});
+assert.ok(anniversaryTools.anniversaryReminderNoteText(false).includes('不联网'));
+assert.ok(anniversaryTools.anniversaryReminderNoteText(true).includes('no network'));
+assert.ok(anniversaryTools.anniversaryReminderNoteText(false).includes('09:00'));
+assert.ok(anniversaryTools.anniversaryReminderNoteText(true).includes('09:00'));
+// 无障碍文案要说出「当前是开还是关」，且两种状态/两种语言各不相同
+assert.ok(anniversaryTools.anniversaryReminderA11yText(true, false).includes('已开启'));
+assert.ok(anniversaryTools.anniversaryReminderA11yText(false, false).includes('已关闭'));
+assert.ok(anniversaryTools.anniversaryReminderA11yText(false, true).includes('off'));
+assert.notEqual(anniversaryTools.anniversaryReminderA11yText(true, false),
+  anniversaryTools.anniversaryReminderA11yText(false, false));
+assert.notEqual(anniversaryTools.anniversaryReminderA11yText(true, false),
+  anniversaryTools.anniversaryReminderA11yText(true, true));
 
 // 段构造：点 1u、划 3u、字符内 1u、字符间 3u、词间 7u
 assert.deepEqual(torchPairs(torchSignal.segmentsForMorse(torchSignal.morseChars('A', 4), torchUnit)),
@@ -9598,6 +9897,46 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   documentScan.appendPages(keepOriginal, ['c'], 5);
   documentScan.removePageAt(keepOriginal, 0);
   assert.deepEqual(keepOriginal, ['a', 'b'], '纯函数不得修改入参数组');
+
+  // ⑧ 页序换位（2026-10-22 第二轮）：`insertIndex` 语义 = 先摘除再插到夹取后的落点
+  assert.deepEqual(documentScan.movePage(['a', 'b', 'c'], 0, 2), ['b', 'c', 'a'], '拖到末尾');
+  assert.deepEqual(documentScan.movePage(['a', 'b', 'c'], 2, 0), ['c', 'a', 'b'], '拖到最前');
+  assert.deepEqual(documentScan.movePage(['a', 'b', 'c'], 1, 1), ['a', 'b', 'c'], '拖回原位保持不变');
+  assert.deepEqual(documentScan.movePage(['a', 'b', 'c'], 0, 3), ['b', 'c', 'a'], '落点等于原长度 = 放到末尾');
+  assert.deepEqual(documentScan.movePage(['a', 'b'], 0, 9), ['b', 'a'], '落点越界夹到末尾');
+  assert.deepEqual(documentScan.movePage(['a', 'b'], 0, -4), ['a', 'b'], '落点负数夹到 0（等于原位）');
+  for (const badFrom of [-1, 2, 1.5, Number.NaN]) {
+    assert.deepEqual(documentScan.movePage(['a', 'b'], badFrom, 0), ['a', 'b'], '非法 from 不动');
+  }
+  for (const badTo of [1.5, Number.NaN]) {
+    assert.deepEqual(documentScan.movePage(['a', 'b'], 0, badTo), ['a', 'b'], '非法 to 不动');
+  }
+  const moveOriginal = ['a', 'b', 'c'];
+  documentScan.movePage(moveOriginal, 0, 2);
+  assert.deepEqual(moveOriginal, ['a', 'b', 'c'], '换位不得原地改动入参');
+
+  // ⑨ 可回填编辑的页：PDF 一律不可编辑；JPG 原序返回且不超过 SDK 的 50 张上限
+  assert.deepEqual(documentScan.docScanEditUris(['a', 'b'], false), ['a', 'b']);
+  assert.deepEqual(documentScan.docScanEditUris(['a', 'b'], true), [], 'PDF 结果进不了图片编辑');
+  assert.deepEqual(documentScan.docScanEditUris([], false), []);
+  assert.equal(documentScan.DOC_SCAN_EDIT_MAX, 50, '与 SDK originalUris 的上限一致');
+  const manyUris = Array.from({ length: 60 }, (_item, index) => 'u' + index.toString());
+  const editUris = documentScan.docScanEditUris(manyUris, false);
+  assert.equal(editUris.length, documentScan.DOC_SCAN_EDIT_MAX, '超过 SDK 上限必须截断');
+  assert.equal(editUris[0], 'u0');
+  editUris[0] = 'changed';
+  assert.equal(manyUris[0], 'u0', '返回的必须是副本');
+
+  // ⑩ 时间戳段与清空确认文案：时间戳非法 → 空串（文件名退化为不带日期）
+  assert.equal(documentScan.docScanStamp(scanMoment), '20261022-0905');
+  assert.equal(documentScan.docScanStamp(Number.NaN), '');
+  assert.equal(documentScan.docScanStamp(0), '');
+  assert.equal(documentScan.docScanStamp(-1), '');
+  assert.ok(documentScan.docScanClearConfirmText(3, false).includes('3'), '确认文案必须带真实页数');
+  assert.ok(documentScan.docScanClearConfirmText(3, true).includes('3'));
+  assert.notEqual(documentScan.docScanClearConfirmText(3, false), documentScan.docScanClearConfirmText(3, true));
+  assert.ok(documentScan.docScanClearConfirmText(0, false).includes('0'), '0 页也不崩');
+  assert.ok(documentScan.docScanClearConfirmText(Number.NaN, true).includes('0'));
 }
 
 // --- 端侧取字：解码尺寸、块/页拼装与错误文案（2026-10-22）---
@@ -9657,6 +9996,17 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   assert.ok(ocrText.ocrTooLongText(false).includes('100000'), '超限文案必须写明真实上限');
   assert.notEqual(ocrText.ocrTooLongText(false), ocrText.ocrTooLongText(true));
   assert.equal(ocrText.ocrTooLongText(true).includes('100000'), true);
+
+  // ⑦ 导出文件名（2026-10-22 第二轮）：与扫描件共用同一个时间戳口径，时间非法时省掉日期段
+  const ocrMoment = new Date(2026, 9, 22, 9, 5, 3).getTime();
+  assert.equal(ocrText.ocrTextFileName(ocrMoment), 'PocketToolbox-OCR-20261022-0905.txt');
+  assert.equal(ocrText.ocrTextFileName(Number.NaN), 'PocketToolbox-OCR.txt');
+  assert.equal(ocrText.ocrTextFileName(0), 'PocketToolbox-OCR.txt');
+  assert.equal(ocrText.ocrTextFileName(-5), 'PocketToolbox-OCR.txt');
+  assert.ok(ocrText.ocrTextFileName(ocrMoment).endsWith('.txt'));
+  // 跨月补零：10 月 5 日 → 20261005（月份 +1 后仍要补零）
+  const ocrEarly = new Date(2026, 0, 5, 8, 7, 0).getTime();
+  assert.equal(ocrText.ocrTextFileName(ocrEarly), 'PocketToolbox-OCR-20260105-0807.txt');
 }
 
 // --- 证件照（2026-10-22 新增工具）：规格登记表、mm→px、取景映射、自动构图、相纸排版、合成、状态与文案 ---
@@ -10073,6 +10423,390 @@ assert.equal(torchSignal.MORSE_MAX_CHARS, 20);
   assert.deepEqual(toolMeta.matchTools('换底色'), ['idphoto']);
   assert.deepEqual(toolMeta.matchTools('zjz'), ['idphoto'], '拼音首字母别名');
   assert.deepEqual(toolMeta.matchTools('idphoto'), ['idphoto']);
+}
+
+// --- 联网放开那一批（2026-10-22）：登记表、门控偏好、缓存信封、版本比较、节气数据包、网络查询解析 ---
+// 这一批的共同风险是「静态检查看不出、界面也看不出」：登记表漏一项就没有开关、偏好解析写松了就悄悄联网、
+// 缓存信封写坏了就显示空数据、版本比较用字符串比就把 1.10 排在 1.9 之后。因此逐项钉住。
+
+// 登记表：条数、id 唯一、中英齐全且不同、endpoint 全为 https（空数组表示「目标由用户输入」）
+assert.equal(netPolicy.NET_ACTIONS.length, 8);
+assert.equal(new Set(netPolicy.NET_ACTIONS.map((a) => a.id)).size, 8);
+for (const action of netPolicy.NET_ACTIONS) {
+  assert.ok(action.titleZh.length > 0 && action.titleEn.length > 0, `${action.id} 缺标题`);
+  assert.notEqual(action.titleZh, action.titleEn, `${action.id} 中英标题相同`);
+  assert.ok(action.purposeZh.length > 0 && action.purposeEn.length > 0, `${action.id} 缺用途说明`);
+  const disclosureZh = netPolicy.netDisclosureText(action.id, false);
+  const disclosureEn = netPolicy.netDisclosureText(action.id, true);
+  assert.ok(disclosureZh.includes(action.purposeZh), `${action.id} 中文披露缺用途`);
+  assert.notEqual(disclosureZh, disclosureEn, `${action.id} 披露文案中英相同`);
+  for (const endpoint of action.endpoints) {
+    assert.ok(endpoint.startsWith('https://'), `${action.id} 的 endpoint 不是 https：${endpoint}`);
+  }
+}
+// 四个「发送内容类别」文案：none 必须明说「不发送」，未知类别**不能**说成不发送
+assert.ok(netPolicy.netSendsLabel(netPolicy.NET_SENDS_NONE, false).includes('不发送'));
+assert.ok(netPolicy.netSendsLabel(netPolicy.NET_SENDS_HOST, true).includes('host'));
+assert.ok(!netPolicy.netSendsLabel('mystery', false).includes('不发送'),
+  '未知类别不能显示成「不发送任何内容」');
+assert.equal(netPolicy.netActionById('net.probe').id, 'net.probe');
+assert.equal(netPolicy.netActionById('nope'), undefined);
+assert.equal(netPolicy.netActionTitle(netPolicy.netActionById('net.probe'), false), '网络工具');
+assert.equal(netPolicy.netActionTitle(netPolicy.netActionById('net.probe'), true), 'Network tools');
+assert.ok(netPolicy.netDisclosureText('nope', false).includes('nope'), '未知 id 必须原样露出 id');
+
+// 门控偏好：默认、逐项开关的「存差异」语义、坏数据回退、序列化往返
+const netDefaults = netPolicy.defaultNetPrefs();
+assert.equal(netDefaults.enabled, true);
+assert.equal(netDefaults.wifiOnly, false);
+assert.equal(netPolicy.netPrefsAllowed(netDefaults, 'fx.rates'), true);
+assert.equal(netPolicy.netPrefsAllowed(netDefaults, 'netinfo.cert'), true);
+assert.equal(netPolicy.netPrefsAllowed(netDefaults, 'nope'), false, '未登记 id 恒不放行');
+const netOff = netPolicy.netPrefsWithAction(netDefaults, 'fx.rates', false);
+assert.equal(netPolicy.netPrefsAllowed(netOff, 'fx.rates'), false);
+assert.equal(netPolicy.netPrefsAllowed(netOff, 'holiday.update'), true, '只关一项不能影响其它项');
+assert.deepEqual(netOff.turnOff, ['fx.rates']);
+assert.deepEqual(netOff.turnOn, []);
+// 关掉再打开：两个列表里都不能留残留（否则判据取决于看哪个列表）
+const netBack = netPolicy.netPrefsWithAction(netOff, 'fx.rates', true);
+assert.deepEqual(netBack.turnOff, []);
+assert.deepEqual(netBack.turnOn, []);
+const netAllOff = netPolicy.netPrefsWithEnabled(netBack, false);
+assert.equal(netPolicy.netPrefsAllowed(netAllOff, 'fx.rates'), false);
+assert.equal(netPolicy.netPrefsAllowed(netAllOff, 'update.check'), false);
+assert.equal(netPolicy.netPrefsWithWifiOnly(netBack, true).wifiOnly, true);
+// 往返：解析出来的偏好必须与写出去的一致
+const netRound = netPolicy.parseNetPrefs(netPolicy.serializeNetPrefs(
+  netPolicy.netPrefsWithWifiOnly(netPolicy.netPrefsWithAction(netBack, 'net.probe', false), true)));
+assert.equal(netPolicy.netPrefsAllowed(netRound, 'net.probe'), false);
+assert.equal(netRound.wifiOnly, true);
+// 坏数据回退默认；未知动作 id 被丢弃（旧版本删过某个动作也不会污染判据）
+assert.equal(netPolicy.parseNetPrefs('不是 JSON').enabled, true);
+assert.equal(netPolicy.parseNetPrefs('').enabled, true);
+assert.deepEqual(netPolicy.parseNetPrefs('{"turnOff":["nope","fx.rates"]}').turnOff, ['fx.rates']);
+assert.equal(netPolicy.parseNetPrefs('{"enabled":"no"}').enabled, true, '类型不符回退默认');
+assert.equal(netPolicy.parseNetPrefs('{"enabled":false,"wifiOnly":true}').wifiOnly, true);
+assert.deepEqual(netPolicy.resetNetPrefs().turnOff, []);
+// 门控原因文案：三种拒绝各有中英说明，放行是空串（页面据此不弹提示）
+for (const reason of ['disabled', 'blocked', 'unknown']) {
+  const zh = netPolicy.netGateReasonText(reason, false);
+  const en = netPolicy.netGateReasonText(reason, true);
+  assert.ok(zh.length > 0 && en.length > 0, `${reason} 缺文案`);
+  assert.notEqual(zh, en);
+}
+assert.equal(netPolicy.netGateReasonText('', false), '');
+assert.equal(netPolicy.netGateReasonText('whatever', false), '');
+// 真机验收（2026-10-22）抓到的两类文案缺陷，钉成断言免得写回来：
+// ① 披露文案里出现 Markdown 的 `**`（它会原样显示在结果卡上）；② 同一句里把「不发送任何内容」说两遍
+// （用途文案自带一句 + `netSendsLabel(NONE)` 又补一句）。
+for (const action of netPolicy.NET_ACTIONS) {
+  for (const english of [false, true]) {
+    const disclosure = netPolicy.netDisclosureText(action.id, english);
+    assert.equal(disclosure.includes('**'), false, `${action.id} 的披露文案里不该有 Markdown 星号`);
+    const marker = english ? 'sends nothing' : '不发送任何内容';
+    assert.ok(disclosure.split(marker).length - 1 <= 1, `${action.id} 的披露文案把「不发送」说了多遍`);
+  }
+}
+assert.equal(netPolicy.netDisclosureText('netinfo.query', false).includes('出口 IP'), false,
+  'RDAP-only 不查「我的出口 IP」，披露文案不能这么说');
+assert.equal(netPolicy.netDisclosureText('update.check', false).includes('不发送任何内容'), true);
+assert.equal(netPolicy.netSendsLabel(netPolicy.NET_SENDS_HOST, false).includes('目标服务'), true);
+
+// 缓存信封：日期、往返、坏数据、陈旧判据、时间文案
+assert.equal(netCache.netDateText(new Date(2026, 9, 22)), '2026-10-22');
+assert.equal(netCache.NET_CACHE_SCHEMA, 1);
+const envelope = new netCache.NetCacheEnvelope('https://example.com/pack.json', '2026-10-22', '{"a":1}');
+const envelopeBack = netCache.parseNetCache(netCache.serializeNetCache(envelope));
+assert.equal(envelopeBack.source, 'https://example.com/pack.json');
+assert.equal(envelopeBack.fetchedAt, '2026-10-22');
+assert.equal(envelopeBack.payload, '{"a":1}');
+assert.equal(netCache.parseNetCache(''), undefined);
+assert.equal(netCache.parseNetCache('{'), undefined);
+assert.equal(netCache.parseNetCache('{"schema":2,"fetchedAt":"2026-10-22","payload":"x"}'), undefined,
+  'schema 不认识必须当没有缓存');
+assert.equal(netCache.parseNetCache('{"schema":1,"fetchedAt":"2026-10-22","payload":""}'), undefined);
+assert.equal(netCache.parseNetCache('{"schema":1,"fetchedAt":"20xx","payload":"x"}'), undefined);
+assert.equal(netCache.netDataIsStale('2026-01-01', '2026-02-02'), true);
+assert.equal(netCache.netDataIsStale('2026-03-01', '2026-02-02'), false);
+assert.equal(netCache.netDataIsStale('2026-02-02', '2026-02-02'), false, '同一天允许覆盖');
+assert.equal(netCache.netDataIsStale('', '2026-02-02'), false, '缺日期不构成「更旧」');
+assert.equal(netCache.netDataIsStale('2026-01-01', ''), false, '本地缺日期不挡更新');
+assert.equal(netCache.netDaysBetween('2026-10-20', '2026-10-22'), 2);
+assert.ok(Number.isNaN(netCache.netDaysBetween('x', '2026-10-22')));
+assert.ok(netCache.netCacheAgeText('2026-10-22', '2026-10-22', false).includes('今天'));
+assert.ok(netCache.netCacheAgeText('2026-10-21', '2026-10-22', false).includes('昨天'));
+assert.ok(netCache.netCacheAgeText('2026-10-20', '2026-10-22', true).includes('2 days ago'));
+assert.equal(netCache.netCacheAgeText('nope', '2026-10-22', false), '',
+  '日期不可解析时返回空串，不能编一个时间');
+
+// 版本比较：按段比大小（字符串比较会把 1.10 排在 1.9 之前）、段数不同补 0、垃圾输入视为相同
+assert.deepEqual(appUpdate.appVersionParts('1.2.3'), [1, 2, 3]);
+// 预发布段不参与比较：到第一个非纯数字段为止（`1.2.3-beta` 因此**低于** `1.2.3`，这是有意的）
+assert.deepEqual(appUpdate.appVersionParts('1.2.3-beta'), [1, 2]);
+assert.equal(appUpdate.compareAppVersions('1.2.3-beta', '1.2.3'), -1);
+// 带 versionCode 的整串会在第三段断掉——所以比较版本号时必须用 `DeviceInfo.appVersionName()`
+// （只要 versionName），不能把 `1.0.0 (1000000)` 直接喂进来（那样 1.0.1 会被判成和 1.0.0 相同）。
+assert.deepEqual(appUpdate.appVersionParts('1.0.0 (1000000)'), [1, 0]);
+assert.deepEqual(appUpdate.appVersionParts('abc'), []);
+assert.equal(appUpdate.compareAppVersions('1.2.10', '1.2.9'), 1);
+assert.equal(appUpdate.compareAppVersions('1.2.9', '1.2.10'), -1);
+assert.equal(appUpdate.compareAppVersions('1.2', '1.2.0'), 0);
+assert.equal(appUpdate.compareAppVersions('abc', '1.0'), 0, '取不出数字段一律视为相同');
+assert.equal(appUpdate.updateIsAvailable('1.3.0', '1.2.0'), true);
+assert.equal(appUpdate.updateIsAvailable('1.2.0', '1.2.0'), false);
+assert.equal(appUpdate.updateIsAvailable('abc', '1.2.0'), false, '畸形清单不能宣称有新版本');
+const manifest = appUpdate.parseUpdateManifest('{"version":"1.3.0","url":"https://a.com/x","noteZh":"修"}');
+assert.equal(manifest.version, '1.3.0');
+assert.equal(manifest.url, 'https://a.com/x');
+assert.equal(manifest.noteZh, '修');
+assert.equal(appUpdate.parseUpdateManifest('{'), undefined);
+assert.equal(appUpdate.parseUpdateManifest('{"version":"abc"}'), undefined);
+assert.equal(appUpdate.parseUpdateManifest('{"url":"https://a.com"}'), undefined, '缺版本号必须判失败');
+assert.equal(appUpdate.parseUpdateManifest('{"version":"1.1.0","url":"http://a.com/x"}').url, '',
+  '清单里的明文地址不能带上');
+assert.equal(appUpdate.isUsableUpdateUrl('https://a.com/x'), true);
+assert.equal(appUpdate.isUsableUpdateUrl('http://a.com/x'), false);
+assert.equal(appUpdate.isUsableUpdateUrl(''), false);
+assert.equal(appUpdate.isUsableUpdateUrl('   '), false);
+
+// 节气/节日数据包：登记表完整性、解析（含丢弃未登记 id）、查询、覆盖年份文案
+assert.equal(solarTerms.SOLAR_TERM_NAMES.length, 24);
+assert.equal(new Set(solarTerms.SOLAR_TERM_NAMES.map((t) => t.id)).size, 24);
+for (const term of solarTerms.SOLAR_TERM_NAMES) {
+  assert.ok(term.zh.length > 0 && term.en.length > 0, `${term.id} 缺名称`);
+  assert.notEqual(term.zh, term.en);
+}
+assert.equal(solarTerms.LUNAR_FESTIVALS.length, 12);
+for (const festival of solarTerms.LUNAR_FESTIVALS) {
+  assert.ok(festival.zh.length > 0 && festival.en.length > 0, `${festival.id} 缺名称`);
+  assert.notEqual(festival.zh, festival.en);
+}
+assert.equal(solarTerms.solarTermName('nope', false), '');
+assert.equal(solarTerms.festivalName('nope', true), '');
+const packJson = JSON.stringify({
+  schema: 1, source: 'test', generatedAt: '2026-10-22', rangeStart: 2020, rangeEnd: 2040,
+  terms: { '2026-02-04': 'lichun', '2026-02-05': 'nope', 'bad': 'lichun' },
+  festivals: { '2026-02-17': 'chunjie' }
+});
+const pack = solarTerms.parseSolarTermPack(packJson);
+assert.equal(pack.loaded, true);
+assert.equal(pack.rangeStart, 2020);
+assert.equal(pack.rangeEnd, 2040);
+assert.equal(pack.dataDate, '2026-10-22');
+assert.equal(pack.dropped, 2, '未登记的 id 与非法日期都要计入丢弃');
+assert.equal(solarTerms.solarTermIdOn(pack, '2026-02-04'), 'lichun');
+assert.equal(solarTerms.solarTermLabel(pack, '2026-02-04', false), '立春');
+assert.equal(solarTerms.solarTermLabel(pack, '2026-02-05', false), '', '不是节气日返回空串');
+assert.equal(solarTerms.lunarFestivalLabel(pack, '2026-02-17', true), 'Spring Festival');
+assert.equal(solarTerms.festivalIdOn(pack, '2026-02-17'), 'chunjie');
+assert.equal(solarTerms.festivalIdOn(pack, '2026-02-18'), '', '不是节日返回空串');
+assert.equal(solarTerms.solarTermIdOn(pack, '2026-02-18'), '');
+assert.equal(solarTerms.lunarFestivalLabel(pack, '2026-02-18', false), '');
+// 未加载的表问任何一天都返回空串（界面据此不显示节气行）
+const emptyPack = solarTerms.parseSolarTermPack('');
+assert.equal(emptyPack.loaded, false);
+assert.equal(solarTerms.solarTermLabel(emptyPack, '2026-02-04', false), '');
+assert.equal(solarTerms.packRangeText(emptyPack, false), '');
+assert.equal(solarTerms.parseSolarTermPack('{"schema":2}').loaded, false, 'schema 不认识整包作废');
+assert.equal(solarTerms.packRangeText(pack, false), '覆盖年份 2020\u20132040');
+assert.equal(solarTerms.packRangeText(pack, true), 'Years covered: 2020\u20132040');
+const singleYearPack = solarTerms.parseSolarTermPack(JSON.stringify({
+  schema: 1, rangeStart: 2026, rangeEnd: 2026, terms: { '2026-02-04': 'lichun' }, festivals: {}
+}));
+assert.equal(solarTerms.packRangeText(singleYearPack, false), '覆盖年份 2026', '单年不写成区间');
+
+// 网络查询：IP 判定、RDAP 地址拼装、主机端口解析、状态码结论、RDAP 解析、证书格式化
+assert.equal(netInfo.isIpLiteral('1.2.3.4'), true);
+assert.equal(netInfo.isIpLiteral(' 8.8.8.8 '), true);
+assert.equal(netInfo.isIpLiteral('256.1.1.1'), false);
+assert.equal(netInfo.isIpLiteral('1.2.3'), false);
+assert.equal(netInfo.isIpLiteral('::1'), true);
+assert.equal(netInfo.isIpLiteral('abc'), false);
+assert.equal(netInfo.rdapUrlFor('ip', '1.2.3.4'), 'https://rdap.org/ip/1.2.3.4');
+assert.equal(netInfo.rdapUrlFor('whois', 'EXAMPLE.COM.'), 'https://rdap.org/domain/example.com');
+assert.equal(netInfo.rdapUrlFor('ip', 'not-an-ip'), '', '非法输入不拼 URL（调用方据此不发请求）');
+assert.equal(netInfo.rdapUrlFor('whois', '  例子.com'), '');
+assert.equal(netInfo.rdapUrlFor('cert', 'example.com'), '', '证书方式不走 RDAP');
+assert.equal(netInfo.rdapStatusError(404), 'notfound');
+assert.equal(netInfo.rdapStatusError(410), 'notfound');
+assert.equal(netInfo.rdapStatusError(429), 'ratelimit');
+assert.equal(netInfo.rdapStatusError(200), '');
+assert.equal(netInfo.parseHostPort('example.com').port, 443);
+assert.equal(netInfo.parseHostPort('Example.COM:8443').port, 8443);
+assert.equal(netInfo.parseHostPort('Example.COM:8443').host, 'example.com');
+assert.equal(netInfo.parseHostPort('example.com:0'), undefined);
+assert.equal(netInfo.parseHostPort('example.com:70000'), undefined);
+assert.equal(netInfo.parseHostPort('https://example.com'), undefined, '不接受协议头（提示里写清只填主机名）');
+assert.equal(netInfo.parseHostPort(''), undefined);
+// RDAP 域名响应：字段按存在与否显示，缺失不显示「未知」
+const rdapDomain = JSON.stringify({
+  ldhName: 'EXAMPLE.COM', handle: 'H1', status: ['client transfer prohibited'],
+  events: [
+    { eventAction: 'registration', eventDate: '2010-01-01T00:00:00Z' },
+    { eventAction: 'expiration', eventDate: '2030-01-01T00:00:00Z' }
+  ],
+  nameservers: [{ ldhName: 'A.IEDNS.COM' }, { ldhName: 'b.iedns.com' }],
+  entities: [{ vcardArray: ['vcard', [['version', {}, 'text', '4.0'], ['fn', {}, 'text', 'Example Registrar']]] }]
+});
+const domainResult = netInfo.parseRdapDomain(rdapDomain, false);
+assert.equal(domainResult.ok, true);
+assert.equal(domainResult.title, 'example.com', '域名统一小写');
+assert.ok(domainResult.fields.some((f) => f.value === 'Example Registrar'), '注册商取自 vcard 的 fn');
+assert.ok(domainResult.fields.some((f) => f.value.includes('2010-01-01')), '注册时间截到日期');
+assert.ok(domainResult.fields.some((f) => f.value.includes('a.iedns.com')), 'DNS 服务器小写拼接');
+assert.equal(netInfo.parseRdapDomain('{', false).error, 'parse');
+assert.equal(netInfo.parseRdapDomain('[]', false).error, 'parse', '顶层是数组同样判 parse');
+assert.equal(netInfo.parseRdapDomain('{"ldhName":"x"}', false).error, 'parse', '一个字段都给不出就判 parse');
+// RDAP IP 响应：网段与机构
+const rdapIp = JSON.stringify({
+  handle: 'NET-1', startAddress: '1.0.0.0', endAddress: '1.0.0.255', name: 'EXAMPLE-NET',
+  country: 'AU', type: 'ALLOCATED PORTABLE',
+  entities: [{ handle: 'ORG-1', vcardArray: ['vcard', [['fn', {}, 'text', 'Example Org']]] }]
+});
+const ipResult = netInfo.parseRdapIp(rdapIp, false);
+assert.equal(ipResult.ok, true);
+assert.equal(ipResult.title, '1.0.0.0 \u2013 1.0.0.255');
+assert.ok(ipResult.fields.some((f) => f.value === 'AU'));
+assert.ok(ipResult.fields.some((f) => f.value.includes('Example Org')));
+assert.equal(netInfo.parseRdapIp('{"foo":1}', false).error, 'parse');
+// 证书 SAN 解码：文本（含结尾 \0）、4 字节 IPv4、16 字节 IPv6、其它二进制跳过
+assert.deepEqual(netInfo.sanTexts([new Uint8Array([101, 120, 46, 99, 111, 109, 0])]), ['ex.com']);
+assert.deepEqual(netInfo.sanTexts([new Uint8Array([1, 2, 3, 4])]), ['1.2.3.4']);
+assert.deepEqual(netInfo.sanTexts([new Uint8Array([0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])]),
+  ['2001:0:0:0:0:0:0:1']);
+assert.deepEqual(netInfo.sanTexts([new Uint8Array([0xde, 0xad, 0xbe])]), [], '不认识的二进制 SAN 跳过');
+// 证书信任状态：三种状态必须分开说（通过 / 未通过 / 未校验）
+const cert = new netInfo.CertInfo();
+cert.trustChecked = false;
+cert.systemTrusted = false;
+const notChecked = netInfo.certTrustText(cert, false);
+cert.trustChecked = true;
+cert.systemTrusted = true;
+const trusted = netInfo.certTrustText(cert, false);
+cert.systemTrusted = false;
+const certUntrusted = netInfo.certTrustText(cert, false);
+assert.ok(notChecked.length > 0 && trusted.length > 0 && certUntrusted.length > 0);
+for (const text of [notChecked, trusted, certUntrusted]) {
+  assert.equal(text.includes('**'), false, '界面文案里不该出现 Markdown 星号');
+}
+assert.notEqual(notChecked, trusted);
+assert.notEqual(notChecked, certUntrusted);
+assert.notEqual(trusted, certUntrusted);
+// 证书时间字段：SDK 给的是 **ASN.1 原始形式**（真机实测 `260926224911Z`），必须自己格式化，
+// 否则 `Date.parse()` 解不出来会把正常证书说成「不在有效期内」（2026-10-22 真机缺陷）。
+assert.equal(netInfo.certTimeText('260926224911Z'), '2026-09-26 22:49:11 UTC');
+assert.equal(netInfo.certTimeText('261225225635Z'), '2026-12-25 22:56:35 UTC');
+assert.equal(netInfo.certTimeText('19991231235959Z'), '1999-12-31 23:59:59 UTC', '两位数年份 ≥50 记 19xx');
+assert.equal(netInfo.certTimeText('20261231235959Z'), '2026-12-31 23:59:59 UTC', '四位数年份是 GeneralizedTime');
+assert.equal(netInfo.certTimeText('2609262249Z'), '2026-09-26 22:49:00 UTC', '秒可省');
+assert.equal(netInfo.certTimeText('260926144911+0800'), '2026-09-26 06:49:11 UTC', '带偏移要折算到 UTC');
+assert.equal(netInfo.certTimeText('2026-01-01T00:00:00Z'), '2026-01-01T00:00:00Z', '解析不出来原样返回');
+assert.equal(netInfo.certTimeText(''), '');
+assert.ok(Number.isFinite(netInfo.certTimeMillis('260926224911Z')));
+assert.ok(netInfo.certTimeMillis('260926224911Z') < netInfo.certTimeMillis('261225225635Z'));
+assert.ok(Number.isNaN(netInfo.certTimeMillis('not-a-time')));
+assert.ok(Number.isNaN(netInfo.certTimeMillis('')));
+cert.notBefore = '260101000000Z';
+cert.notAfter = '270101000000Z';
+cert.withinValidity = true;
+assert.ok(netInfo.certValidityText(cert, false).includes('在有效期内'));
+assert.ok(netInfo.certValidityText(cert, false).includes('2026-01-01 00:00:00 UTC'), '显示的是格式化后的时间');
+cert.withinValidity = false;
+assert.ok(netInfo.certValidityText(cert, true).includes('Outside'));
+// 解析不出来时只说「未判定」，绝不说成过期（这正是真机上的误报方向）
+cert.notBefore = '2026-01-01T00:00:00Z';
+assert.ok(netInfo.certValidityText(cert, false).includes('未判定'));
+assert.equal(netInfo.certValidityText(cert, false).includes('不在有效期'), false);
+assert.equal(netInfo.certValidityText(new netInfo.CertInfo(), false), '', '没有时间就不编一句有效期');
+const certLines = netInfo.certFields(cert, false);
+assert.ok(certLines.some((f) => f.value === netInfo.certTrustText(cert, false)), '结果行必须含信任状态');
+assert.ok(netInfo.netInfoErrorText('notfound', false).includes('没有查到'));
+assert.notEqual(netInfo.netInfoErrorText('notfound', true), netInfo.netInfoErrorText('ratelimit', true));
+assert.equal(netInfo.netInfoErrorText('whatever', false), '');
+assert.equal(netInfo.NETINFO_MODES.length, 3);
+assert.equal(netInfo.netInfoModeById('cert').en, 'TLS certificate');
+assert.equal(netInfo.netInfoModeById('nope'), undefined);
+assert.equal(new Set(netInfo.NETINFO_MODES.map((m) => m.id)).size, 3);
+for (const mode of netInfo.NETINFO_MODES) {
+  assert.ok(mode.zh.length > 0 && mode.en.length > 0 && mode.zh !== mode.en, `${mode.id} 名称不全`);
+  assert.ok(mode.hintZh.length > 0 && mode.hintEn.length > 0, `${mode.id} 缺输入提示`);
+}
+
+// ---------------------------------------------------------------------------
+// 随包的 `solar_terms.json` 数据本身也要断言（与上面 `holidays.ics` 同一口径）。
+// 这份数据由构建期脚本 `tools/fetch-solar-terms.mjs` 生成（来源 lunar-javascript，MIT），
+// 界面文案（覆盖年份、节气名）全是**算出来的**：数据换坏时界面只会「安静地少几行」，
+// 所以必须钉住「每年正好 24 个节气」「锚点日期正确」「覆盖范围与文档一致」。
+// ---------------------------------------------------------------------------
+{
+  const packText = await readFile(join(ROOT, 'entry/src/main/resources/rawfile/solar_terms.json'), 'utf8');
+  const table = solarTerms.parseSolarTermPack(packText);
+  assert.equal(table.loaded, true, '随包节气数据应能解析成功');
+  assert.equal(table.rangeStart, 2020);
+  assert.equal(table.rangeEnd, 2040);
+  assert.equal(table.dropped, 0, '随包数据不应有被丢弃的条目（未登记 id / 非法日期）');
+  assert.equal(solarTerms.packRangeText(table, false), '覆盖年份 2020\u20132040');
+  assert.equal(solarTerms.packRangeText(table, true), 'Years covered: 2020\u20132040');
+  // 每年必须正好 24 个节气（少了就是生成脚本或数据被改坏）
+  for (let year = table.rangeStart; year <= table.rangeEnd; year++) {
+    let count = 0;
+    for (const [date] of table.terms) {
+      if (date.startsWith(String(year) + '-')) count += 1;
+    }
+    assert.equal(count, 24, `${year} 年应有 24 个节气`);
+  }
+  // 锚点：2026 年的几个可核对日期（立春/冬至是二十四节气的两端，春节/除夕/中秋是农历节日）
+  assert.equal(solarTerms.solarTermLabel(table, '2026-02-04', false), '立春');
+  assert.equal(solarTerms.solarTermLabel(table, '2026-12-22', false), '冬至');
+  assert.equal(solarTerms.solarTermLabel(table, '2026-10-22', false), '', '不是节气日必须返回空串');
+  assert.equal(solarTerms.lunarFestivalLabel(table, '2026-02-17', false), '春节');
+  assert.equal(solarTerms.lunarFestivalLabel(table, '2026-02-16', false), '除夕');
+  assert.equal(solarTerms.lunarFestivalLabel(table, '2026-09-25', false), '中秋节');
+}
+
+// --- 纪念日提醒的「未来时刻」口径（2026-10-22 真机缺陷修复）---
+// 真机实测：直接用 `nextReminderDate()` 在「今天就是纪念日、但 09:00 已过」时把**过去的时间**交给系统，
+// `publishReminder()` 失败，界面只报「提醒设置失败」。修复后年重复顺延明年、一次性给专门的结论。
+{
+  const today = '2026-10-22';
+  // 今天 09:00 已过（nowMs 取当天 10:00）
+  const afterNine = new Date(2026, 9, 22, 10, 0, 0, 0).getTime();
+  // 今天 09:00 未到（nowMs 取当天 08:00）
+  const beforeNine = new Date(2026, 9, 22, 8, 0, 0, 0).getTime();
+  const yearlyToday = anniversaryTools.newAnniversary('T', today, true, 1);
+  const oneOffToday = anniversaryTools.newAnniversary('T', today, false, 1);
+  const oneOffPast = anniversaryTools.newAnniversary('T', '2026-01-01', false, 1);
+
+  // 09:00 还没到：就用今天
+  const soon = anniversaryTools.nextFutureReminderDate(yearlyToday, today, beforeNine);
+  assert.equal(anniversaryTools.reminderDateText(soon), '2026-10-22 09:00');
+  // 09:00 已过 + 年重复：顺延到明年同一天
+  const nextYear = anniversaryTools.nextFutureReminderDate(yearlyToday, today, afterNine);
+  assert.equal(anniversaryTools.reminderDateText(nextYear), '2027-10-22 09:00');
+  // 09:00 已过 + 一次性：没有下一次（返回 undefined，由页面给专门说明）
+  assert.equal(anniversaryTools.nextFutureReminderDate(oneOffToday, today, afterNine), undefined);
+  assert.equal(anniversaryTools.nextFutureReminderDate(oneOffPast, today, afterNine), undefined);
+  // 未来的一次性条目照常排
+  const futureOneOff = anniversaryTools.newAnniversary('T', '2026-12-24', false, 1);
+  assert.equal(anniversaryTools.reminderDateText(
+    anniversaryTools.nextFutureReminderDate(futureOneOff, today, afterNine)), '2026-12-24 09:00');
+  // 2 月 29 日的年重复顺延时，平年的下一年落 2 月 28 日（与列表口径一致）
+  const leapYearly = anniversaryTools.newAnniversary('T', '2028-02-29', true, 1);
+  const advanced = anniversaryTools.nextFutureReminderDate(leapYearly, '2028-02-29',
+    new Date(2028, 1, 29, 10, 0, 0, 0).getTime());
+  assert.equal(anniversaryTools.reminderDateText(advanced), '2029-02-28 09:00');
+  assert.equal(anniversaryTools.anniversaryLeapYear(2028), true);
+  assert.equal(anniversaryTools.anniversaryLeapYear(2029), false);
+  assert.equal(anniversaryTools.anniversaryLeapYear(2100), false);
+  assert.equal(anniversaryTools.anniversaryLeapYear(2000), true);
+  assert.ok(Number.isFinite(anniversaryTools.reminderDateTimeMillis(soon)));
+  assert.ok(anniversaryTools.reminderDateTimeMillis(soon) < anniversaryTools.reminderDateTimeMillis(nextYear));
+  // 「已过去」的文案说清结论与下一步，且不含 Markdown 星号
+  const pastZh = anniversaryTools.anniversaryReminderPastText(false);
+  const pastEn = anniversaryTools.anniversaryReminderPastText(true);
+  assert.ok(pastZh.includes('每年重复') && pastEn.includes('repeats yearly'));
+  assert.notEqual(pastZh, pastEn);
+  assert.equal(pastZh.includes('**'), false);
 }
 
 console.log('All toolbox model assertions passed');

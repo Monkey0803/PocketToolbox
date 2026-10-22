@@ -1,3 +1,4 @@
+import { common } from '@kit.AbilityKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { appText } from '../model/AppStrings';
 import { IconActionButton } from './IconActionButton';
@@ -6,10 +7,16 @@ import { ToolPalette } from '../model/ToolPalette';
 import { LocalData } from '../model/LocalData';
 import { buildImmersiveMaterial, clearButtonIcon } from '../model/Materials';
 import { todayDate, pickerDate, pickerDateText, parseDate } from '../model/DateTools';
+import { reminderReasonText } from '../model/TimerMath';
+import { scheduleAnniversaryReminder, cancelReminder, ReminderOutcome } from '../services/SystemTools';
 import { Anniversary, ANNIVERSARY_MAX, newAnniversary, parseAnniversariesDetailed,
   AnniversaryParseResult, anniversaryOverflowNoteText, serializeAnniversaries,
   anniversaryText, anniversaryCountText, sortAnniversaries, upsertAnniversary, removeAnniversary,
-  anniversaryErrorText } from '../model/AnniversaryTools';
+  anniversaryErrorText, ReminderDateTime, nextFutureReminderDate, reminderDateText,
+  withAnniversaryReminder,
+  anniversaryReminderTitle, anniversaryReminderNoteText, anniversaryReminderA11yText,
+  anniversaryReminderOnText, anniversaryReminderOffText, anniversaryReminderFailedText,
+  anniversaryReminderPastText, anniversaryReminderCancelFailedText } from '../model/AnniversaryTools';
 
 // 清单的内层 `List` 必须自带确定高度：工具页被外层 `Scroll` 包裹，没有高度的 List 拿不到稳定的
 // 可滚动区域（与 `DiffPage` 的内层 List 同一处理）。行高按内容估一个安全值，最多显示 6 行，
@@ -18,12 +25,21 @@ const LIST_ROW_HEIGHT: number = 88;
 const LIST_ROW_GAP: number = 10;
 const LIST_MAX_ROWS: number = 6;
 /**
- * 每行给动作按钮预留的宽度：两枚 44 vp 图标 + 4 vp 间距 + 8 vp 内边距 = 100 vp。
+ * 每行给动作按钮预留的宽度：三枚 48 vp 图标 + 2×4 vp 间距 + 8 vp 内边距 = 160 vp。
  *
- * 这里原来写 64（只够一枚按钮），名称稍长就会滑到删除按钮底下；左手镜像后名字更长地压过来，
+ * 原来写 64（只够一枚按钮），名称稍长就会滑到删除按钮底下；左手镜像后名字更长地压过来，
  * 截图里直接看得到垃圾桶图标盖在文字上（2026-10-21 模拟器实测）。留白与按钮同侧切换，数值共用。
+ * 2026-10-22 加「提醒开关」这枚铃铛后由 100 改为 160（三枚 48 vp 图标 + 两组 4 vp 间距 + 8 vp 内边距），
+ * 不留足同样会重演那次「图标压到文字上」。
  */
-const ITEM_ACTION_RESERVE: number = 100;
+const ITEM_ACTION_RESERVE: number = 160;
+
+/** 重排提醒的结果：可见条目 + 是否需要写回存储 + 第一条失败原因（`''` = 全部成功）。 */
+class ReminderRebuild {
+  items: Anniversary[] = [];
+  dirty: boolean = false;
+  error: string = '';
+}
 
 /**
  * 纪念日页（倒数日）。
@@ -47,6 +63,14 @@ export struct AnniversaryPage {
   @Param handSide: number = 0;
   @Event onCopy: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};
+  /**
+   * 当前**已排程**的系统提醒 id 快照（每次变动后回调一次）。
+   *
+   * 用途只有一个：父组件在「清除本机数据」时按这份快照 `cancelReminder(id)`——存储清空后页面再也读不到
+   * 那些 id，若不在这里交出去，清完数据通知仍会按时响（用户以为删干净了）。本页自己负责单条删除、
+   * 关闭开关、重进页面重排的取消；导出/导入同理，靠重进页面时的「先全部取消再重排」兜底。
+   */
+  @Event onReminderIds: (ids: number[]) => void = () => {};
 
   @Local entryName: string = '';
   @Local entryDate: string = todayDate();
@@ -58,10 +82,16 @@ export struct AnniversaryPage {
   @Local items: Anniversary[] = [];
   // 正在编辑的条目 id（空串 = 新增）：编辑不再「删了重建」，保存时按 id 覆盖（upsert）。
   @Local editingId: string = '';
+  // 正在排程/取消提醒的条目 id（空串 = 空闲）：开关连点时用来挡住第二次（否则会排出两条提醒）。
+  @Local reminderBusyId: string = '';
   // 新建条目的序号：与 createdAt 一起组成 id，避免同一毫秒内连续添加两条时撞 id（不用随机数）。
   private sequence: number = 0;
+  /** 页面是否已销毁（延后一帧的重建任务据此作废）。 */
+  private disposed: boolean = false;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
+
+  private ctx(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
 
   // 只给日期选择器对话框用：与可点表面同一套材质（触控变形 + 光感）。
   /**
@@ -73,7 +103,13 @@ export struct AnniversaryPage {
   }
 
   aboutToAppear(): void {
+    this.disposed = false;
     this.loadItems();
+  }
+
+  aboutToDisappear(): void {
+    // 重排提醒是**延后一帧**做的（见 `loadItems()`）：页面已经销毁就别再排了。
+    this.disposed = true;
   }
 
   // `data` 由 undefined 变为可用时重新载入（与 `TimersPage` 同一套做法）。
@@ -84,19 +120,212 @@ export struct AnniversaryPage {
 
   private async loadItems(): Promise<void> {
     if (!this.data) { return; }
+    let parsed: AnniversaryParseResult = new AnniversaryParseResult();
     try {
       const raw: string = await this.data.getString('anniversaries', '[]');
       // 用详细解析：超上限的条目留在 `overflowItems` 里，保存时原样写回去，避免「看一眼就被截掉」
       // （2026-10-20 审计 §3.16③）。界面只渲染上限内的条目，并如实说明有多少条没显示。
-      const parsed: AnniversaryParseResult = parseAnniversariesDetailed(raw);
+      parsed = parseAnniversariesDetailed(raw);
       this.overflowItems = parsed.overflow;
-      this.today = todayDate();
-      this.items = sortAnniversaries(parsed.items, this.today);
     } catch (_) {
       // 读取失败按「没有条目」处理，不影响新建与删除。
       this.items = [];
       this.overflowItems = [];
+      this.publishReminderIds();
+      return;
     }
+    this.today = todayDate();
+    this.items = sortAnniversaries(parsed.items, this.today);
+    // 重建提醒**延后一帧**做：`aboutToAppear` 里 `getUIContext()` 未必已经可用（排提醒要拿 ability
+    // context），而且这一步可能弹系统通知授权框——等首帧渲染完再弹更稳，也不会挡着列表先出现。
+    setTimeout(() => { this.rebuildAll(); }, 0);
+  }
+
+  /**
+   * 按当前清单重建提醒：先取消存储里记着的旧 id，再按 `reminderEnabled` 重排。
+   *
+   * 不重建就会出现「同一件事响两次」（重排换了新 id，旧的那条还留在系统里），2026-10-22 纪念日提醒。
+   * 无论有没有开关打开都会跑一遍：只取消、不排程时同样要把「已排程 id 快照」清零交给父组件。
+   */
+  private async rebuildAll(): Promise<void> {
+    if (this.disposed) { return; }
+    const rebuilt: ReminderRebuild = await this.rebuildReminders(this.items);
+    if (this.disposed) { return; }
+    this.items = sortAnniversaries(rebuilt.items, this.today);
+    if (rebuilt.dirty) { await this.saveItems(this.items); }
+    this.publishReminderIds();
+    if (rebuilt.error.length > 0) { this.onStatus(this.reminderFailureText(rebuilt.error)); }
+  }
+
+  /**
+   * 取消一条系统提醒；失败只返回 false，**不抛异常**（调用方决定是回滚还是如实提示）。
+   * `-1`（没有提醒）视为成功——调用方不必到处判空。
+   */
+  private async cancelQuietly(id: number): Promise<boolean> {
+    if (id < 0) { return true; }
+    try {
+      await cancelReminder(id);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * 按条目的下一次**仍在未来**的发生时刻排一条系统提醒；任何异常都归一成 `ReminderOutcome(-1, 'other')`。
+   *
+   * 真机实测（2026-10-22）：直接用 `nextReminderDate()` 会在「今天 09:00 已过」时把过去的时间交给系统，
+   * 系统拒绝、界面只报「提醒设置失败」。现在走 `nextFutureReminderDate()`：年重复顺延到明年、
+   * 一次性已过返回 `undefined` → 给 `past` 这个专门的结论码。
+   */
+  private async scheduleFor(item: Anniversary): Promise<ReminderOutcome> {
+    const next: ReminderDateTime | undefined = nextFutureReminderDate(item, this.today, Date.now());
+    if (next === undefined) { return new ReminderOutcome(-1, 'past'); }
+    try {
+      return await scheduleAnniversaryReminder(this.ctx(), item.title, reminderDateText(next), item.yearly,
+        this.english);
+    } catch (_) {
+      return new ReminderOutcome(-1, 'other');
+    }
+  }
+
+  /**
+   * 提醒失败时的提示：复用计时器那套「通知没允许 → 去系统设置开」的**原因与下一步**，
+   * 但没有对应错误码时退回本工具的通用失败文案。
+   *
+   * 这里刻意用 `reminderReasonText()` 而不是 `reminderGuidanceText()`：后者的收尾句是
+   * 「应用内计时不受影响」，在纪念日页会写出与当前界面无关的话（2026-10-22 拆开这两个函数）。
+   */
+  private reminderFailureText(error: string): string {
+    // `past` 不是失败：一次性纪念日的日期已经过去，没有下一次可排——说结论 + 下一步。
+    if (error === 'past') { return anniversaryReminderPastText(this.english); }
+    const guidance: string = reminderReasonText(error, this.english);
+    return guidance.length > 0 ? guidance : anniversaryReminderFailedText(this.english);
+  }
+
+  /**
+   * 把当前清单的提醒全部**重建**一遍：旧 id 一律先取消，再按 `reminderEnabled` 重排。
+   *
+   * 排程失败（通知没允许 / 设备不支持）时如实把该条的开关回滚成关——不能让开关装作是开着的。
+   * 溢出条目（不在列表里、用户点不到它的铃铛）只取消旧 id，既不排新提醒也不动它的开关。
+   */
+  private async rebuildReminders(source: Anniversary[]): Promise<ReminderRebuild> {
+    const outcome: ReminderRebuild = new ReminderRebuild();
+    for (const item of source) {
+      if (item.reminderId >= 0) {
+        await this.cancelQuietly(item.reminderId);
+        item.reminderId = -1;
+        outcome.dirty = true;
+      }
+    }
+    for (const item of this.overflowItems) {
+      if (item.reminderId >= 0) {
+        await this.cancelQuietly(item.reminderId);
+        item.reminderId = -1;
+        outcome.dirty = true;
+      }
+    }
+    for (const item of source) {
+      if (item.reminderEnabled) {
+        const scheduled: ReminderOutcome = await this.scheduleFor(item);
+        if (scheduled.error.length === 0 && scheduled.id >= 0) {
+          item.reminderId = scheduled.id;
+        } else {
+          item.reminderEnabled = false;
+          item.reminderId = -1;
+          if (outcome.error.length === 0) {
+            outcome.error = scheduled.error.length > 0 ? scheduled.error : 'other';
+          }
+        }
+        outcome.dirty = true;
+      }
+      outcome.items.push(item);
+    }
+    return outcome;
+  }
+
+  /** 把「已排程的提醒 id」快照交给父组件（清除本机数据时据此取消，避免残留通知）。 */
+  private publishReminderIds(): void {
+    const ids: number[] = [];
+    this.items.forEach((item: Anniversary) => {
+      if (item.reminderId >= 0) { ids.push(item.reminderId); }
+    });
+    this.onReminderIds(ids);
+  }
+
+  /** 用副本换掉某一条（`Anniversary` 没有 `@ObservedV2`，就地改字段不会触发刷新）。 */
+  private replaceReminder(item: Anniversary, enabled: boolean, reminderId: number): Anniversary[] {
+    return this.items.map((entry: Anniversary): Anniversary =>
+      entry.id === item.id ? withAnniversaryReminder(item, enabled, reminderId) : entry);
+  }
+
+  // 行内开关只拿到常量下标，因此在函数体内现取状态（`@Builder` 只收常量参数，不能把标签文字传进来）。
+  private reminderEnabledAt(index: number): boolean {
+    const item: Anniversary | undefined = this.items[index];
+    return item !== undefined && item.reminderEnabled;
+  }
+
+  private reminderIcon(index: number): Resource {
+    return this.reminderEnabledAt(index) ? $r('sys.symbol.bell_fill') : $r('sys.symbol.bell_slash');
+  }
+
+  private reminderTint(index: number): Resource {
+    return this.reminderEnabledAt(index) ? ToolPalette.primary : ToolPalette.textMuted;
+  }
+
+  /**
+   * 点铃铛：开着就关、关着就开；连点由 `reminderBusyId` 挡住（否则会排出两条提醒）。
+   *
+   * **`finally` 是必须的**（2026-10-22 真机验收）：原来只在正常返回时清这个标志，一旦 `turnReminderOn()`
+   * 里任何一次 `await` 抛出（存储写入失败、系统提醒接口抛异常），标志就**永久留在这条条目上**——
+   * 之后再点这枚铃铛会直接 `return`，**既没有提示也没有任何反应**，看起来像「按钮坏了」。
+   * 这类「守卫标志忘了复位」的缺陷在真机上只表现为静默无响应，最容易被当成偶发。
+   */
+  private async toggleReminderAt(index: number): Promise<void> {
+    if (this.reminderBusyId.length > 0) { return; }
+    const item: Anniversary | undefined = this.items[index];
+    if (item === undefined) { return; }
+    this.reminderBusyId = item.id;
+    try {
+      if (item.reminderEnabled) {
+        await this.turnReminderOff(item);
+      } else {
+        await this.turnReminderOn(item);
+      }
+    } catch (_) {
+      // 兜底：真正的失败提示由 `turnReminderOn()`/`turnReminderOff()` 内部给出，这里只保证不卡住标志。
+    } finally {
+      this.reminderBusyId = '';
+    }
+  }
+
+  private async turnReminderOn(item: Anniversary): Promise<void> {
+    const scheduled: ReminderOutcome = await this.scheduleFor(item);
+    if (scheduled.error.length > 0 || scheduled.id < 0) {
+      // 开关本来就是关的：没有内存状态要回滚，但仍要如实说明原因（复用计时器那套引导文案）。
+      this.onStatus(this.reminderFailureText(scheduled.error.length > 0 ? scheduled.error : 'other'));
+      return;
+    }
+    const saved: boolean = await this.saveItems(this.replaceReminder(item, true, scheduled.id));
+    if (!saved) {
+      // 落盘失败：把已经排好的那条系统提醒撤掉，避免「开关是关的、通知却会响」。
+      await this.cancelQuietly(scheduled.id);
+      return;
+    }
+    this.publishReminderIds();
+    this.onStatus(anniversaryReminderOnText(this.english));
+  }
+
+  private async turnReminderOff(item: Anniversary): Promise<void> {
+    if (!await this.cancelQuietly(item.reminderId)) {
+      // 取消失败就**别把开关关掉**：状态与系统里真实存在的提醒必须一致。
+      this.onStatus(anniversaryReminderCancelFailedText(this.english));
+      return;
+    }
+    const saved: boolean = await this.saveItems(this.replaceReminder(item, false, -1));
+    if (!saved) { return; }
+    this.publishReminderIds();
+    this.onStatus(anniversaryReminderOffText(this.english));
   }
 
   /**
@@ -138,12 +367,41 @@ export struct AnniversaryPage {
       updated.title = title;
       updated.date = this.entryDate;
       updated.yearly = this.yearly;
+      updated.reminderEnabled = false;
+      updated.reminderId = -1;
+      // 提醒跟着标题/日期走：先撤掉旧的那条（否则改了名字/日期后，系统里那条还是旧内容），
+      // 开着的话再按新内容重排一次；排不上就如实回滚成关闭（与打开开关失败同一口径）。
+      let failure: string = '';
+      let cancelFailed: boolean = false;
+      if (editing.reminderEnabled) {
+        if (await this.cancelQuietly(editing.reminderId)) {
+          const scheduled: ReminderOutcome = await this.scheduleFor(updated);
+          if (scheduled.error.length === 0 && scheduled.id >= 0) {
+            updated.reminderEnabled = true;
+            updated.reminderId = scheduled.id;
+          } else {
+            failure = scheduled.error.length > 0 ? scheduled.error : 'other';
+          }
+        } else {
+          // 旧提醒撤不掉：保留原开关与原 id（那条提醒仍能在这里关掉），并如实提示；
+          // 下次进页面重建时自愈（先取消旧 id 再按开关重排）。
+          cancelFailed = true;
+          updated.reminderEnabled = true;
+          updated.reminderId = editing.reminderId;
+        }
+      }
       const savedEdit: boolean = await this.saveItems(
         sortAnniversaries(upsertAnniversary(this.items, updated), this.today));
       if (!savedEdit) { return; }
       this.editingId = '';
       this.entryName = '';
-      this.onStatus(appText('anniv.updated', this.english));
+      this.publishReminderIds();
+      if (cancelFailed) {
+        this.onStatus(anniversaryReminderCancelFailedText(this.english));
+      } else {
+        this.onStatus(failure.length > 0 ? this.reminderFailureText(failure)
+          : appText('anniv.updated', this.english));
+      }
       return;
     }
     if (this.items.length >= ANNIVERSARY_MAX) {
@@ -173,8 +431,19 @@ export struct AnniversaryPage {
   }
 
   private async deleteItem(id: string): Promise<void> {
+    const item: Anniversary | undefined =
+      this.items.find((entry: Anniversary): boolean => entry.id === id);
+    // 单条删除必须把它的系统提醒一起取消，否则删掉的纪念日还会按时响。
+    let cancelFailed: boolean = false;
+    if (item !== undefined && item.reminderId >= 0) {
+      cancelFailed = !await this.cancelQuietly(item.reminderId);
+    }
     const saved: boolean = await this.saveItems(removeAnniversary(this.items, id));
-    if (saved) { this.onStatus(appText('anniv.deleted', this.english)); }
+    if (!saved) { return; }
+    this.publishReminderIds();
+    // 提醒没取消成功就不报「已删除」：否则用户以为删干净了，通知却还会响。
+    this.onStatus(cancelFailed ? anniversaryReminderCancelFailedText(this.english)
+      : appText('anniv.deleted', this.english));
   }
 
   private deleteItemAt(index: number): void {
@@ -274,8 +543,8 @@ export struct AnniversaryPage {
       // 删除按钮是「可点行」的**兄弟节点**而不是子节点：整行的 onClick 负责复制，删除按钮放在同一个
       // Stack 的顶层兄弟位置，点击是否还会冒泡到父节点就不再取决于手势竞争（与收藏卡片同一套写法）。
       //
-      // 智感握姿（2026-10-21）：左手持机时把两个动作按钮整体镜像到**行首**，右手/未知时留在行尾。
-      // 光靠 `justifyContent` 做不到——这里是 Stack 叠放，必须同时换 `alignContent` 与两侧留白，
+      // 智感握姿（2026-10-21）：左手持机时把整组动作按钮（提醒 / 编辑 / 删除）镜像到**行首**，右手/未知时
+      // 留在行尾。光靠 `justifyContent` 做不到——这里是 Stack 叠放，必须同时换 `alignContent` 与两侧留白，
       // 否则按钮会压到文字上；留白始终留在「按钮那一侧」的对侧。
       Stack({ alignContent: this.handSide < 0 ? Alignment.TopStart : Alignment.TopEnd }) {
         // 可点区域：名称 + 副标题；按钮一侧留出 `ITEM_ACTION_RESERVE` 空白，文字不会被压到按钮下面。
@@ -297,6 +566,15 @@ export struct AnniversaryPage {
         .onClick(() => this.onCopy(this.itemCopyText(index)))
 
         Row({ space: 4 }) {
+          // 「提醒开关」用一枚铃铛图标按钮（本页行内动作就是这套 48 vp 图标按钮，行距也只有 88 vp，
+          // 塞一个带标签的 Toggle 会把名字挤没）。开关状态由图标本身表达：响铃 = 已开启、划掉铃 = 关闭；
+          // 读屏听到的是 `accessibilityText`（「纪念日提醒，已开启 / 已关闭」）。
+          IconActionButton({
+            icon: this.reminderIcon(index),
+            tintColor: this.reminderTint(index),
+            a11yText: anniversaryReminderA11yText(this.reminderEnabledAt(index), this.english),
+            onTap: () => this.toggleReminderAt(index)
+          })
           IconActionButton({
             icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
             a11yText: appText('anniv.edit-anniversary', this.english),
@@ -376,15 +654,27 @@ export struct AnniversaryPage {
           .fontSize(16).fontColor(ToolPalette.textMuted).width('100%')
       } else {
         List({ space: LIST_ROW_GAP }) {
+          // key 里带上提醒开关状态：`Anniversary` 是普通类（没有 `@ObservedV2`），只有换掉数组时行内
+          // 图标才会跟着刷新；把开关状态编进 key 能让这一行确实重建，铃铛不会「点了不变」。
           ForEach(this.items, (item: Anniversary, index: number) => {
             ListItem() {
               this.itemRow(index)
             }
-          }, (item: Anniversary): string => item.id)
+          }, (item: Anniversary): string => item.id + (item.reminderEnabled ? '-on' : '-off'))
         }
         .width('100%')
         .height(this.listHeight())
         .scrollBar(BarState.Auto)
+      }
+
+      if (this.items.length > 0) {
+        // 提醒开关的说明：写清「什么时候提醒」「由系统本地通知发出、不联网、不新增权限」「只在本机生效」。
+        Column({ space: 2 }) {
+          Text(anniversaryReminderTitle(this.english)).fontSize(13)
+            .fontColor(ToolPalette.textSecondary).width('100%')
+          Text(anniversaryReminderNoteText(this.english)).fontSize(13)
+            .fontColor(ToolPalette.textMuted).width('100%')
+        }.width('100%')
       }
 
       Text(appText('anniv.anniversaries-are-stored-on', this.english))

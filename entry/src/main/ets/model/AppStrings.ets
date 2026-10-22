@@ -157,32 +157,93 @@ export const APP_STRINGS: AppString[] = [
     'This information is read and shown on-device only; nothing is stored or sent.'),
   new AppString('settings.staleHoliday', '远端数据比本地更旧，已保留当前数据',
     'Remote data is older than the local copy; kept the current data'),
+  // 设置页「联网」区块（联网放开那一批）：登记表本身的标题与披露文案在 `model/NetPolicy.ets`，
+  // 这里只放这个区块的**固定外壳文案**。
+  new AppString('settings.network', '联网', 'Networking'),
+  new AppString('settings.networkEnabled', '允许联网', 'Allow network access'),
+  new AppString('settings.networkNote',
+    '下面每一项都可以单独关闭；全部联网动作都在你点击时才发起，失败时不覆盖本机数据。',
+    'Each item below can be turned off on its own. Every network action starts only when you tap it, and a ' +
+    'failure never overwrites on-device data.'),
+  new AppString('settings.networkWifiOnly', '仅 Wi-Fi', 'Wi-Fi only'),
+  new AppString('settings.networkWifiOnlyNote',
+    '打开后只在 Wi-Fi 或以太网下联网；判断不出当前网络类型时也不会发起请求，界面会如实说明。',
+    'When on, requests are made only on Wi-Fi or Ethernet. If the current network type cannot be determined, ' +
+    'nothing is sent and the screen says so.'),
+  new AppString('settings.networkClearCache', '清除联网缓存', 'Clear network cache'),
+  new AppString('settings.networkClearMessage',
+    '将删除本机保存的汇率快照、数据包与下载的节假日数据，之后需要重新联网获取；此操作不可撤销。',
+    'This deletes the on-device rate snapshot, data packs and downloaded holiday data; they will need to be ' +
+    'fetched again. This cannot be undone.'),
+  new AppString('settings.networkCacheCleared', '联网缓存已清除', 'Network cache cleared'),
+  new AppString('settings.networkCacheFailed', '清除联网缓存失败', 'Could not clear the network cache'),
+  new AppString('settings.networkDisabledNote', '已关闭联网：所有联网动作都不会发起请求。',
+    'Networking is off: no network action will start a request.'),
+  // 逐项开关的无障碍文字后缀（读屏要先听到动作名，再听到当前开/关）
+  new AppString('settings.netToggleOnSuffix', '，已开启', ', on'),
+  new AppString('settings.netToggleOffSuffix', '，已关闭', ', off'),
+  // 设置页「节气与农历节日数据包」（与节假日数据同一套：显式点按钮、失败保留随包数据）
+  new AppString('settings.solar', '节气与农历节日', 'Solar terms and festivals'),
+  new AppString('settings.solarCheckA11y', '检查节气数据更新', 'Check for solar-term data updates'),
+  new AppString('settings.solarNote',
+    '只在你点击时拉取；失败或校验不通过时一律保留随包数据。',
+    'Fetched only when you tap; on failure or failed validation the bundled data stays in use.'),
+  new AppString('settings.solarUpdated', '节气数据已更新', 'Solar-term data updated'),
+  new AppString('settings.solarFailed', '更新失败，仍使用随包数据',
+    'Update failed; still using bundled data'),
+  new AppString('settings.solarNotConfigured', '数据包地址尚未配置，当前使用随包数据。',
+    'The data pack address has not been configured yet; the bundled data is in use.'),
+  new AppString('settings.solarBundled', '随包数据', 'Bundled data'),
+  new AppString('settings.solarOnline', '已在线更新', 'Updated online'),
+  // 设置页「应用更新」（应用内更新检查）
+  new AppString('settings.update', '应用更新', 'App update'),
+  new AppString('settings.updateCheck', '检查更新', 'Check for updates'),
+  new AppString('settings.updateA11y', '检查应用更新', 'Check for app updates'),
+  new AppString('settings.updateNotConfigured', '更新地址尚未配置，暂不能检查更新。',
+    'The update address has not been configured yet, so the update check is unavailable.'),
+  new AppString('settings.updateLatest', '已是最新版本', 'You are on the latest version'),
+  new AppString('settings.updateAvailablePrefix', '有新版本 ', 'New version '),
+  new AppString('settings.updateAvailableSuffix', ' 可下载。', ' is available.'),
+  new AppString('settings.updateFailed', '检查更新失败', 'Update check failed'),
+  new AppString('settings.updateNote', '只读取一份公开的版本清单并与本机版本比较，不发送任何内容。',
+    'Reads a public version manifest and compares it with the installed version; sends nothing.'),
+  // 本地提醒（纪念日/倒计时，不联网）：设置页与纪念日页共用这几句
+  new AppString('settings.localReminderNote',
+    '纪念日与倒计时的提醒由系统本地通知发出，不联网。',
+    'Anniversary and countdown reminders use the system\u2019s local notifications and need no network.'),
   // 设置页的数据与隐私披露正文（全应用最长的一段固定文案，集中在这里便于核对与翻译）
   // **必须与 `docs/PRIVACY.md` 同步**：第三批顺手修掉两处过时事实——漏了触觉反馈开关、权限仍写「5 项」
   // （`module.json5` 已是 6 项，含 `ohos.permission.VIBRATE`）。除此之外中英文字面与原来一致。
   new AppString('settings.storageDisclosure',
     '历史记录（二维码生成与扫码、文本/换算/时间戳/计算/随机的复制结果，最多 50 条）、计时器与秒表、' +
     '工具收藏及其顺序、语言偏好、智感握姿开关、触觉反馈开关、工具与收藏页的「每行显示几个」、' +
-    '工具页的分类筛选、' +
+    '工具页的分类筛选、联网偏好（键 net_prefs：总开关 / 仅 Wi-Fi / 逐项开关）、' +
     '单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，' +
     '可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。' +
     '条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；' +
     '文档扫描结果只在本次运行保留，由你主动导出。应用申请 6 项权限（代理提醒、握姿、加速度传感器、振动、网络、网络信息），' +
-    '联网只有三处且全部由你点击触发：网络工具探测、单位换算「更新汇率」、设置页「检查更新」；' +
-    '启动、后台与桌面服务卡片都不联网。个税在本机计算，官方链接只在点按时打开。应用无账号、广告、统计或云同步。',
+    '全部联网动作都登记在设置页的「联网」区块里、可逐项关闭，且只在**你点击时**发起：网络工具探测、链接信息、' +
+    'IP 归属地与域名注册信息查询、TLS 证书查看、汇率更新、节假日数据更新、节气数据包更新与应用更新检查；' +
+    '发送出去的只有你填写的目标主机/网址与币种代码，不发送你的输入内容；启动、后台、桌面服务卡片与分享扩展都不联网。' +
+    '纪念日与倒计时的提醒由系统本地通知发出，不需要联网。个税在本机计算，官方链接只在点按时打开。' +
+    '应用无账号、广告、统计或云同步。',
     'History (QR creation and scans, copied text/conversion/timestamp/calculation/random results, up to 50), ' +
     'timers and stopwatch laps, favourites and their order, language preference, the adaptive hand posture and ' +
     'haptic feedback switches, the per-row setting of the tools and favourites tabs, the tools tab’s category ' +
-    'filter, the converter’s last ' +
+    'filter, the networking preferences (key net_prefs: master switch, Wi-Fi-only and per-action switches), the converter’s last ' +
     'category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary ' +
     'list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten ' +
     'when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, ' +
     'text diff, random, kinship and password inputs and results remain in memory for this run only; document scans ' +
     'stay in memory until you export them. The app requests six permissions (reminder agent, gesture, accelerometer, ' +
-    'vibration, internet, network info). Network access happens in exactly three places, each triggered by your tap: ' +
-    'Network tools probes, the converter’s Update rates, and Settings’ Check for updates; app start-up, the ' +
-    'background and the home-screen widget never go online. Tax is computed on-device and official links open only ' +
-    'when you tap them. No accounts, ads, analytics or cloud sync.'),
+    'vibration, internet, network info). Every network action is listed — and can be switched off one by one — in ' +
+    'the Networking section of Settings, and each starts only when you tap it: network tools probes, link info, ' +
+    'IP lookup and domain registration data, TLS certificate viewing, rate updates, holiday data updates, the ' +
+    'solar-terms data pack and the update check. What leaves the device is only the host or web address you type ' +
+    'plus a currency code — never your input content. App start-up, the background, the home-screen widget and the ' +
+    'share extension never go online. Anniversary and countdown reminders use the system’s local notifications and ' +
+    'need no network. Tax is computed on-device and official links open only when you tap them. No accounts, ads, ' +
+    'analytics or cloud sync.'),
   // ── 第四批：跨页重复的固定文案 ──
   // 这些是**多页共用且字面完全相同**的标签/动作/状态，先搬它们，收益（去重）最大、风险最小。
   new AppString('field.method', '方式', 'Method'),
@@ -271,6 +332,8 @@ export const APP_STRINGS: AppString[] = [
     'Barcode value'),
   new AppString('barcode.copy-barcode-value', '复制条形码内容',
     'Copy barcode value'),
+  new AppString('base.base-tool', '进制与位运算方式',
+    'Base and bitwise method'),
   new AppString('base.input-base', '输入进制',
     'Input base'),
   new AppString('base.choose-the-base-of', '选择输入的进制',
@@ -281,6 +344,12 @@ export const APP_STRINGS: AppString[] = [
     'Hexadecimal'),
   new AppString('base.binary', '二进制',
     'Binary'),
+  new AppString('base.signed-int32', '有符号（int32）',
+    'Signed (int32)'),
+  new AppString('base.bytes-big-endian', '字节（大端）',
+    'Bytes (big-endian)'),
+  new AppString('base.bytes-little-endian', '字节（小端）',
+    'Bytes (little-endian)'),
   new AppString('base.operation', '运算',
     'Operation'),
   new AppString('base.choose-a-bitwise-operation', '选择位运算',
@@ -291,8 +360,6 @@ export const APP_STRINGS: AppString[] = [
     'Second operand'),
   new AppString('base.enter-a-number', '输入数字',
     'Enter a number'),
-  new AppString('base.bitwise-32-bit-unsigned', '位运算（32 位无符号）',
-    'Bitwise (32-bit unsigned)'),
   new AppString('base.operand-base', '操作数进制',
     'Operand base'),
   new AppString('base.base-of-the-bitwise', '位运算操作数的进制',
@@ -522,6 +589,26 @@ export const APP_STRINGS: AppString[] = [
     'Send to text tool'),
   new AppString('docs.ocr-clear', '清空识别结果',
     'Clear recognised text'),
+  new AppString('docs.ocr-export', '导出识别文本为 txt',
+    'Export recognised text as .txt'),
+  new AppString('docs.ocr-exported', '识别文本已导出',
+    'Recognised text exported'),
+  new AppString('docs.share', '分享扫描结果',
+    'Share scanned files'),
+  new AppString('docs.share-opened', '已打开系统分享面板',
+    'System share panel opened'),
+  new AppString('docs.share-stage-failed', '无法读取扫描结果，请重新扫描后再分享',
+    'Could not read the scanned files; rescan before sharing'),
+  new AppString('docs.reorderA11y', '调整页序',
+    'Reorder pages'),
+  new AppString('docs.reorder-cleared-ocr', '页序已变更，识别文本已作废，请重新提取',
+    'Page order changed, so the recognised text was discarded; extract it again'),
+  new AppString('docs.clear-all', '清空扫描结果',
+    'Clear scanned pages'),
+  new AppString('docs.edit-scan', '重新编辑扫描结果',
+    'Edit scanned pages again'),
+  new AppString('docs.edit-unsupported-pdf', 'PDF 结果不能重新编辑，请重新扫描并用 JPG 保存',
+    'A PDF result cannot be edited again; rescan and save as JPG'),
   new AppString('health.pick-the-age-from', '从列表选择年龄',
     'Pick the age from a list'),
   new AppString('health.enter-height-and-weight', '填入身高与体重（算 BMR/TDEE 还需年龄），结果会自动出现。',

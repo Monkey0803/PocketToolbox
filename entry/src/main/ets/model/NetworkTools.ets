@@ -21,21 +21,34 @@ export class NetworkMode {
   readonly en: string;
   /** 是否真的需要联网：`url`（网址分解）纯本地即可完成，用于界面提示与权限降级。 */
   readonly online: boolean;
+  /**
+   * 输入提示（`placeholder`）的中英两份；没有合适提示的方式两个都是空串。
+   *
+   * 放在登记表里而不是页面里：它是**方式的属性**（「这一格该填什么」），与 id/中英名同一份数据；
+   * 页面只把它传给 `TextInput`，不再为每个方式各写一份字面量。中英都有，**不混排**。
+   */
+  readonly hintZh: string;
+  readonly hintEn: string;
 
-  constructor(id: string, zh: string, en: string, online: boolean) {
+  constructor(id: string, zh: string, en: string, online: boolean,
+    hintZh: string = '', hintEn: string = '') {
     this.id = id;
     this.zh = zh;
     this.en = en;
     this.online = online;
+    this.hintZh = hintZh;
+    this.hintEn = hintEn;
   }
 }
 
-/** 四种联网能力；`url` 不需要网络，其余三种必须联网。 */
+/** 五种联网能力；`url` 不需要网络，其余四种必须联网。 */
 export const NETWORK_MODES: NetworkMode[] = [
   new NetworkMode('dns', '域名解析', 'DNS lookup', true),
   new NetworkMode('port', '端口连通', 'Port check', true),
   new NetworkMode('http', '状态与响应头', 'HTTP status and headers', true),
-  new NetworkMode('url', '网址分解', 'URL parts', false)
+  new NetworkMode('url', '网址分解', 'URL parts', false),
+  new NetworkMode('linkinfo', '链接信息', 'Link info', true,
+    'https://example.com/短链', 'https://example.com/short-link')
 ];
 
 /** 单次联网请求的超时上限（毫秒）：默认值，页面可以让用户改，但登记表不变。 */
@@ -53,6 +66,11 @@ export function networkModeIndex(id: string): number {
 
 export function networkModeById(id: string): NetworkMode | undefined {
   return NETWORK_MODES.find((mode: NetworkMode): boolean => mode.id === id);
+}
+
+/** 方式的输入提示（`placeholder`）；两个提示都是空串时返回空串（未登记的方式也一样）。 */
+export function networkModeHint(mode: NetworkMode, english: boolean): string {
+  return english ? mode.hintEn : mode.hintZh;
 }
 
 /** 主机名校验结果：`error` 为 `''` 时 `host` 是规范化后的主机名。 */
@@ -382,6 +400,16 @@ export function netErrorText(code: string, english: boolean): string {
   }
   if (code === 'toolarge') {
     return english ? 'Response too large, truncated' : '响应过大，已截断';
+  }
+  if (code === 'parse') {
+    return english ? 'Could not read a title or description from this page'
+      : '没能从这个页面读到标题或描述';
+  }
+  if (code === 'loop') {
+    return english ? 'Redirect loop detected; stopped' : '检测到跳转循环，已停止跟随';
+  }
+  if (code === 'redirect') {
+    return english ? 'Too many redirects; stopped' : '跳转次数过多，已停止跟随';
   }
   return '';
 }

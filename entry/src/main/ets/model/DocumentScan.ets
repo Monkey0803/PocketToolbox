@@ -176,20 +176,30 @@ function pad2(value: number): string {
 }
 
 /**
- * 导出 / 写相册用的文件名：`PocketToolbox-Scan-YYYYMMDD-HHmm-N.ext`。
+ * 文件名里的时间戳段 `YYYYMMDD-HHmm`；`now` 非法（非有限值或 ≤0）返回**空串**。
  *
- * `now` 非法（非有限数或 ≤0）时省掉日期段，只留序号——**宁可名字短一点，也不要写出 `NaN` 文件名**。
- * `index` 从 0 开始（界面上是第 1 页），与 `uris` 一一对应。
+ * 导出、写相册、分享三处共用这一个时间戳口径（同一次动作的所有页共享同一个时间戳）；
+ * 调用方拿到空串时省掉日期段——**宁可名字短一点，也不要写出 `NaN` 文件名**。
+ */
+export function docScanStamp(now: number): string {
+  if (!Number.isFinite(now) || now <= 0) { return ''; }
+  const date: Date = new Date(now);
+  return date.getFullYear().toString() + pad2(date.getMonth() + 1) + pad2(date.getDate()) +
+    '-' + pad2(date.getHours()) + pad2(date.getMinutes());
+}
+
+/**
+ * 导出 / 写相册 / 分享用的文件名：`PocketToolbox-Scan-YYYYMMDD-HHmm-N.ext`。
+ *
+ * `index` 从 0 开始（界面上是第 1 页），与 `uris` 一一对应；时间戳非法时只留序号。
  */
 export function docScanFileBaseName(now: number, index: number, pdf: boolean): string {
   const sequence: number = Number.isInteger(index) && index >= 0 ? index + 1 : 1;
   const extension: string = pdf ? '.pdf' : '.jpg';
-  if (!Number.isFinite(now) || now <= 0) {
+  const stamp: string = docScanStamp(now);
+  if (stamp.length === 0) {
     return 'PocketToolbox-Scan-' + sequence.toString() + extension;
   }
-  const date: Date = new Date(now);
-  const stamp: string = date.getFullYear().toString() + pad2(date.getMonth() + 1) + pad2(date.getDate()) +
-    '-' + pad2(date.getHours()) + pad2(date.getMinutes());
   return 'PocketToolbox-Scan-' + stamp + '-' + sequence.toString() + extension;
 }
 
@@ -227,4 +237,52 @@ export function appendPages(current: string[], incoming: string[], max: number):
     return current.slice();
   }
   return current.concat(incoming);
+}
+
+/**
+ * 页序换位（结果页拖拽排序）。
+ *
+ * `to` 与 ArkUI `onItemDrop` 的 `insertIndex` 语义一致：**按拖动前的数组**给出的落点下标；
+ * 因此实现是「先摘除、再把夹取后的落点插回去」（与收藏/历史的 `moveFavorite`/`moveHistory` 同一口径）。
+ * 越界/非整数下标一律原样返回一份副本——不猜测界面传进来的值，也不原地改动入参。
+ */
+export function movePage(uris: string[], from: number, to: number): string[] {
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || from >= uris.length) {
+    return uris.slice();
+  }
+  const copy: string[] = uris.slice();
+  const moved: string[] = copy.splice(from, 1);
+  const insert: number = to < 0 ? 0 : (to > copy.length ? copy.length : to);
+  copy.splice(insert, 0, moved[0]);
+  return copy;
+}
+
+/** 可回填进系统编辑界面的页数上限（SDK `originalUris` 声明最多 50 张）。 */
+export const DOC_SCAN_EDIT_MAX: number = 50;
+
+/**
+ * 可以回填系统编辑界面的页（`DocumentScannerConfig.originalUris`）。
+ *
+ * - **PDF 结果返回空数组**：整个结果是一个文档文件，图片编辑界面接不了，界面上该入口也要如实置灰；
+ * - JPG 结果按原序返回，最多 `DOC_SCAN_EDIT_MAX` 张（本应用的 `DOC_SCAN_MAX_SHOT` 只有 10，这里只是
+ *   把 SDK 的上限也钉住，避免将来放开页数时越界）。
+ *
+ * 只喂**本应用扫描控件产出的页**：它们天然满足 SDK 的尺寸门槛（单边 224–8000 px、面积 ≤ 6000×8000、
+ * 长短边比 ≤ 3）。SDK 对不合格的图是**静默移除**，我们无法区分「被移除」与「用户在编辑器里删了」，
+ * 因此这里不做预检、也不假装能报出差异。
+ */
+export function docScanEditUris(uris: string[], pdf: boolean): string[] {
+  if (pdf) { return []; }
+  return uris.slice(0, DOC_SCAN_EDIT_MAX);
+}
+
+/**
+ * 「清空扫描结果」确认框的正文：带**真实页数**与「不可撤销」。
+ *
+ * 与 `HistoryKinds.historyClearConfirmText()` 同一口径——不可逆的批量操作必须先说清将删掉多少。
+ */
+export function docScanClearConfirmText(count: number, english: boolean): string {
+  const pages: number = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+  return english ? 'All ' + pages.toString() + ' scanned page(s) will be cleared. This cannot be undone.'
+    : '将清空全部 ' + pages.toString() + ' 页扫描结果，且不可撤销。';
 }

@@ -135,3 +135,25 @@ export async function loadHolidayTable(ctx: common.UIAbilityContext): Promise<Ho
   if (text === undefined || text === '') { return new HolidayTable(); }
   return parseHolidayIcs(text);
 }
+
+/**
+ * 丢弃沙箱里的节假日数据，回到「随包内置」状态（设置页的「清除联网缓存」用）。
+ *
+ * 删两样东西：沙箱 `.ics` 本身，以及「用户已在线更新」标记。**标记必须一起删**——
+ * 只删 `.ics` 时标记还在，`materializeBundledIcs()` 会认为「当前缓存就是当年那份随包数据」而跳过写入，
+ * 于是下一次载入读到的是空表、工作日统计静默变成「仅排除周末」。
+ *
+ * 删不掉不是致命错误（最多是缓存还在），因此不抛出，由调用方决定是否提示。
+ */
+export function resetHolidayData(ctx: common.UIAbilityContext): void {
+  try {
+    if (fileIo.accessSync(icsPath(ctx))) { fileIo.unlinkSync(icsPath(ctx)); }
+  } catch (_) {
+    // 缓存文件删不掉时保持现状：下次载入仍会用这份数据，不影响正确性。
+  }
+  try {
+    if (fileIo.accessSync(markPath(ctx))) { fileIo.unlinkSync(markPath(ctx)); }
+  } catch (_) {
+    // 标记删不掉时同上。
+  }
+}

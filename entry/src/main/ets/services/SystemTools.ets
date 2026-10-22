@@ -20,6 +20,8 @@ import { QrRenderStyle, QrResolvedColor, QrLogoLayout, QrLogoBox, QrLogoSize, re
   qrLevelValue, qrLogoLayout, qrLogoFit, qrLogoDecodeSize } from '../model/QrStyle';
 import { PixelRect, fillRectOpaque, blendImageRect } from '../model/QrCompose';
 import { TorchSegment } from '../model/TorchSignal';
+import { parseDate } from '../model/DateTools';
+import { ANNIVERSARY_REMINDER_HOUR, ANNIVERSARY_REMINDER_MINUTE } from '../model/AnniversaryTools';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const DOMAIN: number = 0x0000;
@@ -531,10 +533,11 @@ export async function pickTextFile(context: common.UIAbilityContext): Promise<Te
  * 从 `pages/Index.ets` 搬到这里的原因有两个：① `Index` 已经 1800+ 行，配置构造属于系统能力的适配层；
  * ② 参数是**登记表 id**（`model/DocumentScan.ets`），映射成 SDK 枚举这一步不该散在页面里。
  *
- * `maxShotCount` 由 `DOC_SCAN_MAX_SHOT` 单一来源给出；`defaultFilterId`/`defaultShootingMode` 是本轮
- * 新增的两个用户可选参数（此前只用默认值，等于白送的能力没用上）。
+ * `maxShotCount` 由 `DOC_SCAN_MAX_SHOT` 单一来源给出；`defaultFilterId`/`defaultShootingMode` 是用户
+ * 可选参数；`originalUris` 非空时**直接进入编辑界面**（「重新编辑」入口，2026-10-22 第二轮）。
  */
-export function buildDocumentScannerConfig(filter: string, shooting: string): DocumentScannerConfig {
+export function buildDocumentScannerConfig(filter: string, shooting: string,
+  originalUris: string[] = []): DocumentScannerConfig {
   const config: DocumentScannerConfig = new DocumentScannerConfig();
   config.maxShotCount = DOC_SCAN_MAX_SHOT;
   config.supportType = [DocType.DOC];
@@ -546,6 +549,8 @@ export function buildDocumentScannerConfig(filter: string, shooting: string): Do
   config.defaultShootingMode = shootingId === 'AUTO' ? ShootingMode.AUTO : ShootingMode.MANUAL;
   config.isGallerySupported = true;
   config.isShareable = true;
+  // 空数组等于「什么都不传」（SDK 的默认值就是空）；非空时系统直接落到编辑界面。
+  if (originalUris.length > 0) { config.originalUris = originalUris.slice(); }
   return config;
 }
 
@@ -656,6 +661,71 @@ export async function saveScannedImagesToGallery(context: common.UIAbilityContex
     }
   } catch (_) {
     // 对话框或暂存失败：`written` 保持已成功的计数（通常为 0），界面按「未写入」提示失败。
+  } finally {
+    for (let index: number = 0; index < stagedPaths.length; index++) {
+      try { fs.unlinkSync(stagedPaths[index]); } catch (_) {}
+    }
+  }
+  return outcome;
+}
+
+/** 分享扫描结果的结果：`shown` 为真表示系统分享面板已经打开；`error` 非空才是失败。 */
+export class ShareScansResult {
+  shown: boolean = false;
+  /** '' | 'stage'（读不出/复制不了扫描结果） | 'share'（分享面板拉起失败）。 */
+  error: string = '';
+}
+
+/**
+ * 把扫描结果交给系统分享面板（多页 JPG 逐条 / PDF 单条）。
+ *
+ * 与二维码的 `sharePixelMap()` 同一套「中间文件」写法，差别是**可能有多页**：
+ * 1. 先把每页复制到应用缓存目录——`systemShare` 只认 URI，而扫描返回的临时 URI 形态在不同版本上
+ *    不一致，复制一份是最稳的（与写相册同一套理由）；
+ * 2. 第一条记录走 `SharedData` 构造，其余走 `addRecord()`（SDK 声明最多 500 条）；
+ * 3. 暂存文件无论成败都在 `finally` 里删掉。
+ *
+ * **不区分「用户是否真的分享」**：分享面板不回报结果，因此调用方只能提示「已打开分享面板」，
+ * 绝不能写成「分享成功」；只有复制失败（`stage`）与面板拉起失败（`share`）才是真的失败。
+ */
+export async function shareScannedDocuments(context: common.UIAbilityContext, uris: string[],
+  pdf: boolean, fileNames: string[]): Promise<ShareScansResult> {
+  const outcome: ShareScansResult = new ShareScansResult();
+  if (uris.length === 0) { return outcome; }
+  const stagedPaths: string[] = [];
+  const extension: string = pdf ? 'pdf' : 'jpg';
+  const utdType: string = pdf ? utd.UniformDataType.PDF : utd.UniformDataType.JPEG;
+  try {
+    for (let index: number = 0; index < uris.length; index++) {
+      const name: string = index < fileNames.length ? fileNames[index] :
+        'PocketToolbox-Scan-' + (index + 1).toString() + '.' + extension;
+      const stagePath: string = context.cacheDir + '/scan-share-' + (index + 1).toString() + '-' + name;
+      try {
+        const source: fs.File = fs.openSync(uris[index], fs.OpenMode.READ_ONLY);
+        try {
+          const staged: fs.File = fs.openSync(stagePath,
+            fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+          try { await fs.copyFile(source.fd, staged.fd); } finally { fs.closeSync(staged); }
+        } finally { fs.closeSync(source); }
+      } catch (_) {
+        // 读不出这一页：整体判为「读不出扫描结果」——半份分享比不分享更让人误解。
+        outcome.error = 'stage';
+        return outcome;
+      }
+      stagedPaths.push(stagePath);
+    }
+    const records: systemShare.SharedRecord[] = stagedPaths.map((path: string): systemShare.SharedRecord => {
+      return { utd: utdType, uri: fileUri.getUriFromPath(path) };
+    });
+    const data: systemShare.SharedData = new systemShare.SharedData(records[0]);
+    for (let index: number = 1; index < records.length; index++) { data.addRecord(records[index]); }
+    await new systemShare.ShareController(data).show(context, {
+      previewMode: systemShare.SharePreviewMode.DEFAULT,
+      selectionMode: systemShare.SelectionMode.SINGLE
+    });
+    outcome.shown = true;
+  } catch (_) {
+    outcome.error = 'share';
   } finally {
     for (let index: number = 0; index < stagedPaths.length; index++) {
       try { fs.unlinkSync(stagedPaths[index]); } catch (_) {}
@@ -909,4 +979,72 @@ export async function cancelReminder(id: number): Promise<void> {
   if (id >= 0) {
     await reminderAgentManager.cancelReminder(id);
   }
+}
+
+/**
+ * 排一条纪念日提醒（系统 calendar reminder，**本地通知、不联网、不新增权限**）。
+ *
+ * `dateIso` 是「下一次发生」的 `YYYY-MM-DD`（由纯逻辑 `AnniversaryTools.nextReminderDate()` 算出，
+ * 2 月 29 日在平年已经按 2 月 28 日；一次性且已过去的日期在那里就被判为无效）。提醒时刻统一取
+ * `ANNIVERSARY_REMINDER_HOUR`/`MINUTE`，与说明文案共用同一个常量。
+ *
+ * `repeatYearly` = true 时用 `repeatMonths` + `repeatDays` 成对声明「每年重复」（SDK 要求两者同时给）；
+ * false 就是**一次性**：一个不带这两个字段的 calendar reminder。
+ *
+ * 失败口径与 `scheduleReminder()` 完全一致：日期非法 → `other`（**不会**去弹通知授权框）；设备没有
+ * ReminderAgent 能力 → `unsupported`；通知授权被拒 → `denied` 且**不再调用** `publishReminder()`。
+ */
+export async function scheduleAnniversaryReminder(context: common.UIAbilityContext, title: string,
+  dateIso: string, repeatYearly: boolean, english: boolean): Promise<ReminderOutcome> {
+  const parsed: Date | undefined = parseDate(dateIso);
+  if (parsed === undefined) { return new ReminderOutcome(-1, 'other'); }
+  if (!canIUse('SystemCapability.Notification.ReminderAgent')) {
+    return new ReminderOutcome(-1, 'unsupported');
+  }
+  try {
+    await notificationManager.requestEnableNotification(context);
+  } catch (_) {
+    return new ReminderOutcome(-1, 'denied');
+  }
+  const month: number = parsed.getUTCMonth() + 1;
+  const day: number = parsed.getUTCDate();
+  const request: reminderAgentManager.ReminderRequestCalendar = {
+    reminderType: reminderAgentManager.ReminderType.REMINDER_TYPE_CALENDAR,
+    dateTime: {
+      year: parsed.getUTCFullYear(),
+      month: month,
+      day: day,
+      hour: ANNIVERSARY_REMINDER_HOUR,
+      minute: ANNIVERSARY_REMINDER_MINUTE
+    },
+    title: title,
+    content: english ? 'Anniversary reminder' : '纪念日提醒',
+    expiredContent: english ? 'This anniversary has passed' : '这个纪念日已经过去了',
+    actionButton: [{
+      title: english ? 'Close' : '关闭',
+      type: reminderAgentManager.ActionButtonType.ACTION_BUTTON_TYPE_CLOSE
+    }]
+  };
+  if (repeatYearly) {
+    // 成对使用：只要一个，SDK 就不会按「每年」理解（`repeatMonths`/`repeatDays` 是同一组重复规则）。
+    request.repeatMonths = [month];
+    request.repeatDays = [day];
+  }
+  try {
+    return new ReminderOutcome(await reminderAgentManager.publishReminder(request), '');
+  } catch (error) {
+    // 只记错误码与阶段（**不记标题**：标题是用户输入）。没有这条日志，「提醒设置失败」永远没法进一步
+    // 排查——2026-10-22 真机上一次性与年重复都只看到这一句，无法判断是权限、能力还是参数问题。
+    logReminderFailure('anniversary', error as Object);
+    return new ReminderOutcome(-1, 'other');
+  }
+}
+
+/** 代理提醒失败的诊断日志（与 `NetInfoTools.logTlsFailure` 同一取舍：只记错误码与阶段）。 */
+function logReminderFailure(phase: string, error: Object): void {
+  const source: Record<string, Object> = error as Record<string, Object>;
+  const code: Object | undefined = source === undefined || source === null ? undefined : source['code'];
+  const message: Object | undefined = source === undefined || source === null ? undefined : source['message'];
+  hilog.error(DOMAIN, TAG, 'reminder %{public}s failed: code=%{public}s message=%{public}s',
+    phase, typeof code === 'number' ? code.toString() : '?', typeof message === 'string' ? message : '');
 }

@@ -2770,7 +2770,7 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 
 **单测（`node tools/build-hap.mjs --tests` → 一致性 14 项、`All toolbox model assertions passed`、48 模块 / 513 导出函数、HMSymbol 70/70）**：`Haptics`（默认开启、只认 `on`/`off`、未知值回退默认；事件 id 唯一、时长落在 (0, 10000] ms、计时到点比另两类更明显；未知事件**时长 0 = 不震**、场景退回 `unknown`；三种状态文案互不相同且写明触发节点）、`ShareIntent`（优先非 HTML、只剩 HTML 时退回、空内容返回空串、`SHARE_TEXT_MAX` 夹取与 `truncated` 标记、一次性取走即清、`SharedTextValue` 值对象、文案写出真实上限）、`StartupIntent`（`pickStartupContent` 只收字符串、`setStartupIntent`/`consumeStartupIntent` 工具与内容一起消费、**非法工具时内容一并丢弃**、旧入口 `consumeStartupTool()` 同样清内容、后一次覆盖前一次、`clearStartupTool()` 两者都清）。
 
-**未覆盖 / 必须真机**：① ~~**系统分享面板里是否出现「随身工具箱」**~~ —— **2026-10-22 真机（PLR-AL00）实测：分享文本时面板里看不到本应用**。排查与修法：原来只声明 `uris: [{type: text/plain}]`，而分享面板按**分享内容的 MIME** 匹配，微信/浏览器分享**链接**常见 `text/html`、`text/uri-list`，于是整条匹配不上；改为同时列出 `text/plain`/`text/html`/`text/uri-list`/`text/*`（`text/*` 通配是官方示例用过的写法，示例里是 `image/*`），并给扩展补上 `icon`（原先只有 `label`/`description`，官方示例带 `icon`）。`bm dump` 已确认新包在设备上注册为 `type: share` + 四个文本类型 + `icon: $media:toolbox_icon`。**待用户复验**：再分享一次文本/链接，面板里应出现「随身工具箱」并能打开分享页。② 分享**图片/文件**时本应用不出现是**设计如此**（只接文本类）。③ 依赖系统分享框架按 `actions: ohos.want.action.sendData` 匹配分享扩展，模拟器无分享面板，本轮只验了「扩展被拉起之后」的全部链路（`systemShare.getSharedData()` 之后的挑选与交回用 `aa start --ps` 等价驱动）；② **分享图片/文件**时的表现（应显示「这次分享里没有文字内容」而不是假内容）；③ 分享详情页在分享面板里的观感与收起行为（`terminateSelf()`）；④ **三处触觉反馈的实际震动**（模拟器无马达，只能确认代码路径与开关生效）、关掉开关后确实不震、无振动能力设备上开关禁用态；⑤ 从分享详情页点「二维码 / 文本工具」时主应用是**冷启动**（当前是杀掉后 `aa start` 驱动，等价但未覆盖热启动路径）。
+**未覆盖 / 必须真机**：① ~~**系统分享面板里是否出现「随身工具箱」**~~ —— **2026-10-22 真机（PLR-AL00）实测：分享文本时面板里看不到本应用**。**根因（当晚坐实，证据链齐全）**：① 这台华为机上的分享面板是 `com.huawei.hmos.instantshare/SystemShareModalAbility`（从 hilog 看到它被 `com.huawei.hmos.photos`/备忘录拉起），它走的是 **UTD**（`@kit.ShareKit` 的 `SharedRecord.utd` 是必填字段），而 `bundleManager.SkillUri` 自 API 12 起有**独立的 `utd` 字段**；② dump 微信（面板里出现过的应用）的分享扩展，其 uris 形状是 `{ "scheme": "file", "type": "", "utd": "general.text" }`，而本应用 dump 出来的四条 `utd` **全是空串** —— 只声明 MIME `type` 时永远匹配不上；③ module.json5 的 schema 还要求 **`utd` 必须与 `scheme` 同时出现**（单独 `{ "utd": … }` 报 `must have required property 'scheme'`）。**修法**：uris 同时声明 4 条 UTD 条目（`{scheme: file, utd: general.plain-text / general.text / general.hyperlink / general.html}`）与 4 条 MIME 兜底（`text/plain`、`text/html`、`text/uri-list`、`text/*`），并给扩展补 `icon`（原先只有 `label`/`description`）。装包后 `bm dump` 已确认 8 条都在、`utd` 不再为空，安装日志里 UDMF 也打印了 `install utd,com.example.pockettoolbox`。**待复验**：从备忘录分享**纯文字**、从浏览器分享**链接**，面板里应出现「随身工具箱」并能打开分享页（2026-10-22 15:1x–16:58 的抓包窗口里只出现过一次**图库分享图片**（`[Thumbnails] utd: general.image…`），文本/链接分享尚未重试）。② 分享**图片/文件**时本应用不出现是**设计如此**（只接文本类，页面对空内容有「这次分享里没有文字内容」的说明）。③ 依赖系统分享框架按 `actions: ohos.want.action.sendData` 匹配分享扩展，模拟器无分享面板，本轮只验了「扩展被拉起之后」的全部链路（`systemShare.getSharedData()` 之后的挑选与交回用 `aa start --ps` 等价驱动）；④ **三处触觉反馈的实际震动**（模拟器无马达，只能确认代码路径与开关生效）、关掉开关后确实不震、无振动能力设备上开关禁用态；⑤ 从分享详情页点「二维码 / 文本工具」时主应用是**冷启动**（当前是杀掉后 `aa start` 驱动，等价但未覆盖热启动路径）。
 
 ## 追加：二维码定制 —— 自定义码色 + 居中 Logo（2026-10-22）
 
@@ -2890,6 +2890,50 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 - **能力门控与降级（本机无端侧 AI）**：模拟器上 `canIUse('SystemCapability.AI.Vision.SubjectSegmentation')` / `...Face.Detector` 为假 → 取景区显示「本机不支持人脸检测，请手动取景。」且「自动构图」置灰；底色区显示「本机不支持端侧抠图，换底色时会保留原底色。」；生成时走 `renderIdPhoto()` 的**保留原底色**分支并在结果卡写「已保留原底色」——**不会出现整块底色盖住人像**（`foregroundHasCutout()` 是纯逻辑守卫，单测钉住「整幅不透明 = 没抠出来」）。
 - 纯逻辑断言（新增 19 组，见 `tests/run-unit-tests.mjs`）：`25×35 → 295×413`、`33×48 → 390×567`、`51×51 → 602×602`、相纸 6 寸 `1795×1205`；取景矩形在 `scale ∈ {1,2,4}` × 平移 `±5000` 全组合下**始终落在图像内且保持取景框长宽比**（不露白边）；自动构图的「脸宽 55% / 眼线 42% / 水平居中」；6 寸 + 二寸 = 4 张、6 寸 + 一寸 = 12 张（竖排更多）、5 寸 + 150×150 = 0 张（如实提示）；换底合成的 BGRA 通道换位与半透明混合（`128/255 → 127`）；裁切参考线每格 4 条、1 px、在相纸内。
 - **未在模拟器覆盖（真机待验，清单见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的「证件照」一节）**：真实选图与取景手势、抠图换底成像、人脸自动构图、相册保存与分享、6 寸排版 1:1 打印尺寸、EXIF 旋转照片的方向一致性。**本轮模拟器无法完成交互验证的客观原因**：工作树同时有并行会话在驱动同一台模拟器（点击与截图互相打断），且相册选取需要人工在系统选择器里点选图片。
+
+## 追加回执（2026-10-22：进制与位运算 —— 方式下拉 + 位运算结果复制 / 有符号·字节视图 / 循环移位 + 进制扩到 32·36）
+
+背景：该工具原先把「进制换算」与「位运算」两块在同一个滚动页里同时铺开，用户要先滚过整个进制换算才看得到位运算。本轮按用户要求改成**顶部「方式」下拉 + 两块互斥面板**（与日期/随机/计时同一套），并落地 2026-10-20 审计 §3.5 记着的三项「新增」，另按用户要求把登记进制由 4 档扩到 6 档。
+
+实现分层：纯逻辑 `entry/src/main/ets/model/BaseTools.ets`（`BASE_MODES`、`BASE_RADIXES` 6 档、`BITWISE_OPS` 8 项含 `rol`/`ror`、`signedInt32Text()`/`byteText()`、`groupDigits()` 修正）、页面 `entry/src/main/ets/component/BasePage.ets`（`baseModeSelect()` + `radixPanel()`/`bitwisePanel()`，结果行统一「小标签 + 值 + 行尾复制」）、文案 `model/AppStrings.ets` 新增 `base.signed-int32`/`base.bytes-big-endian`/`base.bytes-little-endian`/`base.base-tool`。
+
+- 门禁：`node --max-old-space-size=2048 tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL`；一致性检查 **16 项通过**（`appText` id 双向对齐 744/744）；`All toolbox model assertions passed`；`node tests/emulator/emu.mjs smoke --only base` 通过（新增「方式」「输入进制」两条渲染断言）。**一次构建失败不是代码问题**：签名阶段的 JVM 报 `os::commit_memory ... 页面文件太小`（本机同时开模拟器时出现），原样重跑即 `BUILD SUCCESSFUL`。
+- 模拟器实测（API 26、Mate X7 折叠屏内屏；先 `node tests/emulator/emu.mjs launch` 覆盖安装）：
+  - **进制换算**（截图 `screenshots/emulator/base-radix-32-36-grouping-zh.jpeg`）：输入 `255` → 二进制 `1111 1111`、八进制 `377`、十进制 `255`、十六进制 `FF`、**三十二进制 `7V`**、**三十六进制 `73`**；输入 `4294967295` → 十进制 **`4 294 967 295`**、八进制 `37 777 777 777`、三十二进制 `3VVVVVV`、三十六进制 `1Z141Z3`（与 `Number#toString(radix)` 逐值一致）。
+  - **位运算视图与复制**（截图 `screenshots/emulator/base-bitwise-views-zh.jpeg`）：`按位取反` + 操作数 `0` → 十进制 `4 294 967 295`、**有符号（int32）`-1`**、十六进制 `FFFF FFFF`、二进制 32 个 1、**字节（大端）`FF FF FF FF`**、**字节（小端）`FF FF FF FF`**；六行**每行都有复制按钮**。
+  - **循环移位**（截图 `screenshots/emulator/base-bitwise-rotate-zh.jpeg`）：`循环左移` `2147483648` 移 `1` 位 → **十进制 `1`**（不是 0——0 是左移丢位的结果）、字节大端 `00 00 00 01`、小端 `01 00 00 00`；`循环右移` `1` 移 `1` 位 → 十进制 `2 147 483 648`、**有符号 `-2 147 483 648`**、十六进制 `8000 0000`、字节大端 `80 00 00 00`、小端 `00 00 00 80`（大小端确实不同）。下拉里八种运算齐全（`循环左移`/`循环右移` 追加在末尾，既有下标未动）。
+  - **十进制输入时是数字键盘**（截图里可见 1–9 数字键盘，与 `radixKeyboard()` 的 `radix > 10` 判据一致）。
+- **本轮实测发现并修掉一处显示层缺陷（`groupDigits()`）**：原实现是「从头每 N 个字符插空格」，位数不是 N 的整数倍的数一律被切错——实测十进制 `4294967295` 显示成 **`429 496 729 5`**（正确是 `4 294 967 295`）、`1000` 会显示成 `100 0`。已改为**从右往左、首组可短一截**：二进制/十六进制因此低位对齐（`1111111111` → `11 1111 1111`）、负数负号不被切开（`-2147483648` → `-2 147 483 648`）；**只有字节行不分组**（`FF FF FF FF` 的空格本身就是字节分隔符）。单测补 12 条点断言 + 与「右对齐参照实现」在 4 种组宽 × 12 个长度上的逐值对照，上面的截图就是修复后的成像。
+- **一处工具层的坑（记一笔，免得下次误判成界面缺陷）**：`uitest dumpLayout` 的输出里，**长数字串会被系统按隐私规则替换**——32 个 `1` 的二进制行、`4294967295` 等在 dump 里显示成 `[CREDIT_CARD]`，而**同帧截图里文字完全正常**。判断「界面到底渲染了什么」必须以截图为准，dump 只能用来定位坐标与短文案。
+- **未覆盖（真机/后续待验）**：复制按钮写进系统剪贴板的实际内容与读屏文案（`accessibilityText`）；英文界面下 `Bytes (little-endian)` 一类长标签在折叠态窄窗（约 345 vp）的排版；十六进制/三十二进制下字母键盘的弹出形态（本轮只确认了十进制走数字键盘）；真机上「方式」切换后两块面板各自输入的保留（模拟器已确认切走再切回值仍在）。
+
+## 追加回执（2026-10-22：折扣与均摊「百分比计算」四行错位修复）
+
+用户截图报障「没有对齐」：同屏四行「两列输入 + 中间运算符（右端可能带 `%`）」里，运算符与 `%` 的**横向位置与纵向位置各行都不一样**。先测再改（模拟器 API 26、Mate X7 内屏，`aa start --ps tool calculator` → 类型选「百分比计算」，`uitest dumpLayout` 量 px）：
+
+- **实测（修复前）**：第 1/3/4 行左输入框 `x 75–1017`、右输入框 `1124–2066`、运算符 `x 1042–1099`；**第 2 行**（无 `%`）左框 `75–1052`、右框 `1159–2136`（顶到屏幕边）、运算符 `1077–1134`——**横向差 35 px（≈10 vp）**。纵向：运算符与 `%` 的中心恒为 `751 / 1422 / 2093`，而对应输入框中线是 `786 / 1457 / 2128`——**恒高 35 px（≈11 vp）**，即飘到标签那一侧。
+- **病因**：① 中间与右端是裸放的 `SymbolGlyph` / `Text('%')`，而两侧是「标签 + 输入框」的**整列**，`Row` 默认按整列垂直居中；不同图标字形高低还不同（`×` / `÷` / `⇄`）。② 只有两行带 `%`，少一个槽位的行两个 `layoutWeight(1)` 列各宽 35 px。
+- **修法**：`CalculatorPage` 抽出 `fieldColumn()` / `operatorSlot()` / `suffixSlot()`——中间与右端都用「**一行 14 vp 占位标签（`Text(' ')`）+ 与输入框同高（`this.inputHeight`）的固定宽度方槽**」（运算符 28 vp、`%` 26 vp），**不显示百分号的行也占住同一槽位**，行长 `.alignItems(VerticalAlign.Top)`；输入框高度只留一个常量给三处共用；同页「加价与毛利」「均摊」的两列行一并换成 `fieldColumn()`。
+- **修复后实测**：四行左框统一 `x 75–983`、右框 `1121–2029`、运算符 `cx=1052`，`cy` 与输入框中线逐行相等（`786 / 1457 / 2128`）；`%` 中心 `786`（与输入框一致）。截图 `screenshots/emulator/calc-percent-aligned-zh.jpeg`。
+- 门禁：`node --max-old-space-size=2048 tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL`；单测 `All toolbox model assertions passed`。**注意**：本次一致性问题检查**当时是红的，但不是本改动引起的**——工作树里有并行会话正在改文档扫描/分享（`DocumentsPage.ets`/`Index.ets`/`SystemTools.ets`/`DocumentScan.ets`/`OcrText.ets`），当时那批改动里 `docs.*` 有 9 个 `appText` id 未登记、且 `onClear` 直接挂在 `onTap` 上，两处都会让一致性检查失败；这类并行会话的中间态不该由另一条改动线去「顺手修」，否则会互相覆盖。
+- **未覆盖（真机待验）**：英文界面下这几行标签（`Change (%)` 等）在折叠态窄窗是否仍单行（单行是这套对齐的前提；若折行，该行的输入框会下移而槽位不动）；系统字体放大档位下的表现。
+
+## 追加回执（2026-10-22：全应用排查「行内槽位 / 两列输入」右边界对齐 + 门禁脚本）
+
+承接上一节：用户要求「保持右侧对齐，排查整个 app」。上一节只修了折扣与均摊页，这一轮把**同类口径**在全应用范围内查一遍，并把判据固化成可重复的门禁。
+
+**排查方式（不再靠肉眼逐页看截图）**：新增 `tests/emulator/check-align.mjs`——自己逐页导航（工具清单从 `model/ToolMeta.ets` 现取，标题对不上就**拒绝判定**，避免在错误的页面上判「通过」），抓真实布局树后查三件事：① 行内小控件（运算符图标 / 单位文字）与旁边输入框的垂直中心；② 同一页里「两列输入行」的左右边界是否逐行重合；③ 每行是否相对内容区左右对称。
+
+- **全量结果**：`DSH_DEVICE=127.0.0.1:5555 node tests/emulator/check-align.mjs --views` → **25 个工具页 + 3 个「要先选方式」的面板（折扣与均摊的百分比计算 / 均摊计算、位运算）共 28 屏全部通过**，无一处边界漂移或不对称。也就是说：**同类缺陷只有折扣与均摊页那一处**，其余页面的两列行（随机区间、进制位运算、证件照自定义毫米、密码字符集 2×2、贷款/个税的单列表单等）本来就是对称的。
+- **判据自检（必须做，否则门禁可能是「永远为绿」）**：`--tree <布局树>` 可以离线复判；把某一行两列的右边界从 `1018` 改到 `940` 后，脚本**必须报错**——实测输出「两列输入行的左右边界不统一 → 62-1018 / 62-940」「y=1458 的两列行不对称（左边距 0 / 右边距 79）」。另外 `--tol` 的解析曾写成 `Number(argv[i + 1] || 26)`：`argv[-1 + 1]` 是 node 可执行文件路径，`Number(路径)` = NaN 而 `dy > NaN` 恒为 false，**检查会永远通过**，已改成显式判别并向非法值抛错。
+- **两处判据自身的坑（都由「重启模拟器」暴露）**：① 窗口尺寸与「内容区顶部」**必须从根节点现算**——同一台折叠屏模拟器展开态是 2210×2416、收起态是另一套尺寸，脚本原先写死 1080/2444 的像素过滤，重启后所有页面都报「抓不到内容区」；② 下拉菜单项的**横向范围同样随窗口宽变化**（展开态菜单只占窗口左侧 16%–36%），只按固定 300–800 px 找选项会切不过去；且同一文案在浮层里有「整行 + 行内文字」两个节点，要点**较宽的那个**才落得准。
+- **顺带修掉的一处同类写法**：随机页「最小值 — 最大值」那一行原来是把 `Text('—')` 裸放在两个 `layoutWeight(1)` 列之间（宽度由字形决定、垂直位置由字体度量决定）。现已改走同一套固定槽位（`FieldSlot`，`labelRow: false`），见截图 `.cache/emulator/align-random-crop.png` 与审计输出。
+- **代码收口**：把上一节留在 `CalculatorPage` 里的 `inputHeight` / `operatorSlot()` / `suffixSlot()` 三个私有件抽成 `entry/src/main/ets/component/FieldSlot.ets`（共用常量 `FIELD_INPUT_HEIGHT` / `OPERATOR_SLOT_WIDTH` / `SUFFIX_SLOT_WIDTH` + `FieldSlot` 组件，`icon`/`text` 二选一、`labelRow` 决定要不要补占位标签行），折扣与均摊页与随机页共用一份几何；**几何与上一节实测逐值一致**（见下）。
+- **门禁**：`node --max-old-space-size=2048 tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL`；一致性检查 **16 项通过**（`appText` id 双向对齐 754/754）；`All toolbox model assertions passed`；逐函数覆盖 54 模块 / 611 个导出函数；HMSymbol 图标名 76 个全在 SDK 内。
+- **抽取组件后的复验（同一台模拟器，展开态 2210×2416）**：四行左输入框仍是 `x 75–983`、右输入框 `1121–2029`、行尾槽到 `2135`，运算符/`%` 与输入框 `cy` 逐行相等（`786 / 1457 / 2128`），不带 `%` 的那一行照样留着空槽。证据图 [`calc-percent-aligned-unfolded-zh.jpeg`](screenshots/emulator/calc-percent-aligned-unfolded-zh.jpeg)（上一节那张 `calc-percent-aligned-zh.jpeg` 是收起态、且是抽取组件之前的构建）。
+- **未覆盖（真机待验）**：英文界面长标签（`Change (%)` / `Price factor (0–10)`）在折叠态窄窗是否仍单行（单行是这套对齐的前提）；系统字体放大档位；真机（非模拟器）密度下的同一套判据。本轮的审计与截图都在模拟器上完成。
+
+
 
 
 

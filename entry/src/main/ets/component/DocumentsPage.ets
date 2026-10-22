@@ -4,7 +4,7 @@ import { appText } from '../model/AppStrings';
 import { ToolPalette } from '../model/ToolPalette';
 import { DEFAULT_DOC_SCAN_FILTER, DEFAULT_DOC_SCAN_SHOOTING, DocScanOption, DOC_SCAN_FILTERS,
   DOC_SCAN_SHOOTING_MODES, docScanFilterIndex, docScanOptionIdAt, docScanShootingIndex,
-  docScanPagesLimitText, docScanReadyText } from '../model/DocumentScan';
+  docScanClearConfirmText, docScanPagesLimitText, docScanReadyText } from '../model/DocumentScan';
 import { ocrErrorText, ocrJoinPages, ocrTextIsEmpty, ocrTooLongText } from '../model/OcrText';
 import { OcrOutcome, ocrSupported, recognizeDocumentPages } from '../services/OcrTools';
 
@@ -21,8 +21,10 @@ import { OcrOutcome, ocrSupported, recognizeDocumentPages } from '../services/Oc
  * 口径：
  * - OCR **只对 JPG 结果开放**：文字识别要逐页图片，而 PDF 结果是单个文档文件，应用侧解不出来；
  * - 结果变化（重新扫描 / 删页 / 清空）时识别文本立即作废（`ocrRunId` 令牌 + `@Monitor`），
- *   绝不把上一批页的文字留在屏幕上；
- * - 识别失败按「哪一页、为什么」如实说明，不假装成功、也不静默截断超限文本（已提取的页照常保留）。
+ *   绝不把上一批页的文字留在屏幕上；**换页序同样作废**（页码标记会失真），但会先给一次性提示；
+ * - 识别失败按「哪一页、为什么」如实说明，不假装成功、也不静默截断超限文本（已提取的页照常保留）；
+ * - 结果动作（追加/重新编辑/导出/分享/写相册）与结果管理（页序拖拽/清空）分两行；
+ *   **页序排序模式内隐藏其余动作与取字区**（拖动不与「点一下就删/导出」抢同一块区域）。
  */
 @ComponentV2
 export struct DocumentsPage {
@@ -51,12 +53,25 @@ export struct DocumentsPage {
   @Event onSendToText: (text: string) => void = () => {};
   @Event onCopy: (value: string) => void = () => {};
   @Event onRecord: (kind: string, content: string) => void = () => {};
+  // 2026-10-22 第二轮：页序拖拽换位、分享结果、清空结果、再次编辑、识别文本导出。
+  @Event onMove: (from: number, to: number) => void = () => {};
+  @Event onShare: () => void = () => {};
+  @Event onClear: () => void = () => {};
+  @Event onEdit: () => void = () => {};
+  @Event onExportOcr: (text: string) => void = () => {};
+  // 一次性反馈（重新排序作废识别文本、确认框打不开等）经父组件转 toast；本页不自绘提示。
+  @Event onStatus: (message: string) => void = () => {};
 
   /** 识别文本（可编辑：用户复制前往往要修掉识别噪声）。 */
   @Local ocrText: string = '';
   @Local ocrBusy: boolean = false;
   /** 识别的失败/空/超限说明；空串表示没有需要说明的事。 */
   @Local ocrNote: string = '';
+  /**
+   * 页序排序模式（拖拽换位）。与历史页/收藏页同一口径：**只在显式排序模式下**才启用拖拽，
+   * 模式内隐藏逐页删除与其余动作（拖动与「点一下就删」不能共用同一块区域）。
+   */
+  @Local sorting: boolean = false;
   /**
    * 每次识别/结果变化都 +1 的令牌：异步返回时若令牌已经变了，说明结果属于上一批页（或用户已离开），
    * 直接丢弃，不写回界面（`aboutToDisappear` 与 `@Monitor('documentUris')` 都会 +1）。
@@ -75,13 +90,16 @@ export struct DocumentsPage {
     this.ocrRunId++;
   }
 
-  /** 结果批次变化（重新扫描 / 删页 / 清空）→ 上一批的识别文本立即作废。 */
+  /** 结果批次变化（重新扫描 / 删页 / 换页序 / 清空）→ 上一批的识别文本立即作废。 */
   @Monitor('documentUris')
   private onUrisChanged(): void {
     this.ocrRunId++;
     this.ocrBusy = false;
     this.ocrText = '';
     this.ocrNote = '';
+    // 结果清空时排序模式没有意义了（下次扫描要回到普通模式，否则动作行是隐藏的）。
+    // **只在清空时复位**：拖拽换位也会触发本回调，那样会在第一次拖动后就把排序模式关掉。
+    if (this.documentUris.length === 0) { this.sorting = false; }
   }
 
   private filterOptions(): SelectOption[] {
@@ -201,48 +219,130 @@ export struct DocumentsPage {
         Text(docScanReadyText(this.documentUris.length, this.documentPdf, this.english))
           .fontSize(18).fontWeight(FontWeight.Bold).width('100%')
         if (!this.documentPdf) {
-          ForEach(this.documentUris, (uri: string, index: number) => {
-            Column({ space: 4 }) {
-              // A4 竖版长宽比（宽 / 高 = 0.75）：宽度按断点走、高度按比例跟随，不再写死像素。
-              Image(uri).width(this.previewWidth).aspectRatio(0.75).objectFit(ImageFit.Contain)
-                .backgroundColor(Color.White).borderRadius(12)
-              Row() {
-                Text(this.tr('第 ' + (index + 1).toString() + ' 页', 'Page ' + (index + 1).toString()))
-                  .fontSize(13).fontColor(ToolPalette.textSecondary)
-                // 单页删除：一次只影响一行，按 AGENTS 的例外**保留即时执行**（不进确认框）；
-                // 删掉的是内存里的这一页，系统缓存文件仍在，重新扫描即可拿回来。
-                IconActionButton({
-                  icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
-                  boxSize: 36, iconSize: 18, a11yText: appText('docs.remove-page', this.english),
-                  onTap: () => this.onRemovePage(index)
-                })
-              }.width(this.previewWidth).justifyContent(FlexAlign.SpaceBetween)
-            }.alignItems(HorizontalAlign.Start)
-          }, (uri: string, index: number) => index.toString() + '-' + uri)
+          // 单列 `Grid`（`columnsTemplate('1fr')`）保持「一行一页」的外观，同时拿到**可用**的拖拽换位：
+          // 2026-10-22 真机实测 `List` 上拖动不换位（`editMode` 自 API 9 起废弃、列表内拖拽的 `isSuccess`
+          // 取自未走通的 `onItemMove`），收藏页/历史页的 `Grid` 写法一次成功。排序之外的行为完全相同。
+          Grid() {
+            ForEach(this.documentUris, (uri: string, index: number) => {
+              GridItem() {
+                this.pageItem(uri, index)
+              }
+            }, (uri: string, index: number) => index.toString() + '-' + uri)
+          }
+          .columnsTemplate('1fr').rowsGap(12).width('100%')
+          .editMode(this.sorting)
+          .onItemDragStart((_event: ItemDragInfo, itemIndex: number) => this.pageDragPreview(itemIndex))
+          .onItemDrop((_event: ItemDragInfo, itemIndex: number, insertIndex: number, isSuccess: boolean) => {
+            if (!isSuccess) { return; }
+            // 页序一变，识别文本里的「—— 第 N 页 ——」就对不上了：**先如实提示再换位**，
+            // 文本由 `@Monitor('documentUris')` 立即作废——绝不静默丢掉用户已提取的文字。
+            if (this.ocrText.length > 0) {
+              this.onStatus(appText('docs.reorder-cleared-ocr', this.english));
+            }
+            this.onMove(itemIndex, insertIndex);
+          })
+        }
+        if (!this.sorting) {
+          Row({ space: 8 }) {
+            IconActionButton({
+              // PDF 结果无法与新的 PDF 合并，因此那一侧的动作是「重新扫描」；文案如实区分，不假装能追加。
+              icon: $r('sys.symbol.plus'), tintColor: ToolPalette.primary,
+              a11yText: this.documentPdf ? appText('docs.rescan-pdf', this.english) : appText('docs.append-scan', this.english),
+              usable: this.scannerSupported,
+              onTap: () => this.onAppendScan()
+            })
+            IconActionButton({
+              // 重新编辑：把当前结果回填系统编辑界面（旋转/裁剪/换滤镜/重拍）。PDF 是单个文档文件，
+              // 图片编辑界面接不了，因此那一侧**置灰并在无障碍名里说明原因**，不做「点了没反应」。
+              icon: $r('sys.symbol.square_and_pencil'), tintColor: ToolPalette.accentPurple,
+              a11yText: this.canEdit() ? appText('docs.edit-scan', this.english) :
+                appText('docs.edit-unsupported-pdf', this.english),
+              usable: this.scannerSupported && this.canEdit(),
+              onTap: () => this.onEdit()
+            })
+            IconActionButton({
+              icon: $r('sys.symbol.arrowshape_up_to_line'), tintColor: ToolPalette.success,
+              a11yText: appText('docs.export-scanned-files', this.english), usable: !this.documentSaving,
+              onTap: () => this.onExport()
+            })
+            IconActionButton({
+              icon: $r('sys.symbol.share'), tintColor: ToolPalette.primaryDeep,
+              a11yText: appText('docs.share', this.english), usable: !this.documentSaving,
+              onTap: () => this.onShare()
+            })
+            if (!this.documentPdf) {
+              // 写相册只对图片有意义（PDF 不是图片，相册不接受），按钮也不显示。
+              IconActionButton({
+                icon: $r('sys.symbol.picture_badge_arrow_down'), tintColor: ToolPalette.accentPurple,
+                a11yText: appText('docs.save-to-gallery', this.english), usable: !this.documentSaving,
+                onTap: () => this.onSaveToGallery()
+              })
+            }
+          }.width('100%').justifyContent(this.actionAlign)
         }
         Row({ space: 8 }) {
-          IconActionButton({
-            // PDF 结果无法与新的 PDF 合并，因此那一侧的动作是「重新扫描」；文案如实区分，不假装能追加。
-            icon: $r('sys.symbol.plus'), tintColor: ToolPalette.primary,
-            a11yText: this.documentPdf ? appText('docs.rescan-pdf', this.english) : appText('docs.append-scan', this.english),
-            usable: this.scannerSupported,
-            onTap: () => this.onAppendScan()
-          })
-          IconActionButton({
-            icon: $r('sys.symbol.square_and_arrow_down'), tintColor: ToolPalette.success,
-            a11yText: appText('docs.export-scanned-files', this.english), usable: !this.documentSaving,
-            onTap: () => this.onExport()
-          })
-          if (!this.documentPdf) {
-            // 写相册只对图片有意义（PDF 不是图片，相册不接受），按钮也不显示。
+          // 排序开关：页数 ≥2 且不是 PDF 才有意义（一页没什么可排的）。
+          if (!this.sorting) {
             IconActionButton({
-              icon: $r('sys.symbol.picture_badge_arrow_down'), tintColor: ToolPalette.accentPurple,
-              a11yText: appText('docs.save-to-gallery', this.english), usable: !this.documentSaving,
-              onTap: () => this.onSaveToGallery()
+              icon: $r('sys.symbol.arrow_down_and_line_horizontal_and_arrow_up'), tintColor: ToolPalette.textPrimary,
+              a11yText: appText('docs.reorderA11y', this.english),
+              usable: !this.documentPdf && this.documentUris.length > 1,
+              onTap: () => { this.sorting = true; }
+            })
+          } else {
+            IconActionButton({
+              icon: $r('sys.symbol.arrow_down_and_line_horizontal_and_arrow_up'), tintColor: ToolPalette.primaryDeep,
+              a11yText: appText('sort.finishA11y', this.english),
+              onTap: () => { this.sorting = false; }
+            })
+          }
+          if (!this.sorting) {
+            IconActionButton({
+              icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+              a11yText: appText('docs.clear-all', this.english), usable: !this.documentSaving,
+              onTap: () => this.confirmClear()
             })
           }
         }.width('100%').justifyContent(this.actionAlign)
-        this.ocrSection()
+        if (!this.sorting) {
+          this.ocrSection()
+        }
+      }
+    }.width('100%')
+  }
+
+  /** 重新编辑只对 JPG 结果成立（PDF 是一个文档文件，图片编辑界面接不了）。 */
+  private canEdit(): boolean {
+    return !this.documentPdf && this.documentUris.length > 0;
+  }
+
+  /** 一页：缩略图 + 页码 +（非排序模式下）删除。排序模式内不挂删除，避免与拖动抢同一块手势。 */
+  @Builder private pageItem(uri: string, index: number) {
+    Column({ space: 4 }) {
+      // A4 竖版长宽比（宽 / 高 = 0.75）：宽度按断点走、高度按比例跟随，不再写死像素。
+      Image(uri).width(this.previewWidth).aspectRatio(0.75).objectFit(ImageFit.Contain)
+        .backgroundColor(Color.White).borderRadius(12)
+      Row() {
+        Text(this.tr('第 ' + (index + 1).toString() + ' 页', 'Page ' + (index + 1).toString()))
+          .fontSize(13).fontColor(ToolPalette.textSecondary)
+        if (!this.sorting) {
+          // 单页删除：一次只影响一行，按 AGENTS 的例外**保留即时执行**（不进确认框）；
+          // 删掉的是内存里的这一页，系统缓存文件仍在，重新扫描即可拿回来。
+          IconActionButton({
+            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
+            boxSize: 36, iconSize: 18, a11yText: appText('docs.remove-page', this.english),
+            onTap: () => this.onRemovePage(index)
+          })
+        }
+      }.width(this.previewWidth).justifyContent(FlexAlign.SpaceBetween)
+    }.alignItems(HorizontalAlign.Start)
+  }
+
+  /** 拖拽预览：跟随手指的那一页缩略图。参数只放常量下标（预览是瞬时的，不需要跟随状态刷新）。 */
+  @Builder private pageDragPreview(index: number) {
+    Column() {
+      if (index >= 0 && index < this.documentUris.length) {
+        this.pageItem(this.documentUris[index], index)
       }
     }.width('100%')
   }
@@ -299,6 +399,12 @@ export struct DocumentsPage {
             onTap: () => { this.copyOcr(); }
           })
           IconActionButton({
+            // 导出为 .txt：识别文本此前只能复制或送文本工具，落不成文件。走系统保存器（取消不算失败）。
+            icon: $r('sys.symbol.arrowshape_up_to_line'), tintColor: ToolPalette.success,
+            a11yText: appText('docs.ocr-export', this.english), usable: this.ocrText.length > 0,
+            onTap: () => { this.onExportOcr(this.ocrText); }
+          })
+          IconActionButton({
             icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.accentPurple,
             a11yText: appText('docs.ocr-send-to-text', this.english), usable: this.ocrText.length > 0,
             onTap: () => { this.onSendToText(this.ocrText); }
@@ -319,5 +425,30 @@ export struct DocumentsPage {
     this.ocrText = '';
     this.ocrNote = '';
     this.ocrBusy = false;
+  }
+
+  /**
+   * 「清空扫描结果」前的系统确认框（与历史页 `confirmDestructive()` 同一套写法）。
+   *
+   * 不可逆的批量操作必须先在 `confirm*` 里问过再动手（`tests/check-consistency.mjs` 第 12 项拦的就是
+   * 「`onTap` 直接调批量清空」）；正文带**真实页数**与「不可撤销」。**确认框打不开时不执行**——
+   * 宁可不做，也不做一次不可撤销的清空。
+   */
+  private confirmClear(): void {
+    if (this.documentUris.length === 0) { return; }
+    try {
+      this.getUIContext().showAlertDialog({
+        title: appText('docs.clear-all', this.english),
+        message: docScanClearConfirmText(this.documentUris.length, this.english),
+        primaryButton: { value: appText('dialog.cancel', this.english), action: () => {} },
+        secondaryButton: {
+          value: appText('dialog.clear', this.english),
+          fontColor: ToolPalette.danger,
+          action: () => this.onClear()
+        }
+      });
+    } catch (_) {
+      this.onStatus(appText('dialog.noConfirm', this.english));
+    }
   }
 }

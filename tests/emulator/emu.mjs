@@ -245,13 +245,18 @@ const SMOKE_CASES = [
   { id: 'level', title: '水平仪', expect: ['容差'] },
   { id: 'compass', title: '指南针', expect: ['单位'] },
   { id: 'kinship', title: '亲戚称呼', expect: ['方向'] },
-  { id: 'base', title: '进制与位运算', expect: ['进制'] },
+  // 进制与位运算（2026-10-22）：默认落在「进制换算」方式，页面必然出现「方式」行与「输入进制」行
+  // （**不能**等三十二进制这类结果行标签：空输入时结果卡显示的是「请输入数字」，逐行标签不渲染）。
+  { id: 'base', title: '进制与位运算', expect: ['方式', '输入进制'] },
   { id: 'diff', title: '文本对比', expect: ['对比'] },
   { id: 'anniversary', title: '纪念日', expect: ['添加'] },
   { id: 'net', title: '网络工具', expect: ['方式'] },
   { id: 'documents', title: '文档扫描', expect: ['扫描'] },
   // 证件照（2026-10-22）：页面上必然出现的三行标签（照片卡 + 规格/底色/相纸三个下拉）
   { id: 'idphoto', title: '证件照', expect: ['照片', '规格', '底色', '相纸排版'] },
+  // 网络查询（2026-10-22 第 26 个工具）：默认落在「IP 归属地」方式，页面必然出现「方式」行与查询按钮。
+  // **不能**等结果行标签：没查询之前结果卡不渲染（只显示「结果会显示在这里」）。
+  { id: 'netinfo', title: '网络查询', expect: ['方式', '查询'] },
 ];
 
 function smoke(only, withShots) {

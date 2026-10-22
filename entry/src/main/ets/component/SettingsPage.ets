@@ -18,6 +18,16 @@ import { handPostureA11yText, handPostureNoteText, handPostureTitleEn, handPostu
 import { hapticA11yText, hapticNoteText, hapticTitleEn, hapticTitleZh } from '../model/Haptics';
 import { loadHolidayTable, readCachedIcs } from '../services/HolidayData';
 import { HolidayUpdateOutcome, updateHolidayData } from '../services/HolidayUpdate';
+import { LocalData } from '../model/LocalData';
+import { NetAction, NET_ACTIONS, NetPrefs, defaultNetPrefs, netActionTitle, netDisclosureText,
+  netGateReasonText, netPrefsAllowed, netPrefsWithAction, netPrefsWithEnabled, netPrefsWithWifiOnly } from '../model/NetPolicy';
+import { NetGateResult, allowNet } from '../services/NetGate';
+import { isUsableUpdateUrl } from '../model/AppUpdate';
+import { SOLAR_PACK_URL, UPDATE_MANIFEST_URL } from '../model/NetPolicy';
+import { SolarTermTable } from '../model/SolarTerms';
+import { SolarPackOutcome, loadSolarTermTable, solarPackDownloaded, updateSolarPack } from '../services/DataPackService';
+import { appVersionName } from '../services/DeviceInfo';
+import { UpdateCheckOutcome, checkForUpdate } from '../services/UpdateService';
 
 /**
  * 设置页（语言、应用图标、节假日数据、设备信息、隐私与清空历史记录）。
@@ -69,6 +79,22 @@ export struct SettingsPage {
   @Event onStatus: (message: string) => void = () => {};
   // 复制纯文本（隐私政策地址）也走父组件的同一份剪贴板入口，与其它页面同口径。
   @Event onCopy: (value: string) => void = () => {};
+  /**
+   * 联网偏好的当前值（不可变对象，父组件持有并落盘）与两枚事件。
+   *
+   * 与握姿/触觉开关同一口径：**值的落盘与失败回滚在父组件**（`Index.setNetPrefs()`），
+   * 页面只把「新偏好对象」交回去。传对象而不是布尔，是因为它一次要携带总开关、仅 Wi-Fi 与逐项开关。
+   */
+  @Param netPrefs: NetPrefs = defaultNetPrefs();
+  @Event onNetPrefsChange: (prefs: NetPrefs) => void = () => {};
+  // 清除联网缓存（汇率快照、数据包、下载的节假日数据）：删本机缓存，删除后离线仍能用随包数据。
+  @Event onClearNetCache: () => void = () => {};
+  /**
+   * 本机存储句柄：联网检查需要它过门控（`services/NetGate.ets` 要读联网偏好）。
+   *
+   * 与 `TimersPage` 的 `data` 同一先例：存储还没打开时是 `undefined`，此时联网检查入口置灰。
+   */
+  @Param data: LocalData | undefined = undefined;
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
 
@@ -137,10 +163,17 @@ export struct SettingsPage {
   @Local holidayUpdatedAt: string = '';
   // 更新进行中：驱动按钮的 `usable`（禁用交给系统），并防止重复点击。
   @Local holidayUpdating: boolean = false;
+  // 应用更新检查进行中（同一取舍：防重复点击 + 按钮置灰）。
+  @Local updateChecking: boolean = false;
+  // 节气/农历节日数据包：当前表的字段（日期取沙箱信封的抓取日期或随包生成日期）与更新中标志。
+  @Local solarTable: SolarTermTable = new SolarTermTable();
+  @Local solarUpdating: boolean = false;
+  @Local solarDownloaded: boolean = false;
 
   aboutToAppear(): void {
     this.infoRows = deviceInfoRows();
     this.refreshHolidayTable();
+    this.refreshSolarTable();
   }
 
   private ctx(): common.UIAbilityContext {
@@ -226,6 +259,14 @@ export struct SettingsPage {
   // 用户显式触发：一次 GET，校验通过才落盘；失败保留随包数据，提示里说清这一点。
   private async checkHolidayUpdate(): Promise<void> {
     if (this.holidayUpdating) { return; }
+    // 联网前先过门控（总开关 / holiday.update 单项开关 / 仅 Wi-Fi）。存储没打开时按默认值放行。
+    if (this.data !== undefined) {
+      const gate: NetGateResult = await allowNet(this.data, 'holiday.update');
+      if (!gate.allowed) {
+        this.onStatus(netGateReasonText(gate.reason, this.english));
+        return;
+      }
+    }
     this.holidayUpdating = true;
     let outcome: HolidayUpdateOutcome = new HolidayUpdateOutcome();
     try {
@@ -251,6 +292,65 @@ export struct SettingsPage {
       return;
     }
     this.onStatus(reason + appText('settings.holidayStillBundled', this.english));
+  }
+
+  /**
+   * 应用更新检查：只读一份公开版本清单，与本机版本比较。
+   *
+   * 三层结果**分开报告**，不合成一句笼统的「失败」：
+   * ① 清单地址还没定稿 → 如实说「尚未配置」，**不发起请求**；
+   * ② 门控拒绝（总开关/单项/仅 Wi-Fi）→ 用 `netGateReasonText()` 说明是设置挡下的；
+   * ③ 其余失败 → `netErrorText()` 的网络原因；它认不出的（如 `parse`）才回退到通用失败文案。
+   */
+  private async checkAppUpdate(): Promise<void> {
+    if (this.updateChecking || this.data === undefined) { return; }
+    if (!isUsableUpdateUrl(UPDATE_MANIFEST_URL)) {
+      this.onStatus(appText('settings.updateNotConfigured', this.english));
+      return;
+    }
+    this.updateChecking = true;
+    let outcome: UpdateCheckOutcome = new UpdateCheckOutcome();
+    try {
+      outcome = await checkForUpdate(this.data, appVersionName(), this.english);
+    } catch (_) {
+      outcome = new UpdateCheckOutcome();
+      outcome.error = 'offline';
+    }
+    this.updateChecking = false;
+    if (outcome.ok) {
+      this.onStatus(outcome.hasUpdate
+        ? appText('settings.updateAvailablePrefix', this.english) + outcome.latestVersion +
+          appText('settings.updateAvailableSuffix', this.english)
+        : appText('settings.updateLatest', this.english));
+      return;
+    }
+    const gateText: string = netGateReasonText(outcome.error, this.english);
+    if (gateText !== '') { this.onStatus(gateText); return; }
+    const reason: string = netErrorText(outcome.error, this.english);
+    this.onStatus(reason === '' ? appText('settings.updateFailed', this.english) : reason);
+  }
+
+  /** 某个联网动作此刻是否放行（纯逻辑判据，页面不自己拼开关状态）。 */
+  private netActionOn(id: string): boolean {
+    return netPrefsAllowed(this.netPrefs, id);
+  }
+
+  /** 清除联网缓存前的确认框：缓存删掉后离线时就没得用了，属于「不可逆、需要先说清」的操作。 */
+  private confirmClearNetCache(): void {
+    try {
+      this.getUIContext().showAlertDialog({
+        title: appText('settings.networkClearCache', this.english),
+        message: appText('settings.networkClearMessage', this.english),
+        primaryButton: { value: appText('dialog.cancel', this.english), action: () => {} },
+        secondaryButton: {
+          value: appText('settings.networkClearCache', this.english),
+          fontColor: ToolPalette.danger,
+          action: () => this.onClearNetCache()
+        }
+      });
+    } catch (_) {
+      this.onStatus(appText('dialog.noConfirm', this.english));
+    }
   }
 
   /**
@@ -312,6 +412,96 @@ export struct SettingsPage {
   }
 
   /**
+   * 节气/农历节日数据包（与节假日同一套：默认随包、点按钮才联网、失败保留随包数据）。
+   *
+   * 数据日期优先显示沙箱信封里的抓取日期（用户下载过的那份），其次才是数据文件自带的生成日期——
+   * 界面上的「数据时间」应当是**我们拿到它的时间**。
+   */
+  private async refreshSolarTable(): Promise<void> {
+    try {
+      this.solarTable = await loadSolarTermTable(this.ctx());
+      this.solarDownloaded = solarPackDownloaded(this.ctx());
+    } catch (_) {
+      this.solarTable = new SolarTermTable();
+      this.solarDownloaded = false;
+    }
+  }
+
+  private solarDateText(): string {
+    if (this.solarTable.loaded && this.solarTable.dataDate.length > 0) {
+      return this.solarTable.dataDate;
+    }
+    return appText('settings.solarBundled', this.english);
+  }
+
+  private solarSourceText(): string {
+    return this.solarDownloaded ? appText('settings.solarOnline', this.english)
+      : appText('settings.solarBundled', this.english);
+  }
+
+  // 用户显式触发：地址未定稿就说清楚；其余交给服务层（它自己会先过门控）。
+  private async checkSolarUpdate(): Promise<void> {
+    if (this.solarUpdating || this.data === undefined) { return; }
+    if (SOLAR_PACK_URL.trim().length === 0) {
+      this.onStatus(appText('settings.solarNotConfigured', this.english));
+      return;
+    }
+    this.solarUpdating = true;
+    let outcome: SolarPackOutcome = new SolarPackOutcome();
+    try {
+      outcome = await updateSolarPack(this.data, this.ctx(), this.english);
+    } catch (_) {
+      outcome = new SolarPackOutcome();
+      outcome.error = 'offline';
+    }
+    this.solarUpdating = false;
+    if (outcome.ok) {
+      await this.refreshSolarTable();
+      this.onStatus(appText('settings.solarUpdated', this.english));
+      return;
+    }
+    // 远端更旧不是错误：如实说明并保留当前数据（与节假日数据同一口径）。
+    if (outcome.error === 'stale') {
+      this.onStatus(appText('settings.staleHoliday', this.english));
+      return;
+    }
+    const gateText: string = netGateReasonText(outcome.error, this.english);
+    if (gateText !== '') { this.onStatus(gateText); return; }
+    const reason: string = netErrorText(outcome.error, this.english);
+    this.onStatus(reason === '' ? appText('settings.solarFailed', this.english) : reason);
+  }
+
+  // 节气数据区块：与 `holidaySection()` 同版式（数据日期 + 来源 + 一枚更新按钮 + 一行说明）。
+  @Builder private solarSection() {
+    Column({ space: 10 }) {
+      Text(appText('settings.solar', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel,
+        fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
+      }) {
+        Column({ space: 8 }) {
+          Row({ space: 12 }) {
+            Text(appText('settings.holidayDate', this.english)).fontSize(13)
+              .fontColor(ToolPalette.textMuted).layoutWeight(1)
+            Text(this.solarDateText()).fontSize(15).fontWeight(FontWeight.Medium)
+              .fontColor(ToolPalette.textPrimary)
+            Text(this.solarSourceText()).fontSize(12).fontColor(ToolPalette.textMuted)
+            IconActionButton({
+              icon: $r('sys.symbol.cloud_and_arrow_down'), tintColor: ToolPalette.primary,
+              a11yText: appText('settings.solarCheckA11y', this.english),
+              usable: !this.solarUpdating,
+              onTap: () => { this.checkSolarUpdate(); }
+            })
+          }.width('100%')
+          Text(appText('settings.solarNote', this.english))
+            .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+        }.padding(16).width('100%')
+      }
+    }.width('100%')
+  }
+
+  /**
    * 「操作方式」区：智感握姿开关。
    *
    * 只摆控件与派发事件——值的落盘与内存复位在 `Index.setHandPosture()`（先改内存 → 落盘 → 失败回滚）。
@@ -358,6 +548,123 @@ export struct SettingsPage {
               .accessibilityText(hapticA11yText(this.hapticFeedback, this.english))
               .onChange((value: boolean) => this.onHapticFeedbackChange(value))
           }.width('100%')
+        }.padding(16).width('100%')
+      }
+    }.width('100%')
+  }
+
+  /**
+   * 「联网」区：总开关 + 仅 Wi-Fi + **逐项开关（登记表驱动）** + 清除缓存。
+   *
+   * 逐项开关直接由 `model/NetPolicy.NET_ACTIONS` 渲染，每项下面的披露文案由 `netDisclosureText()`
+   * 合成（用途 + 发送什么）。**不要**在这里另写一份动作清单：那正是「隐私政策说三处、实际九处」的成因。
+   *
+   * 总开关关掉时：逐项开关 `enabled(false)` 置灰（它们的值仍然保留，重新打开总开关即恢复原状），
+   * 并显示一句「已关闭联网」的说明——不做「点了没反应」。
+   */
+  @Builder private netActionRow(action: NetAction) {
+    Row({ space: 12 }) {
+      Column({ space: 4 }) {
+        Text(netActionTitle(action, this.english))
+          .fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
+        Text(netDisclosureText(action.id, this.english))
+          .fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      Toggle({ type: ToggleType.Switch, isOn: this.netActionOn(action.id) })
+        .enabled(this.netPrefs.enabled)
+        .accessibilityText(netActionTitle(action, this.english) +
+          (this.netActionOn(action.id) ? appText('settings.netToggleOnSuffix', this.english)
+            : appText('settings.netToggleOffSuffix', this.english)))
+        .onChange((value: boolean) => this.onNetPrefsChange(netPrefsWithAction(this.netPrefs, action.id, value)))
+    }.width('100%')
+  }
+
+  @Builder private networkSection() {
+    Column({ space: 10 }) {
+      Text(appText('settings.network', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel,
+        fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
+      }) {
+        Column({ space: 10 }) {
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text(appText('settings.networkEnabled', this.english))
+                .fontSize(16).fontColor(ToolPalette.textPrimary).width('100%')
+              Text(this.netPrefs.enabled ? appText('settings.networkNote', this.english)
+                : appText('settings.networkDisabledNote', this.english))
+                .fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.netPrefs.enabled })
+              .accessibilityText(appText('settings.networkEnabled', this.english))
+              .onChange((value: boolean) =>
+                this.onNetPrefsChange(netPrefsWithEnabled(this.netPrefs, value)))
+          }.width('100%')
+          Divider().color(ToolPalette.borderSoft)
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text(appText('settings.networkWifiOnly', this.english))
+                .fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
+              Text(appText('settings.networkWifiOnlyNote', this.english))
+                .fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.netPrefs.wifiOnly })
+              .enabled(this.netPrefs.enabled)
+              .accessibilityText(appText('settings.networkWifiOnly', this.english))
+              .onChange((value: boolean) =>
+                this.onNetPrefsChange(netPrefsWithWifiOnly(this.netPrefs, value)))
+          }.width('100%')
+          // 逐项开关：登记表是单一数据源，加一个联网动作就自动多一行（不需要改本文件）。
+          ForEach(NET_ACTIONS, (action: NetAction) => {
+            Divider().color(ToolPalette.borderSoft)
+            this.netActionRow(action)
+          }, (action: NetAction) => action.id)
+          Divider().color(ToolPalette.borderSoft)
+          Text(appText('settings.localReminderNote', this.english))
+            .fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
+          Row({ space: 12 }) {
+            Text(appText('settings.networkClearCache', this.english)).fontSize(15)
+              .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+            IconActionButton({
+              icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
+              a11yText: appText('settings.networkClearCache', this.english),
+              usable: this.dataReady, onTap: () => this.confirmClearNetCache()
+            })
+          }.width('100%').justifyContent(FlexAlign.Start)
+        }.padding(16).width('100%')
+      }
+    }.width('100%')
+  }
+
+  /**
+   * 「应用更新」区：显示当前版本 + 一枚检查按钮 + 一行说明。
+   *
+   * 地址未定稿时按钮**仍然可点**（点了给「尚未配置」的明确提示）而不是置灰：
+   * 置灰会让用户以为功能坏了，而实际是发布前还没填地址——这一条与隐私政策入口的取舍一致。
+   */
+  @Builder private updateSection() {
+    Column({ space: 10 }) {
+      Text(appText('settings.update', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel,
+        fallback: ToolPalette.surface, corner: 16,
+        lightEffect: true
+      }) {
+        Column({ space: 8 }) {
+          Row({ space: 12 }) {
+            Text(appText('settings.updateCheck', this.english)).fontSize(15)
+              .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+            Text(appVersionText()).fontSize(13).fontColor(ToolPalette.textMuted)
+            IconActionButton({
+              icon: $r('sys.symbol.arrow_clockwise'), tintColor: ToolPalette.primary,
+              a11yText: appText('settings.updateA11y', this.english),
+              usable: !this.updateChecking && this.dataReady,
+              onTap: () => { this.checkAppUpdate(); }
+            })
+          }.width('100%')
+          Text(appText('settings.updateNote', this.english))
+            .fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
         }.padding(16).width('100%')
       }
     }.width('100%')
@@ -478,8 +785,11 @@ export struct SettingsPage {
         this.iconChoice('toolbox_grid', $r('app.media.toolbox_grid_icon'), '工具网格', 'Toolbox grid')
       }.width('100%')
       this.interactionSection()
+      this.networkSection()
       this.deviceSection()
       this.holidaySection()
+      this.solarSection()
+      this.updateSection()
       Text(appText('settings.privacySection', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       // 这段必须与 `docs/PRIVACY.md` 同步：它曾停留在「3 项权限、无联网」的旧版本，漏了纪念日清单、
       // 汇率缓存与指南针/水平仪的上次单位（2026-10-20 审计 P0）。文案已外置到 `model/AppStrings.ets`

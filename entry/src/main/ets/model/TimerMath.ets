@@ -171,24 +171,34 @@ export function finishedAlertText(names: string[], english: boolean): string {
     : cleaned.length.toString() + ' 个计时结束：' + list;
 }
 
-export function reminderGuidanceText(error: string, english: boolean): string {
+/**
+ * 后台提醒失败的**原因与下一步**（不含「计时器不受影响」这类页面专属的收尾句）。
+ *
+ * 为什么要拆出来：纪念日页也用同一套提醒失败原因，但那里没有「应用内计时」这回事——
+ * 复用带尾句的整句会写出「纪念日本地提醒失败；应用内计时不受影响」这种突兀的话
+ * （2026-10-22 自查：文案必须说用户当前看到的这件事）。
+ */
+export function reminderReasonText(error: string, english: boolean): string {
   if (error === 'denied') {
     return english
-      ? 'Notifications are not allowed, so the background alert cannot fire. Allow notifications for this app ' +
-        'in system settings to get alerts; the in-app timer keeps working either way.'
-      : '通知未允许，后台提醒无法生效。可在系统设置里允许本应用发送通知；应用内计时不受影响。';
+      ? 'Notifications are not allowed, so the alert cannot fire. Allow notifications for this app in system settings.'
+      : '通知未允许，提醒无法生效。可在系统设置里允许本应用发送通知。';
   }
   if (error === 'unsupported') {
-    return english
-      ? 'Background alerts are unavailable on this device; the in-app timer still works.'
-      : '当前设备不支持后台提醒；应用内计时仍然可用。';
+    return english ? 'Alerts are unavailable on this device.' : '当前设备不支持后台提醒。';
   }
   if (error === 'other') {
-    return english
-      ? 'Could not schedule the background alert; the in-app timer still works.'
-      : '后台提醒设置失败；应用内计时仍然可用。';
+    return english ? 'Could not schedule the alert.' : '提醒设置失败。';
   }
   return '';
+}
+
+export function reminderGuidanceText(error: string, english: boolean): string {
+  const reason: string = reminderReasonText(error, english);
+  if (reason.length === 0) { return ''; }
+  // 计时器页的收尾句：这里确实有「应用内计时」这件不受影响的事。
+  return reason + (english ? ' The in-app timer keeps working either way.'
+    : ' 应用内计时不受影响。');
 }
 
 /**

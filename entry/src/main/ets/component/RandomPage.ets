@@ -1,6 +1,7 @@
 import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
 import { uiMaterial } from '@kit.ArkUI';
+import { OPERATOR_SLOT_WIDTH, FieldSlot } from './FieldSlot';
 import { IconActionButton } from './IconActionButton';
 import { InputKeyboard, inputTypeOf, inputFilterOf } from './InputKeyboard';
 import { MaterialSurface } from './MaterialSurface';
@@ -509,7 +510,10 @@ export struct RandomPage {
             }).height(52)
         }
       }.layoutWeight(1)
-      Text('—')
+      // 区间分隔符也走**固定宽度槽位**（`FieldSlot`，与折扣页的运算符槽同一套几何）：
+      // 直接裸放一个 `Text('—')` 时，宽度由字形决定、垂直位置由字体度量决定，两列分栏会随字宽漂移。
+      // 这两格输入框**没有标签行**（`labelRow: false`），槽位就与 52 vp 的输入框等高居中。
+      FieldSlot({ slotWidth: OPERATOR_SLOT_WIDTH, text: '—', labelRow: false })
       Column() {
         MaterialSurface({
           supported: this.immersiveSupported,

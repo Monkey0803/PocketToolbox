@@ -18,6 +18,7 @@
  */
 
 import { TEXT_INPUT_MAX } from './TextTools';
+import { docScanStamp } from './DocumentScan';
 
 /** OCR 解码时图片长边的上限（px）。真机若识别率不足就调大这里（单一来源）。 */
 export const OCR_MAX_SIDE_PX: number = 2400;
@@ -150,4 +151,15 @@ export function ocrErrorText(id: string, english: boolean): string {
 export function ocrTooLongText(english: boolean): string {
   return english ? 'Extracted text exceeds the ' + TEXT_INPUT_MAX.toString() + ' character limit'
     : '识别文本超过 ' + TEXT_INPUT_MAX.toString() + ' 字符上限';
+}
+
+/**
+ * 识别文本导出的文件名：`PocketToolbox-OCR-YYYYMMDD-HHmm.txt`。
+ *
+ * 时间戳与扫描件的文件名**共用** `DocumentScan.docScanStamp()`（空串表示时间非法 → 省掉日期段），
+ * 这样同一个工具产出的两类文件命名口径一致，也避免两处各写一份补零逻辑。
+ */
+export function ocrTextFileName(now: number): string {
+  const stamp: string = docScanStamp(now);
+  return stamp.length === 0 ? 'PocketToolbox-OCR.txt' : 'PocketToolbox-OCR-' + stamp + '.txt';
 }

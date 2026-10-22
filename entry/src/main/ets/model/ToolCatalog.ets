@@ -70,6 +70,9 @@ function toolSpecs(): Map<string, ToolSpec> {
   specs.set('diff', new ToolSpec($r('sys.symbol.difference'), ToolPalette.tintTeal));
   specs.set('anniversary', new ToolSpec($r('sys.symbol.calendar_badge_clock'), ToolPalette.tintRose));
   specs.set('net', new ToolSpec($r('sys.symbol.dot_radiowaves_left_and_right'), ToolPalette.tintSky));
+  // 网络查询复用**已核实存在**的这一枚符号（本机核不到「globe / shield」一类系统符号名，写错会直接编不过；
+  // 卡片底色换成 tintMint 与「网络工具」区分开）。
+  specs.set('netinfo', new ToolSpec($r('sys.symbol.dot_radiowaves_left_and_right'), ToolPalette.tintMint));
   return specs;
 }
 
