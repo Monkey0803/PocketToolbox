@@ -123,7 +123,10 @@ const VIEWS = [
   // 折扣与均摊的「百分比计算」就是 2026-10-22 用户截图报障的那一屏（四行两列输入 + 行尾 %）
   { id: 'calculator', name: 'percentage', from: '折扣计算', to: '百分比计算' },
   { id: 'calculator', name: 'split', from: '折扣计算', to: '均摊计算' },
-  { id: 'base', name: 'bitwise', from: '进制换算', to: '位运算' }
+  { id: 'base', name: 'bitwise', from: '进制换算', to: '位运算' },
+  // 计时工具的「番茄钟」（2026-10-23 收口）：三行「标签 + 输入框 + 滚轮」在默认视图（倒计时）看不到，
+  // 正是最容易被滚轮挤出内容区的一类行。标签取自 `model/TimerMath.ets` 的 `TIMER_MODES`。
+  { id: 'timers', name: 'pomodoro', from: '倒计时', to: '番茄钟' }
 ];
 
 const CONTROL = new Set(['TextInput', 'Select', 'Search', 'Toggle', 'Slider']);

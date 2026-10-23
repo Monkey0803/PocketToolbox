@@ -16,7 +16,11 @@ import { chooseCandidate, shuffleCandidates, groupCandidates, groupCandidatesByS
   drawWeightedCandidates, indexFromDraw, DICE_COUNTS, DICE_SIDES, DRAW_COUNTS, COIN_COUNTS,
   GROUP_COUNTS, GROUP_SIZES, GROUP_MODES, LIST_DRAW_MODES, RANDOM_MODES,
   MAX_CANDIDATES, candidatesWithinLimit, seededDraws, seedFromText, RandomOption,
-  MAX_WEIGHT } from '../model/RandomTools';
+  WeightedItem, MAX_WEIGHT } from '../model/RandomTools';
+// 转盘（2026-10-23）：扇区角度/路径串/极坐标文案与「先算结果再动画」的角度映射都在纯逻辑里。
+import { WHEEL_EXTRA_TURNS, WHEEL_MAX_SECTORS, WheelPoint, WheelSector,
+  wheelCountText, wheelItems, wheelLabelPositions, wheelLabelText, wheelNoteText, wheelPickIndex,
+  wheelResultText, wheelSectorPath, wheelSectors, wheelTargetRotation } from '../model/WheelTools';
 
 /**
  * 随机选择页（随机整数 / 骰子与硬币 / 名单抽取、排序与分组）。
@@ -59,6 +63,11 @@ export struct RandomPage {
   @Local groupSize: number = 2;
   @Local listResult: string = '';
   @Local listResultLabel: string = '';
+  // 转盘：方式（复用 LIST_DRAW_MODES 的等概率/按权重）、结果、当前盘面角度、是否正在转。
+  @Local wheelMode: string = 'uniform';
+  @Local wheelResult: string = '';
+  @Local wheelRotation: number = 0;
+  @Local wheelSpinning: boolean = false;
   // 多轮不重复抽奖（§3.24）：开关、已抽过的名字、进度提示。
   @Local poolEnabled: boolean = false;
   @Local usedPool: string[] = [];
@@ -564,7 +573,7 @@ export struct RandomPage {
       // 2026-10-23 智感握姿全量排查补）。
       Row() {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('random.copy-random-number', this.english),
           onTap: () => this.copyResult(this.randomNumberResult,
             this.numberContext(false), this.numberContext(true))
@@ -662,7 +671,7 @@ export struct RandomPage {
               Text(this.diceResult).fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
                 .copyOption(CopyOptions.LocalDevice)
               IconActionButton({
-                icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+                icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
                 a11yText: appText('random.copy-dice-result', this.english), boxSize: 44, iconSize: 22,
                 onTap: () => this.copyResult(this.diceResult, this.diceContext(false), this.diceContext(true))
               })
@@ -673,7 +682,7 @@ export struct RandomPage {
               Text(this.coinResult).fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
                 .copyOption(CopyOptions.LocalDevice)
               IconActionButton({
-                icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+                icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
                 a11yText: appText('random.copy-coin-result', this.english), boxSize: 44, iconSize: 22,
                 onTap: () => this.copyResult(this.coinResult, this.coinContext(false), this.coinContext(true))
               })
@@ -706,7 +715,7 @@ export struct RandomPage {
         // 多行 `TextArea` 没有系统取消按钮（系统只给单行 `TextInput` 提供 `cancelButton`），
         // 右上角自绘 ✕；清空走 `clearCandidates()`，与 `onChange` 同一套副作用（结果与分组收窄一起更新）。
         IconActionButton({
-          icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+          icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.primaryDeep, boxSize: 36, iconSize: 20,
           usable: this.randomItems.length > 0,
           a11yText: appText('random.clear-the-choices', this.english),
           onTap: () => this.clearCandidates()
@@ -743,7 +752,7 @@ export struct RandomPage {
           Text(this.poolNote).fontSize(13).fontColor(ToolPalette.textSecondary).layoutWeight(1)
         }
         IconActionButton({
-          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('random.reset-the-draw-pool', this.english), boxSize: 44, iconSize: 22,
           usable: this.usedPool.length > 0, onTap: () => this.resetPool()
         })
@@ -825,7 +834,7 @@ export struct RandomPage {
       }
       Row() {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('action.copyResult', this.english),
           onTap: () => this.copyResult(this.listResult, this.listResultLabel, this.listResultLabel)
         })
@@ -867,6 +876,175 @@ export struct RandomPage {
     }
   }
 
+  // ---------- 转盘（方式=转盘抽奖） ----------
+
+  private wheelWeighted(): boolean { return this.wheelMode === 'weighted'; }
+
+  private wheelItemList(): WeightedItem[] { return wheelItems(this.randomItems, this.wheelWeighted()); }
+
+  private wheelSectorList(): WheelSector[] { return wheelSectors(this.wheelItemList()); }
+
+  /** 扇区能不能转：2–12 项（页面据此置灰并如实说明原因，不静默改用别的抽取方式）。 */
+  private wheelCanSpin(): boolean {
+    const count: number = this.wheelItemList().length;
+    return count >= 2 && count <= WHEEL_MAX_SECTORS;
+  }
+
+  private wheelModeIndex(): number {
+    const index: number = LIST_DRAW_MODES.findIndex((mode: RandomOption) => mode.id === this.wheelMode);
+    return index < 0 ? 0 : index;
+  }
+
+  private wheelModeLabel(): string {
+    const mode: RandomOption = LIST_DRAW_MODES[this.wheelModeIndex()];
+    return this.english ? mode.en : mode.zh;
+  }
+
+  private wheelModeOptions(): SelectOption[] {
+    return LIST_DRAW_MODES.map((mode: RandomOption): SelectOption => {
+      const option: SelectOption = { value: this.english ? mode.en : mode.zh };
+      return option;
+    });
+  }
+
+  private wheelResultLabel(): string {
+    return this.wheelResult.length === 0 ? '' : wheelResultText(this.wheelResult, this.english);
+  }
+
+  /**
+   * 转动：**先算出结果，再把它转到指针下**（动画失败/被打断都不影响已定的结果）。
+   *
+   * 角度从当前盘面继续往前转（保证观感连续，不来回抖）：先算出「结果扇区对齐」的目标模值，
+   * 再补足整圈数让它总是向前多转 `WHEEL_EXTRA_TURNS` 圈。随机源与其它方式共用 `draws()`。
+   */
+  private spinWheel(): void {
+    const items: WeightedItem[] = this.wheelItemList();
+    const sectors: WheelSector[] = wheelSectors(items);
+    if (sectors.length === 0) {
+      this.onStatus(wheelCountText(items.length, this.english));
+      return;
+    }
+    const index: number = wheelPickIndex(items, this.draws()());
+    if (index < 0) { return; }
+    this.wheelResult = items[index].name;
+    const aligned: number = wheelTargetRotation(index, sectors, 0);
+    const minimum: number = this.wheelRotation + WHEEL_EXTRA_TURNS * 360;
+    const extraTurns: number = Math.ceil((minimum - aligned) / 360);
+    const finalRotation: number = aligned + extraTurns * 360;
+    this.wheelSpinning = true;
+    this.getUIContext().animateTo({
+      duration: 3200,
+      curve: Curve.Friction,
+      onFinish: (): void => { this.wheelSpinning = false; }
+    }, () => {
+      this.wheelRotation = finalRotation;
+    });
+  }
+
+  /** 扇区底色循环取色板（颜色统一走 `ToolPalette`，不写颜色字面量）。 */
+  private wheelColors: Resource[] = [ToolPalette.tintBlue, ToolPalette.tintRose, ToolPalette.tintTeal,
+    ToolPalette.tintAmber, ToolPalette.tintGreen, ToolPalette.tintPurple, ToolPalette.tintIndigo,
+    ToolPalette.tintSky, ToolPalette.tintMint];
+
+  private wheelSectorColor(index: number): Resource {
+    const colors: Resource[] = this.wheelColors;
+    return colors[index % colors.length];
+  }
+
+  @Builder private wheelDisc() {
+    Stack({ alignContent: Alignment.Center }) {
+      // 盘面（会转）：扇区 + 扇区文字。整盘用 `.rotate()` 转，文字跟着盘面走（真实转盘的观感）。
+      Stack({ alignContent: Alignment.Center }) {
+        ForEach(this.wheelSectorList(), (sector: WheelSector) => {
+          Path().commands(wheelSectorPath(140, 140, 132, sector.startDeg, sector.endDeg))
+            .fill(this.wheelSectorColor(sector.index))
+            .stroke(ToolPalette.surface).strokeWidth(2)
+        }, (sector: WheelSector): string => 'sec-' + sector.index.toString() + '-' +
+          sector.startDeg.toFixed(2) + '-' + sector.endDeg.toFixed(2))
+        ForEach(this.wheelSectorList(), (sector: WheelSector) => {
+          Text(wheelLabelText(sector.name)).fontSize(12).fontColor(ToolPalette.textStrong)
+            .maxLines(1)
+            .offset({
+              x: wheelLabelPositions(this.wheelSectorList(), 78)[sector.index].x,
+              y: wheelLabelPositions(this.wheelSectorList(), 78)[sector.index].y
+            })
+        }, (sector: WheelSector): string => 'lbl-' + sector.index.toString() + '-' + sector.name)
+      }.width(280).height(280).rotate({ angle: this.wheelRotation })
+      // 指针固定在 12 点（**不跟随盘面转**）：指着谁就是谁。
+      SymbolGlyph($r('sys.symbol.arrowtriangle_down_fill')).fontSize(28)
+        .fontColor([ToolPalette.danger]).offset({ y: -128 })
+      Circle().width(16).height(16).fill(ToolPalette.surface).stroke(ToolPalette.textSubtle).strokeWidth(2)
+    }.width(280).height(280)
+  }
+
+  /**
+   * 转盘面板：候选名单（与「名单抽取」共用同一个输入框内容）、抽取方式、盘面、结果。
+   *
+   * 候选不足 2 项或超过 12 项时**不画盘、也不给按钮**，只说明原因（避免「点了没反应」）。
+   */
+  @Builder private wheelPanel() {
+    Column({ space: 14 }) {
+      Text(appText('random.enter-choices', this.english)).fontSize(14).fontColor(ToolPalette.textSecondary)
+        .width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+        corner: 16, interactive: true
+      }) {
+        TextArea({ text: this.randomItems, placeholder: appText('random.one-choice-per-line', this.english) })
+          .backgroundColor(Color.Transparent).height(96)
+          .onChange((value: string) => {
+            this.randomItems = value;
+            this.wheelResult = '';
+          })
+      }
+      OptionSelect({
+        label: this.tr('抽取方式', 'Draw mode'),
+        options: this.wheelModeOptions(),
+        selectedIndex: this.wheelModeIndex(),
+        selectedText: this.wheelModeLabel(),
+        a11yText: this.tr('转盘抽取方式', 'Wheel draw mode'),
+        onSelected: (index: number): void => {
+          const mode: RandomOption | undefined = LIST_DRAW_MODES[index];
+          if (mode !== undefined) {
+            this.wheelMode = mode.id;
+            this.wheelResult = '';
+          }
+        }
+      })
+      if (this.wheelCanSpin()) {
+        this.wheelDisc()
+      } else {
+        Text(wheelCountText(this.wheelItemList().length, this.english))
+          .fontSize(14).fontColor(ToolPalette.warning).width('100%')
+      }
+      Row() {
+        Button(this.wheelSpinning ? this.tr('转动中…', 'Spinning…') : this.tr('转动', 'Spin'))
+          .height(48).enabled(this.wheelCanSpin() && !this.wheelSpinning)
+          .backgroundColor(Color.Transparent)
+          .fontColor(this.wheelCanSpin() && !this.wheelSpinning ? ToolPalette.success : ToolPalette.textMuted)
+          .fontWeight(FontWeight.Medium)
+          .onClick(() => this.spinWheel())
+      }.width('100%').justifyContent(this.actionAlign)
+      if (this.wheelResult.length > 0) {
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+          corner: 16, lightEffect: true
+        }) {
+          Text(this.wheelResultLabel()).fontSize(26).fontWeight(FontWeight.Bold)
+            .fontColor(ToolPalette.textPrimary).padding(16).width('100%')
+        }
+        Row() {
+          IconActionButton({
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
+            a11yText: appText('action.copyResult', this.english),
+            onTap: () => this.copyResult(this.wheelResult, '转盘选中', 'Wheel picked')
+          })
+        }.width('100%').justifyContent(this.actionAlign)
+      }
+      Text(wheelNoteText(this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+    }.width('100%')
+  }
+
   build() {
     Column({ space: 14 }) {
       this.modeSelect()
@@ -874,6 +1052,8 @@ export struct RandomPage {
         this.dicePanel()
       } else if (this.randomMode === 'list') {
         this.listPanel()
+      } else if (this.randomMode === 'wheel') {
+        this.wheelPanel()
       } else {
         this.numberPanel()
       }

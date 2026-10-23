@@ -510,6 +510,83 @@ check('固定文案：appText 的 id 双向对齐', () => {
   return `${ids.size} 个 id / ${[...used].length} 个使用点`;
 });
 
+// --- 17. 主题色的对比度基准面必须与两套色板一致 ------------------------------------------
+// 为什么要有它：`model/ThemeColors.ets` 用 `tool_surface` / `tool_background` 的色值当**对比度门槛的
+// 基准面**（强调色必须对它们 ≥ 3:1 / 4.5:1，才不会「换了主题就看不清」）。基准面是写死在模型里的
+// 常量（门槛计算要能在单测里跑），一旦有人调整色板里的表面色而没同步这两个常量，所有对比度断言都
+// 会在错误的基准上通过——那正是「单测全绿但界面看不清」的来源。
+check('主题色：对比度基准面与色板的 tool_surface / tool_background 一致', () => {
+  const source = read('entry/src/main/ets/model/ThemeColors.ets');
+  const baseColors = readJson('entry/src/main/resources/base/element/color.json').color;
+  const darkColors = readJson('entry/src/main/resources/dark/element/color.json').color;
+  const valueOf = (list, name) => {
+    const found = list.find((entry) => entry.name === name);
+    if (found === undefined) { throw new Error(`色板里没有 ${name}`); }
+    return found.value;
+  };
+  const constantOf = (name) => {
+    const match = new RegExp(`export const ${name}:\\s*string\\s*=\\s*'([^']+)'`).exec(source);
+    if (match === null) { throw new Error(`ThemeColors.ets 里没有解析到 ${name}`); }
+    return match[1];
+  };
+  const pairs = [
+    ['THEME_SURFACE_LIGHT', valueOf(baseColors, 'tool_surface')],
+    ['THEME_BACKGROUND_LIGHT', valueOf(baseColors, 'tool_background')],
+    ['THEME_SURFACE_DARK', valueOf(darkColors, 'tool_surface')],
+    ['THEME_BACKGROUND_DARK', valueOf(darkColors, 'tool_background')]
+  ];
+  const drifted = pairs.filter((pair) => constantOf(pair[0]) !== pair[1]);
+  if (drifted.length > 0) {
+    throw new Error(`基准面与色板不一致：${drifted.map((pair) =>
+      `${pair[0]}=${constantOf(pair[0])} 但色板是 ${pair[1]}`).join('；')}`);
+  }
+  return pairs.map((pair) => pair[1]).join(' / ');
+});
+
+// --- 18. 图标色口径：删除类必须红、普通动作图标不得再用中性灰 --------------------------------
+// 口径来自 2026-10-23 用户要求：「这种（中性灰的）动作图标要支持主题色；整个 app 的删除图标都要
+// 使用红色，不要跟随主题色」。因此：
+//   ① `sys.symbol.trash` / `sys.symbol.minus_circle` 这类**删除条目**的图标，tintColor 必须写
+//      `ToolPalette.danger`（danger 是资源、不跟主题色，红就是这个语义的固定色）；
+//   ② 其它动作图标（`IconActionButton` / `WheelPickerButton` 的 tintColor）不得再用
+//      `textSecondary` / `textMuted` —— 它们是「不跟主题色」的灰色，要用 `primary` / `primaryDeep`
+//      （强调色）、`success` / `accentPurple`（分享/编辑）或 `warning`。
+// 允许的例外只有两类，且都在源码里写了理由：**禁用/不可用态**用 `textFaint`（TorchPage 的出屏 ✕
+// 用 `neutralDark` 是因为它画在纯白光斑上），以及**键位图标**（`delete_left` 退格键用 `textPrimary`）。
+check('图标色：删除类必须 danger、普通动作图标不得再用中性灰', () => {
+  const sources = [];
+  (function walk(dir) {
+    for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      const next = dir + '/' + entry.name;
+      if (entry.isDirectory()) { walk(next); } else if (entry.name.endsWith('.ets')) {
+        sources.push({ path: next, text: readFileSync(join(ROOT, next), 'utf8') });
+      }
+    }
+  })('entry/src/main/ets');
+  const offenders = [];
+  let deleted = 0;
+  for (const source of sources) {
+    const lines = source.text.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      if (/tintColor:\s*ToolPalette\.(textSecondary|textMuted)\b/.test(line)) {
+        offenders.push(`${source.path}:${index + 1}: 动作图标仍在用中性灰（应为 primary/primaryDeep）`);
+      }
+      const block = lines.slice(Math.max(0, index - 4), index + 1).join('\n');
+      if (/tintColor:/.test(line) && /sys\.symbol\.(trash|minus_circle)\b/.test(block)) {
+        deleted += 1;
+        if (!/tintColor:\s*ToolPalette\.danger\b/.test(line)) {
+          offenders.push(`${source.path}:${index + 1}: 删除图标必须用 ToolPalette.danger`);
+        }
+      }
+    }
+  }
+  if (offenders.length > 0) {
+    throw new Error(`图标色口径不符（${offenders.length} 处）：\n  ${offenders.join('\n  ')}`);
+  }
+  return `${deleted} 个删除图标全部 danger，且没有动作图标再用中性灰`;
+});
+
 for (const line of checks) { console.log(line); }
 if (failures.length > 0) {
   console.error('');

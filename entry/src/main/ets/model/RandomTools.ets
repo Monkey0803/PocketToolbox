@@ -101,7 +101,10 @@ export class WeightedItem {
 export const RANDOM_MODES: RandomOption[] = [
   { id: 'number', zh: '随机整数', en: 'Random integer' },
   { id: 'dice', zh: '骰子与硬币', en: 'Dice and coin' },
-  { id: 'list', zh: '名单抽取、排序与分组', en: 'Pick, shuffle and group a list' }
+  { id: 'list', zh: '名单抽取、排序与分组', en: 'Pick, shuffle and group a list' },
+  // 转盘（2026-10-23）：扇区几何/抽签/角度映射在纯逻辑 `model/WheelTools.ets`，
+  // 候选项解析与权重口径与「名单抽取」共用（同一份 `parseWeightedCandidates()`）。
+  { id: 'wheel', zh: '转盘抽奖', en: 'Wheel' }
 ];
 
 // 名单分组的方式（互斥选项）：按组数 / 按每组人数。

@@ -298,7 +298,7 @@ export struct TextPage {
             .onChange((value: string) => this.updateTextInput(value, true))
             .height(180)
           IconActionButton({
-            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.primaryDeep, boxSize: 36, iconSize: 20,
             usable: this.textInput.length > 0,
             a11yText: appText('text.clear-input-and-result', this.english),
             onTap: () => this.clearAll()
@@ -329,17 +329,17 @@ export struct TextPage {
       }
       Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('text.copy-result', this.english), usable: this.textOutput.length > 0,
           onTap: () => this.copyResult()
         })
         IconActionButton({
-          icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('text.use-result-as-input', this.english), usable: this.textOutput.length > 0,
           onTap: () => this.useResultAsInput()
         })
         IconActionButton({
-          icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
           a11yText: appText('text.clear-input-and-result', this.english),
           usable: this.textInput.length > 0 || this.textOutput.length > 0,
           onTap: () => this.clearAll()

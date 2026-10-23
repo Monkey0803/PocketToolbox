@@ -141,7 +141,21 @@ export const TOOL_META: ToolMeta[] = [
   // 网络查询（第 26 个）：IP 归属地 / 域名 WHOIS(RDAP) / TLS 证书。关键词覆盖「whois/rdap/证书/ssl」
   // 与拼音首字母，标题里只有「网络查询」四个字，不补关键词就搜不到。
   new ToolMeta('netinfo', '网络查询', 'Network lookup', 'system',
-    ['ip', 'whois', 'rdap', 'wlcx', '归属地', '证书', 'ssl', 'tls', '域名注册', 'certificate'])
+    ['ip', 'whois', 'rdap', 'wlcx', '归属地', '证书', 'ssl', 'tls', '域名注册', 'certificate']),
+  // 金额大写（2026-10-23 新增）：关键词覆盖「报销/借条/支票」这几个标题里没有、但用户会直接搜的意图，
+  // 外加拼音首字母 `je`；不写泛词「金额」——标题「金额大写」本身已经能被搜到。
+  new ToolMeta('money', '金额大写', 'Amount in words', 'calc',
+    ['大写金额', 'rmb', 'je', '人民币', '报销', '借条', '支票', '数字转大写']),
+  // 身份证 / 银行卡校验（2026-10-23 新增）：关键词覆盖标题里没有的搜法（`sfz`、`卡号`、`luhn`、`实名`）。
+  new ToolMeta('idcheck', '身份证校验', 'ID & card check', 'life',
+    ['sfz', '身份证', '实名', '身份证号', '银行卡', '卡号', 'luhn', '校验位']),
+  // 世界时钟（2026-10-23 新增）：复用时间戳页的同一份时区表；关键词补「世界时间/时区」与拼音首字母。
+  new ToolMeta('worldclock', '世界时钟', 'World clock', 'system',
+    ['世界时间', '时区', 'shijie', 'sjsk', 'worldclock', '多城市', '时差']),
+  // 图片工具（2026-10-23 新增）：标题里只有「图片工具」，因此关键词补齐用户真正会搜的意图
+  // （压缩 / 改尺寸 / 格式转换 / 旋转 / webp）与拼音首字母。
+  new ToolMeta('imagetools', '图片工具', 'Image tools', 'scan',
+    ['图片压缩', '压缩图片', 'tpgj', '改尺寸', '缩放', '格式转换', 'webp', 'jpg', 'png', '旋转图片', '翻转'])
 ];
 
 /** 全部工具 id，顺序即工具网格顺序。 */

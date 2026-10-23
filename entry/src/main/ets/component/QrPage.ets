@@ -659,7 +659,7 @@ export struct QrPage {
         }
         Row({ space: 8 }) {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('qrpage.copy-content', this.english), onTap: () => this.onCopy(this.qrResult)
           })
           if (this.isLink(this.qrResult)) {

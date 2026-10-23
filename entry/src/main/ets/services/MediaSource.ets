@@ -37,11 +37,18 @@ function logFailure(phase: string, error: Object): void {
 /** 打开后的媒体源：调用方用完必须 `release()`（页面离开、重新选图、渲染结束都要释放）。 */
 export class MediaSource {
   readonly source: image.ImageSource;
+  /**
+   * 源文件字节数；拿不到（fd 打不开、stat 失败）时 `-1`。
+   *
+   * 图片工具的「压缩前体积」用它——**不拿不到就显示占位，不显示 0**（0 会被读成「文件是空的」）。
+   */
+  readonly byteSize: number;
   private file: fs.File | undefined = undefined;
 
-  constructor(source: image.ImageSource, file: fs.File | undefined) {
+  constructor(source: image.ImageSource, file: fs.File | undefined, byteSize: number = -1) {
     this.source = source;
     this.file = file;
+    this.byteSize = byteSize;
   }
 
   /** 释放 `ImageSource` 与底层 fd（**顺序不能反**：先释放 source，它可能还在用 fd）。 */
@@ -76,7 +83,7 @@ export async function openMediaSource(uri: string): Promise<MediaSource> {
   let file: fs.File | undefined = undefined;
   try {
     file = fs.openSync(target, fs.OpenMode.READ_ONLY);
-    return new MediaSource(image.createImageSource(file.fd), file);
+    return new MediaSource(image.createImageSource(file.fd), file, readableSize(file.fd));
   } catch (error) {
     // fd 打不开才回退 URI 构造；打不开时 file 可能已创建，先关掉避免泄漏。
     if (file !== undefined) {
@@ -84,11 +91,21 @@ export async function openMediaSource(uri: string): Promise<MediaSource> {
       file = undefined;
     }
     try {
-      return new MediaSource(image.createImageSource(target), undefined);
+      return new MediaSource(image.createImageSource(target), undefined, -1);
     } catch (fallbackError) {
       // 两种都失败：记一次码，把**回退**的错误抛出去（它才是调用方真正遇到的那次失败）。
       logFailure('openMediaSource', fallbackError as Object);
       throw fallbackError as Error;
     }
+  }
+}
+
+/** fd 对应的文件字节数；stat 失败返回 `-1`（调用方据此不显示体积，而不是显示 0）。 */
+function readableSize(fd: number): number {
+  try {
+    const info: fs.Stat = fs.statSync(fd);
+    return Number.isFinite(info.size) && info.size >= 0 ? info.size : -1;
+  } catch (_) {
+    return -1;
   }
 }

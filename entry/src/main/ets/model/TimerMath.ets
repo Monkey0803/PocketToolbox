@@ -59,7 +59,10 @@ export class TimerMode {
 // 新增能力时在此追加一项，页面用其中的双语全称做「方式」下拉的选项文案，并按 id 渲染对应内容。
 export const TIMER_MODES: TimerMode[] = [
   { id: 'countdown', zh: '倒计时', en: 'Countdown' },
-  { id: 'stopwatch', zh: '秒表', en: 'Stopwatch' }
+  { id: 'stopwatch', zh: '秒表', en: 'Stopwatch' },
+  // 番茄钟（2026-10-23）：三个阶段的状态机与文案在纯逻辑 `model/PomodoroMath.ets`，
+  // 本登记表只负责「方式」下拉里出现这一项、页面按 id 渲染 `pomodoroPanel()`。
+  { id: 'pomodoro', zh: '番茄钟', en: 'Pomodoro' }
 ];
 
 /**

@@ -122,7 +122,7 @@ export struct DiffPage {
           .height(150)
           .onChange((value: string) => this.setFieldText(id, value))
         IconActionButton({
-          icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+          icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.primaryDeep, boxSize: 36, iconSize: 20,
           usable: this.fieldText(id).length > 0,
           a11yText: id === 'left' ? appText('diff.clear-the-original-text', this.english) :
             appText('diff.clear-the-new-text', this.english),
@@ -208,10 +208,11 @@ export struct DiffPage {
       this.textAreaField('left', '原文本', 'Original')
       this.textAreaField('right', '新文本', 'New')
 
-      // 文字动作按钮：整行居中、品牌底色 + 白字（不带底色那条只适用于纯图标按钮）。
+      // 文字动作按钮：整行居中、品牌底色 + `onPrimary` 文字（不带底色那条只适用于纯图标按钮）。
+      // 文字色必须走 `ToolPalette.onPrimary`：自定义浅色主题下白字会糊在浅底上。
       Row() {
         Button(appText('diff.compare', this.english)).height(48).padding({ left: 32, right: 32 })
-          .backgroundColor(ToolPalette.primary).fontColor(Color.White).fontWeight(FontWeight.Medium)
+          .backgroundColor(ToolPalette.primary).fontColor(ToolPalette.onPrimary).fontWeight(FontWeight.Medium)
           .fontSize(16).borderRadius(24)
           .onClick(() => this.runCompare())
       }.width('100%').justifyContent(this.handAlign(FlexAlign.Center))
@@ -254,7 +255,7 @@ export struct DiffPage {
 
       Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('diff.copy-differences', this.english),
           usable: this.diffLines.length > 0 && this.errorCode.length === 0,
           onTap: () => this.copyResult()

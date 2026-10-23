@@ -51,11 +51,25 @@ export const LOCAL_KEYS: string[] = [
   // 证件照的上次设置（`model/IdPhoto.ets` 的 `encodeIdPhotoState()`：规格/自定义毫米/底色/相纸/裁切参考线）。
   // 与 `units_state`/`doc_scan_state` 同一口径：只存登记表 id 与界内整数，读取时逐字段校验、非法回退默认。
   'id_photo_state',
+  // 世界时钟的城市清单（`model/WorldClock.ets` 的 `serializeWorldClockCities()`：只存 `TIME_ZONES` 里的
+  // IANA 城市 id，去重、保序、上限 12；坏 JSON/未知 id 逐个丢弃）。不含任何时间内容。
+  'world_clock_cities',
+  // 番茄钟的设置与会话（`model/PomodoroMath.ets` 的 `encodePomodoroState()`：三段时长/阶段/结束时刻/
+  // 暂停剩余/完成轮次/提醒 id）。读取时逐字段校验，任何非法值回退默认并置为未运行。
+  'pomodoro_state',
+  // 图片工具的上次选项（`model/ImageTools.ets` 的 `encodeImageToolState()`：格式/画质/尺寸/最长边/旋转/翻转）。
+  // **不含任何图片内容**；读取时逐字段校验，未知 id 与档位回退默认。
+  'image_tool_state',
   // 联网偏好（`model/NetPolicy.ets` 的 `serializeNetPrefs()`：总开关 / 仅 Wi-Fi / 逐项开关）。
   // 登记表驱动，读取时按 `NET_ACTIONS` 校验动作 id、非法回退默认；清除本机数据必须一起复位。
   // 数据包/汇率/节假日这些**联网缓存**不在这里：它们的正文是沙箱文件（`services/DataPackService.ets`
   // 与 `services/HolidayData.ets`），设置页的「清除联网缓存」专门删它们。
-  'net_prefs'
+  'net_prefs',
+  // 主题色偏好（`model/ThemeColors.ets` 的 `normalizeThemeColorId()`：预设 id 或 `custom`）与上次自定义色
+  // （`normalizeCustomThemeHex()`：大写 `#RRGGBB`）。读取时都校验、非法回退默认；清除本机数据会把它们
+  // 复位回默认主题，导出/导入按 `LOCAL_KEYS` 一起走。
+  'theme_color',
+  'theme_custom_hex'
 ];
 
 /** 本地数据格式版本：用于将来的迁移判断（当前只有第 1 版）。 */
@@ -215,7 +229,13 @@ export class LocalData {
       let valid: CountdownItem[] = items.filter((item: CountdownItem) => item.id.length > 0 &&
         timerDurationWithinLimits(item.durationMs)).slice(0, TIMER_MAX_COUNT);
       // 旧版本写入的数据没有 repeat 字段：统一归一成布尔值，避免出现 undefined 让界面判断失真。
-      valid.forEach((item: CountdownItem) => { item.repeat = item.repeat === true; });
+      // 提醒 id 与实况窗 id 同样要归一：老数据没有 liveViewId，而 `undefined >= 0` 与 `undefined < 0`
+      // 都是 false，会把 undefined 一路喂进系统接口（参数错误）并写回存储。
+      valid.forEach((item: CountdownItem) => {
+        item.repeat = item.repeat === true;
+        item.reminderId = Number.isInteger(item.reminderId) ? item.reminderId : -1;
+        item.liveViewId = Number.isInteger(item.liveViewId) ? item.liveViewId : -1;
+      });
       return valid;
     } catch (_) {
       await this.backupCorrupt('timers', raw);

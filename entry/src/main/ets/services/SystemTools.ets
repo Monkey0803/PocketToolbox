@@ -336,11 +336,14 @@ async function qrPng(pixelMap: image.PixelMap): Promise<ArrayBuffer> {
  *
  * `packer` 用完必须 `release()`：图像编码器持有原生内存，证件照那种几百万像素的输出漏一次就是几十 MB。
  * 这里不做格式白名单——格式串由服务层按用途决定（码图纯白底走 png、证件照不透明走 jpeg）。
+ *
+ * `quality` 默认 100（既有调用点不受影响）；图片工具会传用户选的画质档。
+ * PNG 不使用画质（系统按无损处理），传进去也不会出错。
  */
-async function packPixelMap(pixelMap: image.PixelMap, format: string): Promise<ArrayBuffer> {
+async function packPixelMap(pixelMap: image.PixelMap, format: string, quality: number = 100): Promise<ArrayBuffer> {
   const packer: image.ImagePacker = image.createImagePacker();
   try {
-    return await packer.packToData(pixelMap, { format: format, quality: 100 });
+    return await packer.packToData(pixelMap, { format: format, quality: quality });
   } finally {
     try { await packer.release(); } catch (_) {}
   }
@@ -353,8 +356,8 @@ async function packPixelMap(pixelMap: image.PixelMap, format: string): Promise<A
  * `title` 只用作相册条目的显示名，因此不要传用户内容（文件名原则见 AGENTS「文件名只含日期时间」）。
  */
 export async function savePixelMapToGallery(context: common.UIAbilityContext, pixelMap: image.PixelMap,
-  title: string, extension: string, format: string): Promise<boolean> {
-  let bytes: ArrayBuffer = await packPixelMap(pixelMap, format);
+  title: string, extension: string, format: string, quality: number = 100): Promise<boolean> {
+  let bytes: ArrayBuffer = await packPixelMap(pixelMap, format, quality);
   let path: string = context.cacheDir + '/' + title + '-gallery-source.' + extension;
   let source: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
   try { fs.writeSync(source.fd, bytes); }
@@ -383,8 +386,8 @@ export async function savePixelMapToGallery(context: common.UIAbilityContext, pi
  * 文件名由调用方给（同样不含用户内容）。
  */
 export async function sharePixelMap(context: common.UIAbilityContext, pixelMap: image.PixelMap,
-  fileName: string, extension: string, format: string, utdType: string): Promise<void> {
-  let bytes: ArrayBuffer = await packPixelMap(pixelMap, format);
+  fileName: string, extension: string, format: string, utdType: string, quality: number = 100): Promise<void> {
+  let bytes: ArrayBuffer = await packPixelMap(pixelMap, format, quality);
   let path: string = context.cacheDir + '/' + fileName + '.' + extension;
   let file: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
   try {
@@ -954,12 +957,16 @@ export class ReminderOutcome {
  * 因此直接返回 `denied` 并**不再调用** `publishReminder()`（避免无意义的失败调用）。
  */
 export async function scheduleReminder(context: common.UIAbilityContext, name: string,
-  seconds: number, english: boolean): Promise<ReminderOutcome> {
+  seconds: number, english: boolean, contentText: string = ''): Promise<ReminderOutcome> {
   try {
     await notificationManager.requestEnableNotification(context);
   } catch (_) {
     return new ReminderOutcome(-1, 'denied');
   }
+  // 通知正文：调用方给了就用它的（例如番茄钟说「专注阶段结束」），否则回退到倒计时那两句。
+  // 标题一直是调用方给的 `name`（倒计时是计时名、番茄钟是阶段名）。
+  const content: string = contentText.length > 0 ? contentText :
+    (english ? 'Countdown finished' : '倒计时结束');
   let request: reminderAgentManager.ReminderRequestTimer = {
     reminderType: reminderAgentManager.ReminderType.REMINDER_TYPE_TIMER,
     triggerTimeInSeconds: Math.max(1, Math.ceil(seconds)),
@@ -968,8 +975,8 @@ export async function scheduleReminder(context: common.UIAbilityContext, name: s
       type: reminderAgentManager.ActionButtonType.ACTION_BUTTON_TYPE_CLOSE
     }],
     title: name,
-    content: english ? 'Countdown finished' : '倒计时结束',
-    expiredContent: english ? 'Countdown finished' : '倒计时结束'
+    content: content,
+    expiredContent: content
   };
   try {
     return new ReminderOutcome(await reminderAgentManager.publishReminder(request), '');

@@ -13,10 +13,22 @@ import { parseDuration, remainingAt, clampDurationPart, DURATION_PRESETS_MINUTES
   slowestLapIndex, timerDurationWithinLimits, timerLimitText, timerDurationLimitText, TIMER_MAX_COUNT,
   TimerMode, TIMER_MODES } from '../model/TimerMath';
 import { scheduleReminder, cancelReminder, ReminderOutcome } from '../services/SystemTools';
+// 番茄钟（2026-10-23）：状态机/文案/落盘都在纯逻辑 `model/PomodoroMath.ets`，本页只做交互与提醒排程。
+import { PomodoroSettings, PomodoroState, defaultPomodoroState, encodePomodoroState, parsePomodoroState,
+  pomodoroAdvance, pomodoroClearLiveView, pomodoroClearReminder, pomodoroDurationText, pomodoroFinishedText,
+  pomodoroLiveViewContent, pomodoroLiveViewDoneText, pomodoroLiveViewTitle,
+  pomodoroLongOptions, pomodoroNoteText, pomodoroOptionIndex, pomodoroPause, pomodoroPhaseLabel,
+  pomodoroProgressText, pomodoroReminderContent, pomodoroReminderText, pomodoroReminderTitle,
+  pomodoroRemainingMs, pomodoroReset, pomodoroResetConfirmText, pomodoroSetLiveView, pomodoroSetReminder,
+  pomodoroShortOptions, pomodoroStart, pomodoroWithSettings, pomodoroWorkOptions } from '../model/PomodoroMath';
+import { parseIntegerInput } from '../model/Units';
+import { WheelPickerButton } from './WheelPickerButton';
+import { InputKeyboard, inputTypeOf } from './InputKeyboard';
 // 到点触觉反馈：事件 id 来自纯逻辑登记表，震动实现与开关在 `services/Haptics`。
 import { HAPTIC_EVENT_TIMER_DONE } from '../model/Haptics';
 import { playHaptic } from '../services/Haptics';
-import { LiveViewHandle, startTimerLiveView, updateTimerLiveView, stopTimerLiveView } from '../services/LiveViewTools';
+import { LiveViewHandle, TimerLiveViewSpec, startTimerLiveView, updateTimerLiveView,
+  stopTimerLiveView } from '../services/LiveViewTools';
 
 /**
  * 计时页（倒计时 / 秒表）。
@@ -55,6 +67,17 @@ export struct TimersPage {
   @Local watch: StopwatchData = new StopwatchData();
   @Local repeatTimer: boolean = false;
   @Local now: number = Date.now();
+  // 番茄钟：状态用不可变复制（每次动作整体换新实例，`this.x = this.x` 在 V2 里不触发刷新）。
+  @Local pomodoro: PomodoroState = defaultPomodoroState();
+  @Local pomodoroError: string = '';
+  // 番茄钟单独的实况窗失败原因（与倒计时的 `liveViewReason` 分开：两种方式可能一个成功一个失败）：
+  // 它参与渲染（面板上的兜底状态行），所以必须是 `@Local`，不能用普通字段。
+  @Local pomodoroLiveViewReason: string = '';
+  // 三个时长输入框的**文本**（输入框的显示值以它为准，避免「边打字边被状态回写」）；
+  // 合法输入即时套用到状态，非法输入只留在框里不生效（滚轮落点用当前状态值算）。
+  @Local pomodoroWorkText: string = '25';
+  @Local pomodoroShortText: string = '5';
+  @Local pomodoroLongText: string = '15';
   private ticker: number = -1;
   // 当前定时器周期（ms）：`ensureTicker()` 用它判断是否需要重建定时器。
   private tickerIntervalMs: number = 0;
@@ -80,7 +103,23 @@ export struct TimersPage {
     if (!this.data) { return; }
     this.timers = await this.data.getTimers();
     this.watch = await this.data.getStopwatch();
+    // 番茄钟：坏 JSON/未知阶段/越界分钟由 `parsePomodoroState()` 逐字段回退（读失败只影响默认值）。
+    let rawPomodoro: string = '';
+    try {
+      rawPomodoro = await this.data.getString('pomodoro_state', '');
+    } catch (_) {
+      rawPomodoro = '';
+    }
+    this.pomodoro = parsePomodoroState(rawPomodoro);
+    this.syncPomodoroTexts();
     this.tick();
+  }
+
+  /** 把状态里的分钟回写到三个输入框（读取落盘、滚轮选择、夹取后都走它）。 */
+  private syncPomodoroTexts(): void {
+    this.pomodoroWorkText = this.pomodoro.settings.workMinutes.toString();
+    this.pomodoroShortText = this.pomodoro.settings.shortMinutes.toString();
+    this.pomodoroLongText = this.pomodoro.settings.longMinutes.toString();
   }
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
@@ -131,11 +170,15 @@ export struct TimersPage {
 
   private tick(): void {
     this.now = Date.now();
+    // 番茄钟阶段到点：先判定再走横幅/触觉/自动进入下一阶段（与倒计时到点同一套可见提示）。
+    if (this.pomodoro.running && this.pomodoro.phaseEndMs > 0 && this.pomodoro.phaseEndMs <= this.now) {
+      this.finishPomodoroPhase();
+    }
     let changed: boolean = false;
     this.timers.forEach((timer: CountdownItem) => {
       if (timer.state === 'running' && timer.deadlineMs <= this.now) {
         if (timer.repeat) {
-          // 重复计时：本轮结束时立刻开始下一轮，并重新排一次系统提醒。
+          // 重复计时：本轮结束时立刻开始下一轮，并重新排一次系统提醒与实况窗。
           timer.deadlineMs = this.now + timer.durationMs;
           timer.remainingMs = timer.durationMs;
           this.rescheduleRepeat(timer);
@@ -144,6 +187,9 @@ export struct TimersPage {
           // 到点提示（2026-10-20 审计 §3.15「计时结束的应用内提示」）：后台提醒可能被系统限流或
           // 用户拒绝通知，应用在前台时必须有**看得见**的提示，否则计时悄悄结束。
           this.finishedNames.push(timer.name);
+          // 实况窗的读数已经归零并由系统换成预设文案，这里把它结束掉，
+          // 否则状态栏胶囊会一直挂着一个「已结束」的计时（`keepTime` 为 0，停止后不留归档卡片）。
+          this.stopFinishedLiveView(timer);
         }
         changed = true;
       }
@@ -174,7 +220,7 @@ export struct TimersPage {
    * 最多一个周期内就会切过来，不需要在每个动作里手工重启定时器。
    */
   private ensureTicker(): void {
-    const running: boolean = this.watch.running ||
+    const running: boolean = this.watch.running || this.pomodoro.running ||
       this.timers.some((item: CountdownItem): boolean => item.state === 'running');
     const want: number = running ? 250 : 1000;
     if (want === this.tickerIntervalMs && this.ticker >= 0) { return; }
@@ -183,7 +229,7 @@ export struct TimersPage {
     this.ticker = setInterval(() => this.tick(), want);
   }
 
-  // 重复计时的下一轮提醒：失败只影响后台提醒，不影响应用内计时（与 startTimer 的容错一致）。
+  // 重复计时的下一轮：重排后台提醒 + 重开实况窗，失败都只影响后台展示、不影响应用内计时。
   private async rescheduleRepeat(timer: CountdownItem): Promise<void> {
     try {
       const outcome: ReminderOutcome =
@@ -194,9 +240,296 @@ export struct TimersPage {
       timer.reminderId = -1;
       this.reminderError = 'other';
     }
+    await this.restartRepeatLiveView(timer);
+  }
+
+  /**
+   * 重复计时进入下一轮时把实况窗重新计上。
+   *
+   * 实况窗的倒计时归零后系统会把它换成「倒计时结束」的预设文案并停住，**不会自己从头开始**；
+   * 上一版只在应用内重开了一轮、实况窗停在 00:00:00，锁屏看起来像已经结束。这里「有 id 先 update、
+   * 更新不动就重建」，与新起一轮的语义对齐（`sequence` 递增，系统才认这次更新）。
+   */
+  private async restartRepeatLiveView(timer: CountdownItem): Promise<void> {
+    const spec: TimerLiveViewSpec = this.countdownSpec(timer, timer.durationMs);
+    if (timer.liveViewId >= 0) {
+      if (await updateTimerLiveView(this.ctx(), timer.liveViewId, spec, false)) {
+        this.timers = this.timers.slice();
+        return;
+      }
+      // 更新不动时先结束再重建：直接 start 同一个 id 会被系统判成「已存在」。
+      await stopTimerLiveView(timer.liveViewId);
+      timer.liveViewId = -1;
+    }
+    const handle: LiveViewHandle = await startTimerLiveView(this.ctx(), spec);
+    timer.liveViewId = handle.active ? handle.id : -1;
+    this.timers = this.timers.slice();
+  }
+
+  /** 非重复倒计时到点：结束实况窗并清掉 id（fire-and-forget，tick 是同步的）。 */
+  private stopFinishedLiveView(timer: CountdownItem): void {
+    if (timer.liveViewId < 0) { return; }
+    const id: number = timer.liveViewId;
+    timer.liveViewId = -1;
+    stopTimerLiveView(id);
   }
 
   private async persistTimers(): Promise<void> { if (this.data) { await this.data.saveTimers(this.timers); } }
+
+  // ---------- 番茄钟（方式=番茄钟） ----------
+
+  private async persistPomodoro(): Promise<void> {
+    if (!this.data) { return; }
+    try {
+      await this.data.putString('pomodoro_state', encodePomodoroState(this.pomodoro));
+    } catch (_) {
+      // 落盘失败只影响下次进入的默认值，不打断当前计时（与证件照/单位换算同一容错）。
+    }
+  }
+
+  /**
+   * 排当前阶段的后台提醒（开始/继续/自动进入下一阶段时各排一次）。
+   *
+   * 失败原因回写到 `pomodoroError`，由 `pomodoroReminderText()` 给出本页专属的引导句；
+   * **失败不影响应用内计时**（与倒计时页同一容错）。
+   */
+  private async schedulePomodoroReminder(state: PomodoroState): Promise<void> {
+    const remaining: number = pomodoroRemainingMs(state, Date.now());
+    if (remaining <= 0) { return; }
+    try {
+      const outcome: ReminderOutcome = await scheduleReminder(this.ctx(),
+        pomodoroReminderTitle(state.phase, this.english), remaining / 1000, this.english,
+        pomodoroReminderContent(state.phase, this.english));
+      this.pomodoroError = outcome.error;
+      this.pomodoro = pomodoroSetReminder(state, outcome.id);
+    } catch (_) {
+      this.pomodoroError = 'other';
+      this.pomodoro = pomodoroSetReminder(state, -1);
+    }
+  }
+
+  /** 取消已排的番茄钟提醒（暂停/跳过/重置/清空数据时都要走）。 */
+  private async cancelPomodoroReminder(): Promise<void> {
+    const reminderId: number = this.pomodoro.reminderId;
+    if (reminderId < 0) { return; }
+    try {
+      await cancelReminder(reminderId);
+    } catch (_) {
+      // 取消失败不阻断流程（通知可能仍在，但状态已经是对的）。
+    }
+    this.pomodoro = pomodoroClearReminder(this.pomodoro);
+  }
+
+  /**
+   * 阶段自然结束：完成轮次 +1、切到下一阶段、给可见提示与触觉，自动开始开启时立刻起跑下一阶段。
+   *
+   * 到点的后台提醒已经自己响过，因此这里**不需要**取消提醒；`pomodoroAdvance()` 会把 `reminderId` 清空。
+   * 实况窗的倒计时归零后系统换成预设文案并停住：自动开始时把它更新成下一阶段（同一个 id），
+   * 不自动开始时结束它（阶段已经不在计时，留着胶囊只会让人以为还在跑）。
+   */
+  private finishPomodoroPhase(): void {
+    const finishedPhase: string = this.pomodoro.phase;
+    const advanced: PomodoroState = pomodoroAdvance(this.pomodoro, true);
+    this.pomodoroError = '';
+    this.finishedLabel = pomodoroFinishedText(finishedPhase, this.english);
+    this.finishedShown = true;
+    this.finishedNames = [];
+    this.onStatus(this.finishedLabel);
+    playHaptic(HAPTIC_EVENT_TIMER_DONE);
+    if (advanced.settings.autoStart) {
+      const started: PomodoroState = pomodoroStart(advanced, Date.now());
+      this.pomodoro = started;
+      this.schedulePomodoroReminder(started);
+      this.syncPomodoroLiveView(true);
+    } else {
+      this.pomodoro = advanced;
+      this.syncPomodoroLiveView(false);
+    }
+    this.persistPomodoro();
+  }
+
+  private async startPomodoro(): Promise<void> {
+    const started: PomodoroState = pomodoroStart(this.pomodoro, Date.now());
+    if (!started.running) { return; }
+    this.pomodoro = started;
+    await this.schedulePomodoroReminder(started);
+    // 实况窗在提醒之后同步：两条都失败时状态行会同时说明（见 `pomodoroStatusNote()`）。
+    await this.syncPomodoroLiveView(true);
+    await this.persistPomodoro();
+  }
+
+  private async pausePomodoro(): Promise<void> {
+    await this.cancelPomodoroReminder();
+    this.pomodoro = pomodoroPause(this.pomodoro, Date.now());
+    // 暂停不结束实况窗：把 `isPaused` 打开，锁屏停在冻结的读数上（与面板读数一致）。
+    const id: number = this.pomodoro.liveViewId;
+    if (id >= 0) {
+      await updateTimerLiveView(this.ctx(), id, this.pomodoroSpec(), true);
+    }
+    await this.persistPomodoro();
+  }
+
+  private async skipPomodoro(): Promise<void> {
+    await this.cancelPomodoroReminder();
+    const advanced: PomodoroState = pomodoroAdvance(this.pomodoro, false);
+    if (advanced.settings.autoStart) {
+      const started: PomodoroState = pomodoroStart(advanced, Date.now());
+      this.pomodoro = started;
+      await this.schedulePomodoroReminder(started);
+      await this.syncPomodoroLiveView(true);
+    } else {
+      this.pomodoro = advanced;
+      await this.syncPomodoroLiveView(false);
+    }
+    await this.persistPomodoro();
+  }
+
+  /** 「重置整轮」：先确认再动手（会丢掉当前阶段与已完成轮次），确认框打不开就不重置。 */
+  private confirmResetPomodoro(): void {
+    try {
+      this.getUIContext().showAlertDialog({
+        title: this.tr('重置番茄钟', 'Reset Pomodoro'),
+        message: pomodoroResetConfirmText(this.pomodoro, this.english),
+        primaryButton: { value: appText('dialog.cancel', this.english), action: () => {} },
+        secondaryButton: {
+          value: appText('dialog.clear', this.english),
+          fontColor: ToolPalette.danger,
+          action: () => {
+            this.cancelPomodoroReminder();
+            // 重置会生成全新状态（`liveViewId` 归 -1），所以**先用旧 id 结束实况窗**再替换状态，
+            // 否则通知栏里那个计时再也停不掉（同「清除本机数据要先收集提醒 id」的口径）。
+            const liveViewId: number = this.pomodoro.liveViewId;
+            this.pomodoroError = '';
+            this.pomodoroLiveViewReason = '';
+            this.pomodoro = pomodoroReset(this.pomodoro);
+            if (liveViewId >= 0) { stopTimerLiveView(liveViewId); }
+            this.syncPomodoroTexts();
+            this.persistPomodoro();
+          }
+        }
+      });
+    } catch (_) {
+      this.onStatus(appText('dialog.noConfirm', this.english));
+    }
+  }
+
+  /**
+   * 时长框的统一写入口（两级）：
+   * - **边打字边套用**只在该框当前文本本身合法（正好落在滚轮选项里）时进行，且**不回写输入框文本**——
+   *   否则输入「25」时先出现的 `2` 会被夹成 5、把用户正在打的字改掉；
+   * - **提交/失焦**才夹取越界值并把文本回写成夹取后的结果（`0x10`、空串这类非法文本保持不动）。
+   */
+  private applyPomodoroMinutes(): void {
+    const settings: PomodoroSettings = this.pomodoroSettingsFromTexts();
+    this.pomodoro = pomodoroWithSettings(this.pomodoro, settings);
+    this.syncPomodoroTexts();
+    this.persistPomodoro();
+  }
+
+  private commitPomodoroMinutes(): void {
+    this.applyPomodoroMinutes();
+  }
+
+  /** 三个框里**合法**的值合成一份设置；非法项沿用当前状态（不猜、不夹取）。 */
+  private pomodoroSettingsFromTexts(): PomodoroSettings {
+    const settings: PomodoroSettings = new PomodoroSettings();
+    settings.workMinutes = this.pomodoro.settings.workMinutes;
+    settings.shortMinutes = this.pomodoro.settings.shortMinutes;
+    settings.longMinutes = this.pomodoro.settings.longMinutes;
+    settings.autoStart = this.pomodoro.settings.autoStart;
+    const work: number | undefined = parseIntegerInput(this.pomodoroWorkText);
+    const short: number | undefined = parseIntegerInput(this.pomodoroShortText);
+    const long: number | undefined = parseIntegerInput(this.pomodoroLongText);
+    if (work !== undefined && pomodoroWorkOptions().indexOf(this.pomodoroWorkText.trim()) >= 0) {
+      settings.workMinutes = work;
+    }
+    if (short !== undefined && pomodoroShortOptions().indexOf(this.pomodoroShortText.trim()) >= 0) {
+      settings.shortMinutes = short;
+    }
+    if (long !== undefined && pomodoroLongOptions().indexOf(this.pomodoroLongText.trim()) >= 0) {
+      settings.longMinutes = long;
+    }
+    return settings;
+  }
+
+  private setPomodoroText(id: string, value: string): void {
+    if (id === 'short') { this.pomodoroShortText = value; }
+    else if (id === 'long') { this.pomodoroLongText = value; }
+    else { this.pomodoroWorkText = value; }
+    // 合法即套用（不改文本）；非法留在框里，等提交/失焦再夹取。
+    const settings: PomodoroSettings = this.pomodoroSettingsFromTexts();
+    if (settings.workMinutes !== this.pomodoro.settings.workMinutes ||
+      settings.shortMinutes !== this.pomodoro.settings.shortMinutes ||
+      settings.longMinutes !== this.pomodoro.settings.longMinutes) {
+      this.pomodoro = pomodoroWithSettings(this.pomodoro, settings);
+      this.persistPomodoro();
+    }
+  }
+
+  private pickPomodoro(id: string, value: string): void {
+    this.setPomodoroText(id, value);
+  }
+
+  private pomodoroText(id: string): string {
+    if (id === 'short') { return this.pomodoroShortText; }
+    if (id === 'long') { return this.pomodoroLongText; }
+    return this.pomodoroWorkText;
+  }
+
+  private pomodoroOptions(id: string): string[] {
+    if (id === 'short') { return pomodoroShortOptions(); }
+    if (id === 'long') { return pomodoroLongOptions(); }
+    return pomodoroWorkOptions();
+  }
+
+  private pomodoroFieldZh(id: string): string {
+    if (id === 'short') { return '短休（分钟）'; }
+    if (id === 'long') { return '长休（分钟）'; }
+    return '专注（分钟）';
+  }
+
+  private pomodoroFieldEn(id: string): string {
+    if (id === 'short') { return 'Short break (min)'; }
+    if (id === 'long') { return 'Long break (min)'; }
+    return 'Focus (min)';
+  }
+
+  private setPomodoroAutoStart(autoStart: boolean): void {
+    const settings: PomodoroSettings = new PomodoroSettings();
+    settings.workMinutes = this.pomodoro.settings.workMinutes;
+    settings.shortMinutes = this.pomodoro.settings.shortMinutes;
+    settings.longMinutes = this.pomodoro.settings.longMinutes;
+    settings.autoStart = autoStart;
+    this.pomodoro = pomodoroWithSettings(this.pomodoro, settings);
+    this.persistPomodoro();
+  }
+
+  private pomodoroRemainingText(): string {
+    return this.formatTime(pomodoroRemainingMs(this.pomodoro, this.now));
+  }
+
+  private pomodoroReminderNote(): string {
+    return this.pomodoroError.length === 0 ? '' : pomodoroReminderText(this.pomodoroError, this.english);
+  }
+
+  /**
+   * 番茄钟的兜底状态行（只在运行时显示）。
+   *
+   * 与倒计时卡片上的 `timers.in-app-only-note` 同一口径：实况窗或后台提醒**任一可用**就不说话，
+   * 都没有时先说明实况窗为什么没起来（开关没开 / 权益未开通），最后才落到「仅应用内计时」。
+   * 提醒排程失败的引导句仍由 `pomodoroReminderNote()` 负责，两行不重复（见面板里的分支）。
+   */
+  private pomodoroStatusNote(): string {
+    if (!this.pomodoro.running) { return ''; }
+    if (this.pomodoro.liveViewId >= 0 || this.pomodoro.reminderId >= 0) { return ''; }
+    if (this.pomodoroLiveViewReason === 'disabled') {
+      return appText('timers.live-view-is-off', this.english);
+    }
+    if (this.pomodoroLiveViewReason === 'denied') {
+      return appText('timers.live-view-entitlement-unavailable', this.english);
+    }
+    return appText('timers.in-app-only-note', this.english);
+  }
 
   private durationLabel(): string {
     return this.formatTime(parseDuration(clampDurationPart(this.hours, 23).toString(),
@@ -290,12 +623,11 @@ export struct TimersPage {
     }
     this.liveViewReason = '';
     if (timer.liveViewId >= 0) {
-      const resumed: boolean = await updateTimerLiveView(this.ctx(), timer.liveViewId, timer.name,
-        remaining, false, this.english);
+      const resumed: boolean = await updateTimerLiveView(this.ctx(), timer.liveViewId,
+        this.countdownSpec(timer, remaining), false);
       if (!resumed) { timer.liveViewId = -1; }
     } else {
-      const handle: LiveViewHandle = await startTimerLiveView(this.ctx(), timer.id, timer.name,
-        remaining, this.english);
+      const handle: LiveViewHandle = await startTimerLiveView(this.ctx(), this.countdownSpec(timer, remaining));
       timer.liveViewId = handle.active ? handle.id : -1;
       if (!handle.active) { this.liveViewReason = handle.reason; }
     }
@@ -304,7 +636,73 @@ export struct TimersPage {
     this.onStatus(this.startTimerStatus(timer));
   }
 
-  // 实况窗（锁屏/通知栏实时倒计时）优先，其次系统后台提醒；都不可用时退化为应用内计时。
+  /**
+   * 倒计时的实况窗内容描述。
+   *
+   * 标题用计时名字（新建时已保证非空，空名字会回退成「倒计时」），扩展区写「剩余时间」，
+   * 结束文案只是「倒计时结束」——比到点横幅短，因为扩展区只有一行。
+   */
+  private countdownSpec(timer: CountdownItem, remainingMs: number): TimerLiveViewSpec {
+    return {
+      key: timer.id,
+      title: timer.name,
+      layoutTitle: this.tr('剩余时间', 'Remaining'),
+      capsuleContent: timer.name,
+      remainingMs: remainingMs,
+      doneTitle: appText('timers.countdown-finished', this.english),
+      english: this.english
+    };
+  }
+
+  /**
+   * 番茄钟的实况窗内容描述（标题/进度/结束文案都来自 `PomodoroMath`，这里不另写一份）。
+   *
+   * 剩余时间现取（读数是算出来的），因此调用方**先**把新状态赋给 `this.pomodoro` 再调用它。
+   */
+  private pomodoroSpec(): TimerLiveViewSpec {
+    return {
+      key: 'pomodoro',
+      title: pomodoroLiveViewTitle(this.pomodoro, this.english),
+      layoutTitle: pomodoroLiveViewContent(this.pomodoro, this.english),
+      capsuleContent: pomodoroLiveViewContent(this.pomodoro, this.english),
+      remainingMs: pomodoroRemainingMs(this.pomodoro, Date.now()),
+      doneTitle: pomodoroLiveViewDoneText(this.pomodoro.phase, this.english),
+      english: this.english
+    };
+  }
+
+  /**
+   * 番茄钟实况窗的统一同步入口：`running` 为真就「有 id 更新、没 id 新建」，否则结束并清掉 id。
+   *
+   * 与倒计时同一套「实况窗优先、后台提醒兜底」口径：
+   * - 系统没开通/开关没开/无此能力时 `pomodoroLiveViewReason` 记原因，面板上给一句兜底说明；
+   * - 更新失败（实况窗已被系统结束/用户移除）时**重建一次**，不停在「以为自己还在展示」的状态上。
+   */
+  private async syncPomodoroLiveView(running: boolean): Promise<void> {
+    const id: number = this.pomodoro.liveViewId;
+    if (!running) {
+      if (id >= 0) {
+        this.pomodoro = pomodoroClearLiveView(this.pomodoro);
+        await stopTimerLiveView(id);
+      }
+      return;
+    }
+    this.pomodoroLiveViewReason = '';
+    const spec: TimerLiveViewSpec = this.pomodoroSpec();
+    if (id >= 0) {
+      if (await updateTimerLiveView(this.ctx(), id, spec, false)) { return; }
+      // 更新不动：**先结束再重建**，否则 start 会撞上 1003500006「实况窗已存在」，
+      // 于是明明还能展示却直接退化成「仅应用内计时」。
+      await stopTimerLiveView(id);
+      this.pomodoro = pomodoroClearLiveView(this.pomodoro);
+    }
+    const handle: LiveViewHandle = await startTimerLiveView(this.ctx(), spec);
+    this.pomodoro = handle.active ? pomodoroSetLiveView(this.pomodoro, handle.id) :
+      pomodoroClearLiveView(this.pomodoro);
+    if (!handle.active) { this.pomodoroLiveViewReason = handle.reason; }
+  }
+
+  /** 实况窗（锁屏/通知栏实时倒计时）优先，其次系统后台提醒；都不可用时退化为应用内计时。 */
   private startTimerStatus(timer: CountdownItem): string {
     if (timer.liveViewId >= 0) {
       return appText('timers.live-view-on-track', this.english);
@@ -340,14 +738,16 @@ export struct TimersPage {
     timer.remainingMs = remainingAt(timer.deadlineMs, Date.now()); timer.state = 'paused';
     timer.reminderId = -1;
     if (timer.liveViewId >= 0) {
-      await updateTimerLiveView(this.ctx(), timer.liveViewId, timer.name, timer.remainingMs, true, this.english);
+      // 暂停不结束实况窗：把 `isPaused` 打开，锁屏停在冻结的读数上（与倒计时读数一致）。
+      await updateTimerLiveView(this.ctx(), timer.liveViewId,
+        this.countdownSpec(timer, timer.remainingMs), true);
     }
     this.timers = this.timers.slice(); await this.persistTimers();
   }
 
   private async resetTimer(timer: CountdownItem): Promise<void> {
     if (!await this.cancelForChange(timer)) { return; }
-    await stopTimerLiveView(timer.liveViewId, timer.name, this.english);
+    await stopTimerLiveView(timer.liveViewId);
     timer.liveViewId = -1; timer.reminderId = -1; timer.state = 'ready';
     timer.remainingMs = timer.durationMs; timer.deadlineMs = 0;
     this.timers = this.timers.slice(); await this.persistTimers();
@@ -355,14 +755,14 @@ export struct TimersPage {
 
   private async deleteTimer(timer: CountdownItem): Promise<void> {
     if (!await this.cancelForChange(timer)) { return; }
-    await stopTimerLiveView(timer.liveViewId, timer.name, this.english);
+    await stopTimerLiveView(timer.liveViewId);
     this.timers = this.timers.filter((item: CountdownItem) => item.id !== timer.id);
     await this.persistTimers();
   }
 
   private async editTimer(timer: CountdownItem): Promise<void> {
     if (!await this.cancelForChange(timer)) { return; }
-    await stopTimerLiveView(timer.liveViewId, timer.name, this.english);
+    await stopTimerLiveView(timer.liveViewId);
     const total: number = Math.floor(timer.durationMs / 1000);
     this.timerName = timer.name;
     this.hours = Math.floor(total / 3600).toString();
@@ -450,6 +850,119 @@ export struct TimersPage {
     return ToolPalette.textPrimary;
   }
 
+  /**
+   * 番茄钟面板（方式=番茄钟）。
+   *
+   * 切走本面板**不暂停**番茄钟：状态与提醒 id 都挂在页面上（与倒计时/秒表同一条口径）。
+   * 时长三格走「输入框 + 右侧滚轮」的既有写法（有界整数），选项列来自 `PomodoroMath` 的
+   * `pomodoroWorkOptions()/pomodoroShortOptions()/pomodoroLongOptions()`，与校验共用边界常量。
+   */
+  @Builder private pomodoroPanel() {
+    Column({ space: 14 }) {
+      Text(this.tr('番茄钟', 'Pomodoro')).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+        corner: 16, lightEffect: true
+      }) {
+        Column({ space: 10 }) {
+          Row({ space: 8 }) {
+            Text(pomodoroPhaseLabel(this.pomodoro.phase, this.english))
+              .fontSize(18).fontWeight(FontWeight.Medium).fontColor(ToolPalette.textPrimary).layoutWeight(1)
+            Text(pomodoroProgressText(this.pomodoro, this.english))
+              .fontSize(13).fontColor(ToolPalette.textMuted)
+          }.width('100%')
+          Text(this.pomodoroRemainingText()).fontSize(40).fontWeight(FontWeight.Bold)
+            .fontColor(ToolPalette.textPrimary).width('100%')
+          Text(this.tr('专注 ' + pomodoroDurationText(this.pomodoro.settings.workMinutes, false) + ' · 短休 ' +
+            pomodoroDurationText(this.pomodoro.settings.shortMinutes, false) + ' · 长休 ' +
+            pomodoroDurationText(this.pomodoro.settings.longMinutes, false),
+            'Focus ' + pomodoroDurationText(this.pomodoro.settings.workMinutes, true) + ' · short ' +
+            pomodoroDurationText(this.pomodoro.settings.shortMinutes, true) + ' · long ' +
+            pomodoroDurationText(this.pomodoro.settings.longMinutes, true)))
+            .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+          // 三个动作都是「一次一个」的图标按钮：整行跟随智感握姿（顺序是语义，不镜像）。
+          Row({ space: 8 }) {
+            IconActionButton({
+              icon: this.pomodoro.running ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'),
+              tintColor: ToolPalette.primary,
+              a11yText: this.pomodoro.running ? this.tr('暂停', 'Pause') : this.tr('开始', 'Start'),
+              boxSize: 44, iconSize: 22,
+              onTap: () => { if (this.pomodoro.running) { this.pausePomodoro(); } else { this.startPomodoro(); } }
+            })
+            IconActionButton({
+              icon: $r('sys.symbol.forward_end_fill'), tintColor: ToolPalette.primaryDeep,
+              a11yText: this.tr('跳过本阶段', 'Skip this phase'),
+              boxSize: 44, iconSize: 22, onTap: () => { this.skipPomodoro(); }
+            })
+            IconActionButton({
+              icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.danger,
+              a11yText: this.tr('重置番茄钟', 'Reset Pomodoro'),
+              boxSize: 44, iconSize: 22, onTap: () => { this.confirmResetPomodoro(); }
+            })
+          }.width('100%').justifyContent(this.actionAlign)
+        }.padding(16).width('100%')
+      }
+      Text(this.tr('时长设置', 'Durations')).fontSize(14).fontColor(ToolPalette.textSecondary).width('100%')
+      this.pomodoroMinutesRow('work')
+      this.pomodoroMinutesRow('short')
+      this.pomodoroMinutesRow('long')
+      Row({ space: 12 }) {
+        Column({ space: 2 }) {
+          Text(this.tr('自动开始下一阶段', 'Start the next phase automatically'))
+            .fontSize(15).fontColor(ToolPalette.textPrimary).width('100%')
+          Text(this.tr('到点直接进入下一阶段，不再等你点开始。',
+            'Moves on when the phase ends instead of waiting for a tap.'))
+            .fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.pomodoro.settings.autoStart })
+          .accessibilityText(this.tr('自动开始下一阶段', 'Start the next phase automatically'))
+          .onChange((isOn: boolean) => { this.setPomodoroAutoStart(isOn); })
+      }.width('100%')
+      if (this.pomodoroReminderNote().length > 0) {
+        Text(this.pomodoroReminderNote()).fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      } else if (this.pomodoroStatusNote().length > 0) {
+        Text(this.pomodoroStatusNote()).fontSize(13).fontColor(ToolPalette.warning).width('100%')
+      }
+      Text(pomodoroNoteText(this.english))
+        .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+    }.width('100%')
+  }
+
+  /** 时长输入框 + 右侧滚轮（同 AGENTS 的「有界整数输入」写法）。`id` 只传常量。 */
+  @Builder private pomodoroMinutesRow(id: string) {
+    Row({ space: 10 }) {
+      Text(this.tr(this.pomodoroFieldZh(id), this.pomodoroFieldEn(id)))
+        .fontSize(14).fontColor(ToolPalette.textSecondary).width(96).maxLines(2)
+      Column() {
+        MaterialSurface({
+          supported: this.immersiveSupported, level: this.materialLevel, fallback: ToolPalette.surface,
+          corner: 16, interactive: true
+        }) {
+          TextInput({ text: this.pomodoroText(id) })
+            .type(inputTypeOf(InputKeyboard.INTEGER))
+            // 一键清除走系统取消按钮；清空后提交会回落成夹取后的默认值。
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: clearButtonIcon() })
+            .backgroundColor(Color.Transparent)
+            .onChange((value: string) => { this.setPomodoroText(id, value); })
+            .onSubmit(() => { this.commitPomodoroMinutes(); })
+            .onBlur(() => { this.commitPomodoroMinutes(); })
+            .height(48)
+        }
+      }.layoutWeight(1)
+      WheelPickerButton({
+        english: this.english,
+        options: this.pomodoroOptions(id),
+        selectedIndex: pomodoroOptionIndex(this.pomodoroOptions(id), this.pomodoroText(id)),
+        a11yText: this.tr('打开' + this.pomodoroFieldZh(id) + '滚轮',
+          'Open ' + this.pomodoroFieldEn(id) + ' picker'),
+        immersiveSupported: this.immersiveSupported,
+        materialLevel: this.materialLevel,
+        onPicked: (value: string): void => { this.pickPomodoro(id, value); },
+        onStatus: (message: string): void => { this.onStatus(message); }
+      })
+    }.width('100%').alignItems(VerticalAlign.Center)
+  }
+
   build() {
     Column({ space: 14 }) {
       // 到点提示放在最上方且与「方式」无关：无论当前在看倒计时还是秒表，计时结束都要看得见。
@@ -463,7 +976,7 @@ export struct TimersPage {
             Text(this.finishedLabel).fontSize(16).fontWeight(FontWeight.Bold)
               .fontColor(ToolPalette.textPrimary).layoutWeight(1)
             IconActionButton({
-              icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.textSecondary, boxSize: 44, iconSize: 22,
+              icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.primaryDeep, boxSize: 44, iconSize: 22,
               a11yText: appText('timers.dismiss-the-finish-alert', this.english),
               onTap: () => this.dismissFinished()
             })
@@ -473,6 +986,8 @@ export struct TimersPage {
       this.modeSelect()
       if (this.timerMode === 'stopwatch') {
         this.stopwatchPanel()
+      } else if (this.timerMode === 'pomodoro') {
+        this.pomodoroPanel()
       } else {
         this.countdownPanel()
       }
@@ -525,7 +1040,7 @@ export struct TimersPage {
         ForEach(DURATION_PRESETS_MINUTES, (minutes: number) => {
           Button(this.tr(minutes + '分', minutes + 'm')).fontSize(14).height(44)
             .padding({ left: 16, right: 16 })
-            .backgroundColor(ToolPalette.tintBlue).fontColor(ToolPalette.primaryDeep)
+            .backgroundColor(ToolPalette.accentTint).fontColor(ToolPalette.primaryDeep)
             .onClick(() => this.applyPreset(minutes))
         }, (minutes: number): string => minutes.toString())
       }.width('100%')
@@ -550,7 +1065,7 @@ export struct TimersPage {
         // 编辑态给一条显式退路：取消编辑不会动原条目（原实现是先删再填，弃改即丢）。
         if (this.editingId.length > 0) {
           IconActionButton({
-            icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.textMuted,
+            icon: $r('sys.symbol.xmark'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('timers.cancel-editing', this.english),
             onTap: () => { this.editingId = ''; this.onStatus(appText('status.editCancelled', this.english)); }
           })
@@ -592,7 +1107,7 @@ export struct TimersPage {
               })
             }
             IconActionButton({
-              icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
+              icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.primaryDeep,
               a11yText: appText('timers.reset-timer', this.english), onTap: () => this.resetTimer(timer)
             })
             IconActionButton({
@@ -631,7 +1146,7 @@ export struct TimersPage {
           a11yText: appText('timers.lap', this.english), onTap: () => this.lapWatch()
         })
         IconActionButton({
-          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
+          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('timers.reset-stopwatch', this.english), onTap: () => this.resetWatch()
         })
       }.width('100%').justifyContent(this.actionAlign)

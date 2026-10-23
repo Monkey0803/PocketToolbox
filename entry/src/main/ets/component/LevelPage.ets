@@ -348,26 +348,26 @@ export struct LevelPage {
           onTap: (): void => { this.zeroHere(); }
         })
         IconActionButton({
-          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textMuted,
+          icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('level.clear-the-zero-reference', this.english),
           boxSize: 44, iconSize: 22, usable: this.zeroed,
           onTap: (): void => { this.clearZero(); }
         })
         IconActionButton({
           icon: this.locked ? $r('sys.symbol.lock_fill') : $r('sys.symbol.lock'),
-          tintColor: this.locked ? ToolPalette.primary : ToolPalette.textSecondary,
+          tintColor: this.locked ? ToolPalette.primary : ToolPalette.primaryDeep,
           a11yText: this.locked ? appText('level.unlock-the-reading', this.english) : appText('level.lock-the-current-reading', this.english),
           boxSize: 44, iconSize: 22, usable: this.levelReady,
           onTap: (): void => { this.toggleHold(); }
         })
         IconActionButton({
-          icon: $r('sys.symbol.arrow_up_to_line'), tintColor: ToolPalette.textMuted,
+          icon: $r('sys.symbol.arrow_up_to_line'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('level.reset-the-max-tilt', this.english),
           boxSize: 44, iconSize: 22, usable: this.peak > 0,
           onTap: (): void => { this.resetPeak(); }
         })
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('level.copy-the-current-reading', this.english),
           boxSize: 44, iconSize: 22, usable: this.levelReady,
           onTap: (): void => { this.copyReading(); }

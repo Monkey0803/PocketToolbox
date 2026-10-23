@@ -474,7 +474,7 @@ export struct PasswordPage {
           onTap: () => { this.passwordVisible = !this.passwordVisible; }
         })
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: this.passwordMode === 'pin' ? appText('password.copy-pin', this.english) :
             appText('password.copy-password', this.english), onTap: () => this.onCopy(this.passwordValue)
         })
@@ -524,7 +524,7 @@ export struct PasswordPage {
         .fontSize(19).fontWeight(FontWeight.Bold).layoutWeight(1)
         .wordBreak(WordBreak.BREAK_ALL)
       IconActionButton({
-        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary, boxSize: 44, iconSize: 22,
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep, boxSize: 44, iconSize: 22,
         a11yText: this.passwordMode === 'pin' ? appText('password.copy-pin', this.english) :
           appText('password.copy-password', this.english),
         onTap: () => this.onCopy(this.batchRowValue(index))

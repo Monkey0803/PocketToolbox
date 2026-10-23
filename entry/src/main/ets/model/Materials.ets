@@ -26,7 +26,8 @@ export function buildImmersiveMaterial(supported: boolean, level: uiMaterial.Mat
  *
  * 口径：清除按钮的图标必须是 `sys.symbol.*`（AGENTS「图标优先 HMSymbol」），**不要用系统默认图标、
  * 也不要用 `Text('×')` 这类文字字形**。这里与多行 `TextArea` 右上角那枚自绘 ✕ 用**同一个符号**
- * （`xmark_circle_fill`）、**同一个颜色**（色板 `textMuted`），两种输入框的清除观感一致。
+ * （`xmark_circle_fill`）、**同一个颜色**（主题强调色 `primaryDeep`，与其它动作图标一视同仁 ——
+ * 2026-10-23 起中性动作图标跟随主题色；两种输入框的清除观感一致）。
  *
  * 只构造一次并复用：`.cancelButton({ icon: … })` 挂在每个输入框的属性链上、每次重建都会求值，
  * 每次新建一个只读描述对象没有意义（也没人会在构造后改它）。
@@ -35,7 +36,7 @@ let clearIcon: SymbolGlyphModifier | undefined = undefined;
 
 export function clearButtonIcon(): SymbolGlyphModifier {
   if (clearIcon === undefined) {
-    clearIcon = new SymbolGlyphModifier($r('sys.symbol.xmark_circle_fill')).fontColor([ToolPalette.textMuted]);
+    clearIcon = new SymbolGlyphModifier($r('sys.symbol.xmark_circle_fill')).fontColor([ToolPalette.primaryDeep]);
   }
   return clearIcon;
 }

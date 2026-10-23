@@ -34,7 +34,13 @@ import { clearDataPacks } from '../services/DataPackService';
 import { DEFAULT_HAPTIC_FEEDBACK, parseHapticFeedback, serializeHapticFeedback } from '../model/Haptics';
 import { setHapticEnabled } from '../services/Haptics';
 import { ToolPalette } from '../model/ToolPalette';
-import { LocalData, LOCAL_KEYS } from '../model/LocalData';
+// 主题色：偏好归一/落盘口径在纯逻辑 `model/ThemeColors.ets`，运行期状态与系统品牌色同步在服务层。
+import { DEFAULT_THEME_COLOR, THEME_COLOR_CUSTOM, normalizeCustomThemeHex, normalizeThemeColorId,
+  themeAccentOf } from '../model/ThemeColors';
+import { applyThemeSelectionAndBrand } from '../services/ThemeRuntime';
+import { RgbColor, parsePickedColor, toHex } from '../model/ColorTools';
+import { LocalData, LOCAL_KEYS, CountdownItem } from '../model/LocalData';
+import { parsePomodoroState, PomodoroState } from '../model/PomodoroMath';
 import { RecentEntry, allowedRecents, parseRecents, pushRecent, serializeRecents } from '../model/RecentTools';
 import { HistoryItem, HISTORY_MAX, historyContentSnippet, historyRefill, historyTargetRoute,
   insertHistory, moveHistory, withToggledPin } from '../model/HistoryKinds';
@@ -69,6 +75,10 @@ import { DiffPage } from '../component/DiffPage';
 import { AnniversaryPage } from '../component/AnniversaryPage';
 import { NetworkProbePage } from '../component/NetworkProbePage';
 import { NetInfoPage } from '../component/NetInfoPage';
+import { MoneyWordsPage } from '../component/MoneyWordsPage';
+import { IdCheckPage } from '../component/IdCheckPage';
+import { WorldClockPage } from '../component/WorldClockPage';
+import { ImageToolsPage } from '../component/ImageToolsPage';
 import { StartupIntentValue, consumeStartupIntent, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
   normalizeLanguagePreference } from '../model/LanguagePreference';
@@ -81,6 +91,8 @@ import { refreshQuickToolsCards } from '../services/WidgetData';
 import { WindowSizeVp, currentWindowSizeVp, subscribeFoldStatus,
   unsubscribeFoldStatus } from '../services/WindowLayout';
 import { immersiveTopInset, isImmersiveLayout, refreshImmersiveMetrics } from '../services/ImmersiveWindow';
+// 「清除本机数据」要把计时/番茄钟留下的实况窗一并结束（与服务卡片刷新同一层收尾逻辑）。
+import { stopTimerLiveView } from '../services/LiveViewTools';
 
 const HDS_MATERIAL_EFFECT: SystemMaterialParams = {
   materialType: hdsMaterial.MaterialType.ADAPTIVE,
@@ -183,6 +195,15 @@ struct Index {
   @Local handPostureSupported: boolean = false;
   // 触觉反馈开关（设置页可关，键 `haptic_feedback`）：关掉后一律不震（见 `Index.setHapticFeedback()`）。
   @Local hapticFeedback: boolean = DEFAULT_HAPTIC_FEEDBACK;
+  /**
+   * 主题色（设置页「主题色」区块，键 `theme_color` / `theme_custom_hex`）：预设 id 或 `custom`。
+   *
+   * 这两个 `@Local` 只负责**设置页的选中态与外框接线**；界面上的强调色由 `model/ThemeState.ets`
+   * 的运行期单例给（`ToolPalette.primary` 等四个 getter），换主题时读过它的组件自动刷新。
+   * 写入口径与语言/握姿/触觉一致：先改内存 → 落盘 → 失败回滚 + toast。
+   */
+  @Local themeColor: string = DEFAULT_THEME_COLOR;
+  @Local themeCustomHex: string = '';
   /**
    * 联网偏好（设置页「联网」区块，键 `net_prefs`）：总开关 / 仅 Wi-Fi / 逐项开关。
    *
@@ -551,6 +572,12 @@ struct Index {
       this.docScanShooting = docScan.shooting;
       // 联网偏好：坏 JSON / 未知动作 id 一律由 `parseNetPrefs()` 回退默认（读失败也不抛）。
       this.netPrefs = await loadNetPrefs(this.data);
+      // 主题色：未知 / 已删掉的预设 id 由 `normalizeThemeColorId()` 回退默认，自定义色由
+      // `normalizeCustomThemeHex()` 归一（`custom` 却没有可用色值时退化成默认主题的蓝）。
+      // 启动首帧已经由 `EntryAbility.seedThemeFromStorage()` 种过一遍，这里读的是同一份偏好。
+      this.applyTheme(
+        await this.data.getString('theme_color', DEFAULT_THEME_COLOR),
+        await this.data.getString('theme_custom_hex', ''));
       this.syncHandPostureSubscription();
     } catch (_) { this.fatalError = appText('shell.could-not-load-local', this.english); }
     this.refreshIcon();
@@ -1095,6 +1122,70 @@ struct Index {
   }
 
   /**
+   * 应用一份主题（内存 + 运行期状态），并把归一后的值留在两个 `@Local` 上供设置页渲染选中态。
+   *
+   * 归一只有一处（`model/ThemeColors.ets`）：未知预设 id 回退默认、自定义色非法回退兜底色，
+   * 因此界面与运行期状态永远不会拿到「登记表里没有的主题」。
+   */
+  private applyTheme(accentId: string, customHex: string): void {
+    this.themeColor = normalizeThemeColorId(accentId);
+    this.themeCustomHex = normalizeCustomThemeHex(customHex);
+    applyThemeSelectionAndBrand(this.themeColor, this.themeCustomHex);
+  }
+
+  /**
+   * 设置页选了一个预设主题（先改内存 → 落盘 → 失败回滚 + toast，与握姿/触觉同一套写入口径）。
+   *
+   * 选预设时**不动** `theme_custom_hex`：用户上次挑的自定义色要留着，下次点「自定义」还能回去。
+   */
+  private async setThemeColor(accentId: string): Promise<void> {
+    const previousId: string = this.themeColor;
+    const previousHex: string = this.themeCustomHex;
+    this.applyTheme(accentId, this.themeCustomHex);
+    if (this.themeColor === previousId) { return; }
+    if (this.data) {
+      try {
+        await this.data.putString('theme_color', this.themeColor);
+      } catch (_) {
+        this.themeColor = previousId;
+        applyThemeSelectionAndBrand(previousId, previousHex);
+        this.status = appText('shell.theme-save-failed', this.english);
+        return;
+      }
+    }
+    // 成功不弹 toast：色块选中态与整页换色本身就是反馈，每次都弹一句是噪音（与联网偏好同口径）。
+  }
+
+  /**
+   * 系统取色器回传的颜色 → 自定义主题（`custom` + 这个色值一起落盘）。
+   *
+   * 取色器可能回传 `#RRGGBB` 或带透明度的 `#AARRGGBB`，也可能是别的东西：归一失败就**保持原主题**
+   * 并如实提示（不做「点了没反应」），成功才切到 `custom`。
+   */
+  private async setThemeCustomHex(raw: string): Promise<void> {
+    const parsed: RgbColor | undefined = parsePickedColor(raw);
+    if (parsed === undefined) {
+      this.status = appText('settings.themeColorInvalid', this.english);
+      return;
+    }
+    const previousId: string = this.themeColor;
+    const previousHex: string = this.themeCustomHex;
+    const nextHex: string = toHex(parsed);
+    this.applyTheme(THEME_COLOR_CUSTOM, nextHex);
+    if (this.data) {
+      try {
+        await this.data.putString('theme_custom_hex', nextHex);
+        await this.data.putString('theme_color', THEME_COLOR_CUSTOM);
+      } catch (_) {
+        this.applyTheme(previousId, previousHex);
+        this.status = appText('shell.theme-save-failed', this.english);
+        return;
+      }
+    }
+    // 成功不弹 toast：色块与说明行已经写明「自定义 · #RRGGBB」，再弹一句是噪音。
+  }
+
+  /**
    * 设置页改「联网」偏好（先改内存 → 落盘 → 失败回滚 + toast，与握姿/触觉开关同一套写入口口径）。
    *
    * 页面每次交回来的都是**新对象**（`netPrefsWith*()` 换实例），因此这里只做落盘与回滚；
@@ -1156,6 +1247,28 @@ struct Index {
    */
   private async clearAllLocalData(): Promise<void> {
     if (!this.data) { return; }
+    // 清除前先把**已排出的本地提醒**收集起来：存储一清，页面就再也读不到这些 reminderId，
+    // 通知却仍会按时响（纪念日走页面回传的快照，倒计时与番茄钟的 id 在存储里，这里读一次）。
+    // 实况窗 id 同理：存储清掉后就再也停不掉那个挂在状态栏/锁屏上的计时，必须一并收集。
+    const pendingReminderIds: number[] = [];
+    const pendingLiveViewIds: number[] = [];
+    try {
+      const pendingTimers: CountdownItem[] = await this.data.getTimers();
+      for (const pending of pendingTimers) {
+        if (pending.reminderId >= 0) { pendingReminderIds.push(pending.reminderId); }
+        if (pending.liveViewId >= 0) { pendingLiveViewIds.push(pending.liveViewId); }
+      }
+    } catch (_) {
+      // 读不到就少取消几个（不阻断清空）。
+    }
+    try {
+      const rawPomodoro: string = await this.data.getString('pomodoro_state', '');
+      const pomodoroState: PomodoroState = parsePomodoroState(rawPomodoro);
+      if (pomodoroState.reminderId >= 0) { pendingReminderIds.push(pomodoroState.reminderId); }
+      if (pomodoroState.liveViewId >= 0) { pendingLiveViewIds.push(pomodoroState.liveViewId); }
+    } catch (_) {
+      // 同上。
+    }
     try {
       await this.data.clearAll();
     } catch (_) {
@@ -1187,16 +1300,26 @@ struct Index {
     // 联网偏好同样回到默认（总开关开、仅 Wi-Fi 关、逐项按登记表默认），否则清除后开关仍显示旧状态
     // （与握姿/触觉开关同类缺陷：只删存储不同步内存）。
     this.netPrefs = resetNetPrefs();
+    // 主题色也回到默认（经典蓝）并同步运行期状态，否则清除后整页仍停在用户挑的主题上（同类缺陷）。
+    this.applyTheme(DEFAULT_THEME_COLOR, '');
     // 纪念日的本地提醒：存储清空后页面再也读不到那些 reminderId，这里先把它们取消掉，
     // 否则「清除了本机数据，纪念日通知还在响」。取消失败不阻断清空（通知可能仍在，但数据已清）。
     const staleReminderIds: number[] = this.anniversaryReminderIds;
     this.anniversaryReminderIds = [];
+    // 倒计时与番茄钟的 id 也在同一轮里取消（两者都取自清除前读到的存储内容）。
+    for (const pendingId of pendingReminderIds) {
+      staleReminderIds.push(pendingId);
+    }
     for (const reminderId of staleReminderIds) {
       try {
         await cancelReminder(reminderId);
       } catch (_) {
         // 单个取消失败不影响其它 id 与整体流程。
       }
+    }
+    // 实况窗与提醒同一轮收尾：存储已清，再不停掉就会留下一个状态栏/锁屏上永远停在那一刻的计时。
+    for (const liveViewId of pendingLiveViewIds) {
+      await stopTimerLiveView(liveViewId);
     }
     this.refreshWidgets();
     this.status = appText('shell.on-device-data-erased', this.english);
@@ -1295,6 +1418,10 @@ struct Index {
       const importedScan: DocScanState = parseDocScanState(await this.data.getString('doc_scan_state', ''));
       this.docScanFilter = importedScan.filter;
       this.docScanShooting = importedScan.shooting;
+      // 主题色同样按导入后的值重读（与上面几项同一原因：界面不能停在旧偏好上）。
+      this.applyTheme(
+        await this.data.getString('theme_color', DEFAULT_THEME_COLOR),
+        await this.data.getString('theme_custom_hex', ''));
       this.applyLanguagePreference(normalizeLanguagePreference(        await this.data.getString('language', DEFAULT_LANGUAGE_PREFERENCE)));
       this.refreshWidgets();
     } catch (_) {
@@ -2026,6 +2153,11 @@ struct Index {
       historyCount: this.history.length,
       languagePreference: this.languagePreference,
       onLanguagePreference: (preference: string): void => { this.setLanguagePreference(preference); },
+      // 主题色（预设与自定义色）：页面只渲染选中态与派发，归一/落盘/回滚都在 `Index`。
+      themeColor: this.themeColor,
+      themeCustomHex: this.themeCustomHex,
+      onThemeColor: (id: string): void => { this.setThemeColor(id); },
+      onThemeCustomColor: (raw: string): void => { this.setThemeCustomHex(raw); },
       onChooseIcon: (name: string): void => { this.chooseIcon(name); },
       onClearHistory: (): void => { this.clearHistory(); },
       onClearAllData: (): void => { this.clearAllLocalData(); },
@@ -2279,6 +2411,39 @@ struct Index {
               // 所以**不传 `actionAlign`**（与 `BasePage` 同口径：不留「看起来支持、实际不起作用」的死参数）。
               NetInfoPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel,
+                data: this.data,
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'money') {
+              // 金额大写：金额只在本机换算，输入与结果都不落盘；复制大写时按既有 `calculator`
+              // 类别记一条历史（与「折扣与均摊」同一口径）。
+              MoneyWordsPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'idcheck') {
+              // 身份证 / 银行卡校验：号码只在本机内存里校验，不落盘、不写历史（页面里有如实说明）。
+              // 页面动作：复制校验摘要（跟随智感握姿）+ 拍照/选图识别号码（照片写应用缓存、识别完即删）。
+              // 识别不到号码、校验位不符、相机打不开等一次性反馈都走 `onStatus` 转 toast（提示里不含号码）。
+              IdCheckPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                onCopy: (value: string): void => { this.copy(value); },
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'worldclock') {
+              // 世界时钟：城市清单落盘（只存登记表 id），偏移每次问系统（含夏令时）。
+              WorldClockPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                data: this.data,
+                onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'imagetools') {
+              // 图片工具：图片只在本机内存/缓存里处理，不写历史；只落盘「上次选项」。
+              ImageToolsPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
                 data: this.data,
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })

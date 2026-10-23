@@ -9,12 +9,17 @@
  *    并默认 `--no-daemon`（避免用到环境不对的旧守护进程）。
  * 2. **`os::commit_memory ... 页面文件太小`**：JVM 默认按物理内存申请提交量，本机同时开着模拟器时
  *    会因页面文件不足直接失败。本脚本给 hvigor 自己的 JVM（`--Xmx`）和它派生的 JVM
- *    （`JAVA_TOOL_OPTIONS=-Xmx…`）都加堆上限，默认 256 MB；用 `--xmx <MB>` 覆盖。
+ *    （`JAVA_TOOL_OPTIONS=-Xmx…`）都加堆上限，默认 512 MB；用 `--xmx <MB>` 覆盖。
+ *
+ *    默认值从 256 提到 512（2026-10-23 实测）：源码规模涨到 30 个工具后，256 MB 下 ArkTS 编译
+ *    会以 `FATAL ERROR: Zone Allocation failed - process out of memory` 失败；而 1024 MB 时
+ *    签名工具又会报 `00308018 / Tools execution failed`（本机页面文件不够它提交那么多内存）。
+ *    512 MB 在两者之间，构建与测试都通过。内存紧张时可用 `--xmx 384` 之类往下压。
  *
  * 用法：
  *   node tools/build-hap.mjs                   # assembleHap --mode module -p product=default
  *   node tools/build-hap.mjs --tests           # 构建后顺带跑一致性检查 + 纯逻辑单测
- *   node tools/build-hap.mjs --xmx 512         # 放宽堆上限（内存充裕时）
+ *   node tools/build-hap.mjs --xmx 768         # 放宽堆上限（内存充裕时）
  *   node tools/build-hap.mjs clean             # 其余参数原样透传给 hvigor
  *
  * 查找顺序：环境变量优先，其次 DevEco Studio 默认安装目录。
@@ -50,7 +55,7 @@ function optionValue(name) {
   const index = ARGS.indexOf(name);
   return index >= 0 ? ARGS[index + 1] : undefined;
 }
-const XMX = Number(optionValue('--xmx') ?? process.env.POCKET_XMX ?? 256);
+const XMX = Number(optionValue('--xmx') ?? process.env.POCKET_XMX ?? 512);
 const WITH_TESTS = ARGS.includes('--tests');
 // 透传给 hvigor 的参数：去掉本脚本自己的开关。
 const PASS_THROUGH = [];
@@ -99,7 +104,13 @@ if (JAVA_HOME) {
 }
 if (SDK_HOME) setEnv('DEVECO_SDK_HOME', SDK_HOME);
 // 在原有基础上补堆上限，不覆盖用户自己设的其它 JVM 参数。
-const HEAP_CAP = `-Xmx${XMX}m`;
+//
+// 两个上限**故意不同**（2026-10-23 实测）：ArkTS 编译在 hvigor 的 JVM 里跑，代码规模变大后
+// 需要更多堆（256 MB 会 `Zone Allocation failed`）；而 `PackageHap`/`SignHap` 这些派生的工具
+// JVM 只需要很少的堆，给多了反而因为本机页面文件不足报 `os::commit_memory ... 页面文件太小`。
+// 因此 hvigor 用 `--Xmx XMX`（默认 512），派生工具用 `JAVA_TOOL_OPTIONS` 压到 ≤ 256 MB。
+const TOOL_XMX = Math.min(XMX, 256);
+const HEAP_CAP = `-Xmx${TOOL_XMX}m`;
 const existingHeap = envValue('JAVA_TOOL_OPTIONS');
 setEnv('JAVA_TOOL_OPTIONS', existingHeap ? `${existingHeap} ${HEAP_CAP}` : HEAP_CAP);
 
@@ -110,7 +121,7 @@ if (!tasks.includes('--Xmx')) tasks.push('--Xmx', String(XMX));
 console.log(`hvigorw: ${HVIGORW}`);
 console.log(`SDK: ${SDK_HOME || '(未设置 DEVECO_SDK_HOME，由 hvigor 自行解析)'}`);
 console.log(`JAVA_HOME: ${JAVA_HOME || '(未找到 JBR，将以 PATH 里的 java 为准)'}`);
-console.log(`JVM 堆上限: ${XMX} MB（--xmx <MB> 可覆盖）`);
+console.log(`JVM 堆上限: hvigor ${XMX} MB / 派生工具 ${TOOL_XMX} MB（--xmx <MB> 可覆盖）`);
 console.log(`任务: ${tasks.join(' ')}\n`);
 
 // stdio: 'inherit' 让构建日志原样上屏。Windows 下 hvigorw 是 .bat，必须经过 shell；

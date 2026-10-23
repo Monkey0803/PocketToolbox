@@ -492,7 +492,7 @@ export struct TaxPage {
           Row({ space: 8 }) {
             Text(appText('tax.result', this.english)).fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
             IconActionButton({
-              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
               a11yText: appText('tax.copy-the-result', this.english),
               boxSize: 44, iconSize: 22,
               onTap: (): void => { this.onCopy(this.taxCopyText()); }

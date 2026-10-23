@@ -153,7 +153,8 @@ export struct SciencePage {
   }
 
   private keyBackground(key: PadKey): ResourceColor {
-    return key.action === 'equals' ? ToolPalette.tintBlue : ToolPalette.borderSoft;
+    // `=` 是「强调键」，底色走主题软底（浅色主题下才不会是「紫主题配蓝键」）。
+    return key.action === 'equals' ? ToolPalette.accentTint : ToolPalette.borderSoft;
   }
 
   /** `Ans`：把上次结果作为因子插进表达式；还没有结果时给一句提示而不是静默不动。 */
@@ -343,7 +344,7 @@ export struct SciencePage {
               onTap: () => { this.expression = formatResult(this.evaluation.value, this.precision); }
             })
             IconActionButton({
-              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
               a11yText: appText('science.copy-the-result', this.english),
               onTap: () => this.onCopy(formatResult(this.evaluation.value, this.precision))
             })

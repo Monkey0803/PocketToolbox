@@ -545,7 +545,7 @@ export struct IdPhotoPage {
             onTap: () => { this.autoFrame(); }
           })
           IconActionButton({
-            icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.arrow_counterclockwise'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('idphoto.reset', this.english),
             onTap: () => { this.resetFraming(); this.invalidate(); }
           })
@@ -728,7 +728,8 @@ export struct IdPhotoPage {
         .height(48).padding({ left: 24, right: 24 })
         .fontSize(16).fontWeight(FontWeight.Medium)
         .backgroundColor(ToolPalette.primary)
-        .fontColor(Color.White)
+        // 压在品牌底色上的文字走 `onPrimary`（自定义浅色主题下会变成近黑，白字会糊掉）。
+        .fontColor(ToolPalette.onPrimary)
         .enabled(!this.busy && !this.customInvalid())
         .onClick(() => { this.generate(); })
       if (this.busy) {

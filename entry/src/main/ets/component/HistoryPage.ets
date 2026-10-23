@@ -167,7 +167,7 @@ export struct HistoryPage {
           .onClick(() => this.onOpen(item.kind, item.content))
         Row({ space: 8 }) {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('history.copyA11y', this.english), onTap: () => this.onCopy(item.content)
           })
           IconActionButton({

@@ -19,6 +19,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { TorchController } from '../services/SystemTools';
 import { enableImmersiveWindow } from '../services/ImmersiveWindow';
+import { seedThemeFromStorage, syncThemeColorMode } from '../services/ThemeRuntime';
 import { refreshQuickToolsCards } from '../services/WidgetData';
 import { setStartupIntent, pickStartupTool, pickStartupContent, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 
@@ -100,6 +101,9 @@ export default class EntryAbility extends UIAbility {
     } catch (err) {
       hilog.error(DOMAIN, 'PocketToolbox', 'Failed to get main window: %{public}s', JSON.stringify(err));
     }
+    // 主题色也要在加载首屏**之前**种子好：偏好是同步读的（`getStringSync`），首屏第一帧就是
+    // 上次选的主题，不会先按默认蓝排一帧再跳（与上面沉浸式布局「先量好再加载」同一口径）。
+    seedThemeFromStorage(this.context);
     const setup: Promise<boolean> = enableImmersiveWindow(this.context, main);
     await Promise.race([
       setup,
@@ -138,6 +142,8 @@ export default class EntryAbility extends UIAbility {
    */
   onConfigurationUpdate(newConfig: Configuration): void {
     enableImmersiveWindow(this.context);
+    // 系统切深浅色后强调色要换成该模式的取值（浅/深各一套），界面里读过 `ToolPalette` 的组件会自动刷新。
+    syncThemeColorMode(this.context);
     this.refreshWidgets(newConfig.language ?? '');
   }
 

@@ -8,6 +8,54 @@
 - 说明：内容区的卡片按约定就是**退化的普通底色**（ArkUI 组件级材质只在标题栏与底部页签渲染），卡片不是玻璃质感属于预期，不要记为缺陷。
 - 说明：随包的节假日日历现在是**真实数据**（2022–2026，构建期由 `tools/fetch-holidays.mjs` 从 NateScarlet/holiday-cn 生成，见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)），应用不申请网络权限，也没有「更新」按钮；工作日界面应显示「已排除周末与法定节假日，并计入调休上班日」与数据日期。核对工作日时请按当年国务院公告确认预期值。
 
+## 2026-10-23 新增六项（未验收）
+
+本轮新增 **图片工具 / 金额大写 / 身份证校验 / 世界时钟** 四个工具卡片，以及计时页第 3 种方式**番茄钟**、随机页第 4 种方式**转盘抽奖**（工具数 26 → 30）。**模拟器与真机都没有跑过本轮的任何新页面**；`tests/emulator/emu.mjs` 已加 4 条只查结构性文案的用例（`money` / `idcheck` / `worldclock` / `imagetools`）但**尚未执行**。逐条步骤见 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的「2026-10-23 新增六项」一节（P1–P6）。
+
+- **纯逻辑已验证**：尺寸与只缩不放、像素预算、文件名/体积文案、金额大写的零/整/万/亿规则、身份证校验位与 15→18 升位、世界时钟的日夜/日差/上限/坏数据、番茄钟状态机与落盘解析、转盘角度与扇区的互逆映射，全部由 `tests/run-unit-tests.mjs` 覆盖（六个断言块）。
+- **只能在设备上确认的**：图片编码成像与写相册、WebP 是否本机可编、转盘动画与窄窗/深色观感、世界时钟跨夏令时与「设备不支持该时区」分支、番茄钟后台提醒与阶段自动推进、身份证/银行卡输入过滤与键盘面。
+- **顺带修掉一处既有缺陷（未验收）**：清除本机数据时，**倒计时的本地提醒此前从未被取消**（只有纪念日的 id 走页面回传快照），会出现「数据清了通知还在响」。现在 `Index.clearAllLocalData()` 在 `clearAll()` 之前读 `timers` 与 `pomodoro_state` 收集 reminderId 并逐个取消；请按 `PHONE_ACCEPTANCE_CHECKLIST.md` 的 P5 最后一条核对。
+- **构建环境**：30 个工具后 `tools/build-hap.mjs` 的堆上限改为「hvigor 512 MB / 派生工具 ≤ 256 MB」，否则分别会撞到 `Zone Allocation failed` 与签名工具的 `00308018 / Tools execution failed`。
+- **番茄钟收口（2026-10-23，同为未验收）**：① 模型文案 `pomodoroNoteText()` 与 README / 商店文案补上「应用在前台时才自动进入下一阶段；后台由系统本地通知提醒，回到应用后接着进行（不补跑中间过去的阶段）」——依据是**代码事实**（全工程没有 `backgroundTaskManager`/`workScheduler`/ContinuousTask，阶段推进靠页面 `tick()`），**尚未在真机上验证后台行为**，实测若出现机型差异按实测改文案；② `tests/emulator/check-align.mjs` 的 `--views` 新增一项「计时 → 番茄钟」（三行「标签 + 输入框 + 滚轮」的垂直中心与左右边界进可重复门禁），**该用例尚未执行**（模拟器上跑 `node tests/emulator/check-align.mjs --only timers --views`）。
+
+## 2026-10-23 主题色（构建与静态门禁已过，模拟器已逐条验收）
+
+本轮新增「主题色」：设置页可选 7 套预设（经典蓝 / 青碧 / 松绿 / 紫罗兰 / 玫红 / 靛蓝 / 石墨），或用系统取色器 `HdsColorPicker` 挑任意颜色；**只换强调色**（按钮、图标、选中态、标签栏选中图标），状态色、收藏星、每个工具的卡片底色不变；浅色/深色各一套取值，本机持久化（`theme_color` / `theme_custom_hex`）。
+
+- **静态门禁（本机，2026-10-23）**：`node tools/build-hap.mjs --tests` **全绿** —— ArkTS 编译通过（确认 `ToolPalette` 的 `static get` 可用、`ThemeControl` 的 `CustomTheme` 字面量可用）、`tests/check-consistency.mjs` 17 项通过（含新增第 17 项：主题色对比度基准面与两套 `color.json` 的 `tool_surface`/`tool_background` 逐值一致）、`tests/run-unit-tests.mjs` 全过（新增主题色断言块：7 套预设 × 浅深两套 + `#000000`/`#FFFFFF`/`#FFE066`/`#00FF00`/`#7F7F7F`/`#FF00FF`/`#123456` 两模式，逐条断言 `primary ≥ 3:1`、`primaryDeep ≥ 4.5:1`、`primaryDeep` 对软底 `≥ 4.5:1`、`primary` 对 `onPrimary ≥ 4.5:1`）、逐函数覆盖、HMSymbol 名字校验与探针自检均通过。
+- **默认外观不变（有断言）**：默认预设 `blue` 的六个值逐值等于升级前的 `tool_primary`/`tool_primary_deep`/`tool_tint_blue`（浅深两套），单测钉住。
+- **有意的可见改动**：品牌底色上的文字改走 `ToolPalette.onPrimary`（按亮度取白或近黑），因此**深色模式下 4 个品牌底按钮的文字由白变近黑**（对比度约 3.1:1 → 7:1）。涉及 `DiffPage` 对比按钮、`IdPhotoPage` 生成按钮、`Share` 动作按钮、`AnniversaryPage` 保存按钮（成功色那一支仍白字）。若不接受，回退方式是把预设的 `onPrimary` 固定为 `#FFFFFF`、只让自定义色走 `suggestedForeground`。
+
+### 模拟器验收（2026-10-23，`Phone376` 376 vp 手机 @1316×2832，HarmonyOS 7 / API 26，`127.0.0.1:5555`）
+
+截图存于 [`screenshots/emulator/`](screenshots/emulator/)（`theme-color-*.jpeg`）。
+
+| 条目 | 结果 | 证据 / 现象 |
+|---|---|---|
+| 预设切换即时生效 | 通过 | 设置页点「松绿」→ 色块勾选与说明行变「当前主题：松绿」，**同一页**的应用图标选中格子描边/底色、底部页签选中图标与标签同时变绿（`theme-color-green-settings-zh.jpeg`） |
+| 兄弟 Tab 内容跟着刷新 | 通过 | 切到收藏页：空态按钮「去工具页挑选」是绿色（该 Tab 内容在换主题时并未重新创建）（`theme-color-green-favorites-zh.jpeg`） |
+| 作用范围正确（只换强调色） | 通过 | 二维码详情页：`primary` 图标（生成、Logo 选择）变绿，`accentPurple` 图标（相册、历史）仍紫、警示文案仍琥珀（`theme-color-green-qr-detail-zh.jpeg`） |
+| 深色模式换深色变体 | 通过 | 系统切「深色」后回到应用（走 `onConfigurationUpdate` → `syncThemeColorMode()`）：强调色变成更亮的深色变体；设置页 7 个色块全部换成深色值、选中勾变**黑**（`onPrimary` 按亮度推导）（`theme-color-dark-qr-detail-zh.jpeg`、`theme-color-dark-settings-zh.jpeg`） |
+| 新 token（`accentTint` + `primaryDeep`） | 通过 | 深色下工具页「分类」下拉的选中项 = 绿字 + 深绿底（`accentTint`），菜单底是深色 surface（`theme-color-dark-select-menu-zh.jpeg`） |
+| 冷启动首帧即已存主题 | 通过 | `aa force-stop` 后重启：**首帧**页签选中图标就是已存的绿色（`seedThemeFromStorage()` 在 `loadContent()` 之前同步读偏好）（`theme-color-restart-first-frame-zh.jpeg`） |
+| 自定义色（系统取色器） | 通过 | 点取色轮 → 系统「色彩」面板（网格 / 光谱 / 滑块，Hex 初值 `2673DD`）→ 选 `#E86B00` → 关闭面板：说明行变「当前主题：自定义 · #E86B00」、取色轮格子选中（深色、浅色各验一次）（`theme-color-custom-picker-panel-zh.jpeg`、`theme-color-custom-applied-dark-zh.jpeg`、`theme-color-custom-applied-zh.jpeg`） |
+| 极浅自定义色的可读性夹取 | 通过 | 浅色模式下选极浅的 `#FED8D8` → 实际应用的强调色被压到可读的饱和红（图标格子描边、勾、页签图标都清晰可见），没有出现「同色对同色」（`theme-color-custom-pale-clamped-zh.jpeg`） |
+| 系统默认样式控件跟随品牌色 | 通过 | 底部页签的**选中标签文字**、设置页的**系统 `Toggle` 开关**（智感握姿/触觉反馈/联网三处）都跟着主题色变（紫→紫、蓝→蓝），说明 `ThemeControl.setDefaultTheme({ colors: { brand } })` 生效（`theme-color-violet-system-controls-zh.jpeg`、`theme-color-green-settings-zh.jpeg`）；系统对话框与日期/时间选择器未逐一看（不影响本功能） |
+
+### 追加：图标色口径（2026-10-23，用户截图报障后改）
+
+用户口径：「这种（中性灰的）动作图标要支持主题色；整个 app 的删除图标都要使用红色，不要跟随主题色」。
+
+| 条目 | 结果 | 证据 / 现象 |
+|---|---|---|
+| 中性动作图标跟随主题色 | 通过 | 49 处 `tintColor: textSecondary/textMuted`（复制、重置、清空输入的 ✕、滚轮按钮、锁/解锁、取消/跳过）改为 `primaryDeep`；健康计算「年龄」行的滚轮按钮由灰变主题色（`theme-color-icons-wheel-button-zh.jpeg`），文本工具底部「复制 / 重置」跟随主题色（`theme-color-icons-action-row-zh.jpeg`） |
+| 删除类统一红色 | 通过 | 4 处此前用中性灰的 `trash` 改成 `ToolPalette.danger`（文档扫描两处、文本工具一处，加上本就红的 13 处共 17 个删除图标）；门禁 `tests/check-consistency.mjs` 第 18 项逐处断言「删除图标必须 danger、动作图标不得再用中性灰」 |
+| 禁用态保持灰 | 通过 | 设备不支持文档扫描时那枚图标仍是 `textFaint`（**有意例外**：不可用就得看着不可用，跟着主题色会让人以为能用）（`theme-color-icons-unsupported-muted-zh.jpeg`） |
+| 输入框一键清除 ✕ | 通过 | `clearButtonIcon()`（单行 `TextInput` 的系统取消按钮）与多行 `TextArea` 的自绘 ✕ 一起改成 `primaryDeep`，两者观感仍然一致（`theme-color-icons-action-row-zh.jpeg` 里输入框右上角的 ✕ 已随主题色） |
+
+- **未验（如实）**：设置页「清除本机数据」后的主题复位、导出/导入备份带回主题、读屏朗读色块名称、取色面板回传非法值时的提示（正常操作给不出非法值）——清单见 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的「主题色」一节。
+- **口径观察（如实）**：夹取只调明度、保色相与饱和度，所以「选淡粉得到鲜红」是当前口径的**预期**行为（优先保证图标/文字可读），不是缺陷。
+
 ## 模拟器验收回执（2026-10-16，API 26 模拟器，已完成）
 
 本轮已用模拟器逐条跑过下面的条目，**并修掉跑出来的两个缺陷**；截图存于 [`screenshots/emulator/`](screenshots/emulator/)。真机仍需复核的只有光感观感、握姿、闪光灯、传感器与宽屏真机形态。
@@ -2960,7 +3008,72 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 
 **未覆盖（真机待验，清单见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的「智感握姿」一节）**：系统真的报出 `LEFT_HAND_HELD`/`RIGHT_HAND_HELD`/`BOTH_HANDS_HELD`/`NOT_HELD` 四种持握手状态时按钮是否如预期（模拟器不产生握姿事件，本轮只跑了「无信号默认态 + 探针」）；权限被拒后的路径；平板/折叠真机形态下的同一条判定；英文说明在窄窗的换行。
 
+## 追加回执（2026-10-23：实况窗——倒计时补齐「重复轮次 / 到点收尾」，番茄钟接入）
+
+**来源**：用户给出 Live View Kit 资料并要求「排查 app 中需要实况窗功能的，接入实况窗」。
+
+**排查结论（先判定「谁需要」，再动手）**：本应用 30 个工具里**只有「计时」命中官方场景**（`event: 'TIMER'`，官方 13 个场景中的「计时」）。倒计时在 2026-10-23 之前已接入实况窗，本轮把它补完整、并让**同一页的第三种方式「番茄钟」**也接入；其余工具（二维码/条码/换算/编解码/制图/文档扫描/证件照/图片工具/贷款/个税/健康/随机/密码/亲戚/进制/对比/纪念日/网络/传感器类/手电筒/水平仪/指南针/世界时钟/金额大写/身份证校验等）都是**一次性输入→输出**或**纯本机读数**，没有「持续进行中、状态会变」的实时活动，**不接入**——硬塞一个实况窗只会污染状态栏，也拿不到该场景的权益。
+
+**实现分层（沿用既有 `pages → component → services → model` 单向依赖）**：
+- 文案与状态在纯逻辑 `model/PomodoroMath.ets`：新增 `PomodoroState.liveViewId` + `pomodoroSetLiveView()`/`pomodoroClearLiveView()` + `pomodoroLiveViewTitle()`（「番茄钟 · 专注」）/`pomodoroLiveViewContent()`（轮次，复用 `pomodoroProgressText()`）/`pomodoroLiveViewDoneText()`（「专注结束」）。
+- 系统能力在 `services/LiveViewTools.ets`：抽出 `TimerLiveViewSpec` 描述一次「计时类」实况窗，倒计时与番茄钟**共用同一个 `buildView()`**；对外只有 `startTimerLiveView()` / `updateTimerLiveView()` / `stopTimerLiveView()`，失败通过 `LiveViewHandle.reason`（`unsupported`/`disabled`/`denied`/`error`）回报，**绝不抛给页面**。
+- 页面 `component/TimersPage.ets` 只做编排：`countdownSpec()` / `pomodoroSpec()` 两个 spec 构造器 + `syncPomodoroLiveView(running)`。
+
+**顺带修掉的四处真实缺陷（每一处都能说清「坏在哪」）**：
+1. **重复计时在锁屏上停在 `00:00:00`**：实况窗倒计时归零后系统只会换成预设文案并停住，**不会自己重开一轮**。上一版只在应用内重开了下一轮，实况窗没动。现在 `restartRepeatLiveView()` 在每轮开始时 `updateLiveView`（更新不动则先 `stop` 再 `start`，避免撞 `1003500006`「实况窗已存在」）。
+2. **非重复倒计时到点后胶囊常驻**：上一版不结束实况窗，状态栏会一直挂着一个已结束的计时。现在到点即 `stopTimerLiveView()`（`keepTime` 为 0，停止后不留归档卡片）。
+3. **清除本机数据会留下停不掉的实况窗**：`Index.clearAllLocalData()` 原先只收集 `reminderId`；`liveViewId` 一被清掉就再也停不下来。现在同时收集倒计时与番茄钟的 `liveViewId`，在 `clearAll()` 之后逐个结束。
+4. **旧数据的 `liveViewId` 是 `undefined`**：`LocalData.getTimers()` 现在把 `reminderId`/`liveViewId` 归一成整数——`undefined >= 0` 与 `undefined < 0` 都是 false，不归一就会把 `undefined` 一路喂进系统接口并写回存储。
+
+**门禁**：`node --max-old-space-size=2048 tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL`（`CompileArkTS` 真编译 5–11 s，非缓存；唯一告警是既有的 `SystemTools.ets:203` 未处理异常提示）；一致性检查 **16 项通过**（含 `appText` id 双向对齐 **786/786**，本轮新增 `timers.countdown-finished`）；`All toolbox model assertions passed`（番茄钟新增 `liveViewId` 的写入/清除/复制保留/阶段沿用/重置清空/落盘往返/旧数据回退 + 三个实况窗文案函数，共约 20 条断言）；`HMSymbol 图标名检查通过：86 个`。
+
+**未覆盖（只能真机验，清单见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的「P7 实况窗」一节）**：状态栏胶囊与锁屏卡片的真实成像、锁屏读数是否跟手、暂停冻结、重复轮次重开、番茄钟阶段切换、系统开关与 AGC 权益两条降级路径、清除数据后是否残留。**模拟器本轮无法验证的原因**：模拟器没有状态栏胶囊/通知能力，且 `startLiveView` 需要本应用在 AGC 已开通实况窗权益（未开通返回 `1003500005`）。
+
+**能力边界（如实记录，不假装覆盖）**：官方 `aliveTime` 上限是 28800 秒（8 小时），而本应用计时上限是 24 小时——**超过 8 小时的计时，实况窗会在锁屏上提前结束**（应用内计时与后台提醒不受影响）。本轮**没有**设置 `aliveTime`（沿用系统默认），也**没有**接锁屏沉浸实况窗（`LiveViewLockScreenExtensionAbility`）。
 
 
 
+
+
+
+## 真机回执（2026-10-23，PLR-AL00 / API 26，TCP `10.155.89.11:45679`）
+
+**这一份回执对应的包**：`entry-default-signed.hap`（构建于 12:01，12:50 由 `emu.mjs launch` 安装）。**注意**：同一天有另一个会话在同一工作区并发推进「实况窗（Live View）」工作并在 13:01 重新构建了 HAP；本轮**没有**重新构建/安装，以免把对方未完成的改动混进证据。因此下面每一条都属于「六个新功能那一批」的代码，修复项要等对方收工后重跑 `--tests` 才能闭环。
+
+### 已通过（真机实测，截图见 `docs/screenshots/emulator/device-*.jpeg`）
+
+- **结构性渲染（`emu.mjs smoke`）**：`money` / `idcheck` / `worldclock` / `imagetools` **4/4 通过**。
+  - 顺带修掉一个**用例自身的缺陷**：`worldclock` 原来断言空态文案「还没有添加城市」，用户加过城市后必然误报失败——改成恒定的「本机 / 添加」两处文案（`tests/emulator/emu.mjs`）。
+- **金额大写**：`0`→人民币零元整、`0.05`→伍分、`0.5`→伍角整、`10.05`→壹拾元零伍分、`15.5`→壹拾伍元伍角整、`1005`→壹仟零伍元整、`100000001`→壹亿零壹元整，千分位小写逐条正确；`1.234`→「请填数字，最多两位小数」、`1000000000000`→「金额超出可转换范围（最大 999999999999.99）」，两者都不出结果行。
+  - **口径修正（写进清单）**：负号在「非负小数」键盘面上**打不出来**（实测输入 `-1` 落进框里的是 `1`），所以负数分支从界面不可达；模型仍守卫负数（单测覆盖），不需要为此加 `inputFilter`。
+- **身份证校验**：`110101199001010015` → 校验通过 + 生日 `1990-01-01` + 性别 男 + 年龄 36 + 省份「北京（按前两位的省份参考）」；`110101199001010016` → 「校验位与号码不符」且**不给任何字段**；`110101202502290013` → 「号码里的出生日期不存在」；15 位 `110101900101001` → 自动升位并解析出 `1990-01-01`。
+- **银行卡**：`6200000000000005` → 「格式与 Luhn 校验通过（不代表卡号真实可用）」+ 卡组织「银联」+ 四位分组；`6200000000000006` → 「Luhn 校验位与号码不符」**同时仍显示分组号码与卡组织**（便于对照敲错的一位）；`4111111111111111` → 通过（Visa 前缀）。切换类型后旧结果被清空 ✓。
+- **世界时钟**：加入 东京 / 芝加哥 / 巴黎 / 洛杉矶 四城，逐行实测——
+  - 东京 `14:03` · `2026-10-23 · 今天` · `UTC+09:00 · 比本机快 1 小时` · 白天（太阳图标）；
+  - 芝加哥 `00:03` · 今天 · `UTC-05:00 · 比本机慢 13 小时` · 夜间（月亮图标）——**夏令时正确**（10 月 CDT = UTC−5）；
+  - 巴黎 `07:03` · 今天 · `UTC+02:00 · 比本机慢 6 小时`（CEST = +2 ✓）；
+  - 洛杉矶 `22:05` · **`2026-10-22 · 昨天`** · `UTC-07:00 · 比本机慢 15 小时`——**跨日/昨天分支实测通过**（PDT = −7 ✓）。
+  - 「清空城市」确认框正文为「将从世界时钟里移除全部 **4** 个城市？」，按钮 取消 / 清空 ✓（点了取消）。
+  - **持久化**：`aa force-stop` 后重新进入，四个城市全部还在 ✓。
+- **图片工具**（全程只用系统相册选择器，界面底部可见「仅可访问所选图片」）：
+  - 选图后信息行 `3072 × 4096 · 1.7 MB · image/jpeg` ✓（尺寸 · 体积 · MIME 都拿到了）。
+  - 默认 JPEG「高」+ 整幅 → `3072 × 4096 · 475.6 KB · image/jpeg`，对比行 `1.7 MB → 475.6 KB（-73%）` ✓。
+  - PNG + 50% + 旋转 90° → 请求 `1536 × 2048`，结果 **`2048 × 1536`（宽高互换 = 旋转生效）** `3.6 MB`，对比行 **`1.7 MB → 3.6 MB（+111%）`** ✓——**压缩后变大也如实显示**这条口径在真机上成立；PNG 不使用画质档 ✓。
+  - 「保存到相册」拉起系统确认框「允许“随身工具箱”保存 1 张图片？」（**点了「禁止」，没有写入相册**）；「分享」拉起系统面板（华为分享 / 复制 / 加密分享…）✓。
+- **番茄钟**：面板显示 阶段 + 进度（「已完成 1 轮」）+ 剩余 `00:05:00` + 设置摘要「专注 25 分钟 · 短休 5 分钟 · 长休 15 分钟」+ 时长设置三行 + 「自动开始下一阶段」与两条说明 ✓；时长滚轮（`5..60` 单列，落点在 25）能打开 ✓。
+  - **开始后** `00:05:00 → 00:04:56` 递减 ✓；**暂停**后两次读数都是 `00:04:46`（冻结）✓；**跳过本阶段**回到专注 `00:25:00` 且完成轮次**不增加**（重置确认框仍写「已完成的 1 轮」）✓；**重置确认框**正文「要重置番茄钟吗？当前阶段与已完成的 1 轮会被清空。」+ 取消/清空 ✓。
+  - 启动时面板**没有**出现提醒失败说明（说明 `pomodoroReminderText()` 为空 = 排程未报错）。
+  - **顺带验证了「重进页面结算过期阶段」**：进入页面时上一次没跑完的阶段到点在页面里被结算——横幅「专注结束，休息一下」+ 轮次 +1 + 自动切到下一阶段 ✓。
+- **转盘抽奖**：空候选时显示「转盘至少需要 2 个候选」且不画盘 ✓；输入 `甲,乙,丙,丁` 后四个扇区文字分别落在右上/右下/左下/左上四个象限 ✓（关掉输入法才看到下半两个扇区——之前「只画了两个」是**输入法浮层遮挡**，不是缺陷）；点「转动」约 3.2 秒后结果卡为 **「转盘选中：丁」**，而此时 **「丁」正好停在 12 点指针下**（dump：`丁 [656,1259][660,1314]`，盘面中心 x≈658）——**结果与指针一致性在真机上成立** ✓。
+
+### 本轮新发现并已修的缺陷（需下次构建复验）
+
+- **银行卡模式下卡号行的标签显示成「所属省份（参考）」**：`IdCheckPage.fieldLabelZh()/fieldLabelEn()` 只列了 `birthday/gender/age/brand` 四个 kind，`number` 落到了最后的兜底 `return '所属省份（参考）'`。真机截图为证（分组号码上方写着「所属省份（参考）」）。已在源码里补上 `number → 卡号 / Card number` 并写清注释；**因为本轮不重建，这条要等下一次构建/安装后复验**（单测覆盖不到页面内的标签函数）。
+
+### 未验证（如实记录）
+
+- 图片**保存到相册确认之后**是否真的落盘（真机点了「禁止」，避免往用户相册写测试图）；「指定最长边」档位；WebP 输出；大图（48 MP）的像素预算提示。
+- 转盘的「按权重」模式与连续多次转动的观感；番茄钟的**后台通知实际投递**（只确认排程未报错）与「自动开始下一阶段」的实机行为。
+- 世界时钟「设备不支持该时区」分支（无法在这台设备上构造）、深色模式与折叠态窄窗排版。
+- 图片与相册相关截图含本人照片，**未**纳入仓库证据目录。
 

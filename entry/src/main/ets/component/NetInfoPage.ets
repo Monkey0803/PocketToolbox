@@ -137,7 +137,7 @@ export struct NetInfoPage {
       Text(this.fieldLabel(field)).fontSize(13).fontColor(ToolPalette.textMuted).width(96)
       Text(field.value).fontSize(15).fontColor(ToolPalette.textPrimary).layoutWeight(1)
       IconActionButton({
-        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
         a11yText: this.english ? 'Copy this value' : '复制这一项',
         boxSize: 36, iconSize: 18, usable: true,
         onTap: () => this.onCopy(field.value)

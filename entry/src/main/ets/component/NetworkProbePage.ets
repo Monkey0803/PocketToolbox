@@ -466,7 +466,7 @@ export struct NetworkProbePage {
         Text(this.linkValueText(kind)).fontSize(15).fontColor(ToolPalette.textPrimary)
           .layoutWeight(1).copyOption(CopyOptions.LocalDevice)
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: linkInfoValueA11yText(kind, this.english),
           boxSize: 32, iconSize: 18,
           onTap: () => this.copyLinkValue(kind)
@@ -572,7 +572,7 @@ export struct NetworkProbePage {
       }
       Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('netprobe.copy-lookup-result', this.english),
           usable: this.dnsOutcome.ok && this.dnsLines.length > 0,
           onTap: () => this.copyDns()
@@ -646,7 +646,7 @@ export struct NetworkProbePage {
       }
       Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('netprobe.copy-port-check-result', this.english),
           usable: this.portOutcome.ok,
           onTap: () => this.copyPort()
@@ -735,13 +735,13 @@ export struct NetworkProbePage {
       }
       Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('netprobe.copy-response-headers', this.english),
           usable: this.headerRowCount > 0,
           onTap: () => this.copyHeaders()
         })
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('netprobe.copy-body-preview', this.english),
           usable: this.bodyPreview.length > 0,
           onTap: () => this.copyBody()
@@ -803,7 +803,7 @@ export struct NetworkProbePage {
       if (this.urlLines.length > 0) {
         Row({ space: 8 }) {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('netprobe.copy-url-parts', this.english),
             onTap: () => this.copyUrlLines()
           })
@@ -885,7 +885,7 @@ export struct NetworkProbePage {
       }
       Row({ space: 8 }) {
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: this.tr('复制链接信息', 'Copy link info'),
           usable: this.linkInfo.finalUrl.length > 0,
           onTap: () => this.copyLinkInfo()

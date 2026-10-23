@@ -231,7 +231,7 @@ export struct BarcodePage {
         }
         Row() {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('barcode.copy-barcode-value', this.english),
             onTap: () => this.onCopy(this.barcodeResult)
           })

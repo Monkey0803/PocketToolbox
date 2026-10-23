@@ -105,6 +105,10 @@ export function importKeyLabel(key: string, english: boolean): string {
   if (key === 'level_unit') { return english ? 'level unit' : '水平仪单位'; }
   if (key === 'level_tolerance') { return english ? 'level tolerance' : '水平仪容差'; }
   if (key === 'net_prefs') { return english ? 'networking preferences' : '联网偏好'; }
+  // 2026-10-23 新增的三个键：导入确认框里要认得出来（漏登记就会直接露出内部键名）。
+  if (key === 'world_clock_cities') { return english ? 'world clock cities' : '世界时钟城市'; }
+  if (key === 'pomodoro_state') { return english ? 'Pomodoro timer' : '番茄钟'; }
+  if (key === 'image_tool_state') { return english ? 'image tool options' : '图片工具选项'; }
   if (key === 'schema') { return english ? 'data version' : '数据版本'; }
   return key;
 }

@@ -269,7 +269,7 @@ export struct AnniversaryPage {
     return this.reminderEnabledAt(index) ? $r('sys.symbol.bell_fill') : $r('sys.symbol.bell_slash');
   }
 
-  private reminderTint(index: number): Resource {
+  private reminderTint(index: number): ResourceColor {
     return this.reminderEnabledAt(index) ? ToolPalette.primary : ToolPalette.textMuted;
   }
 
@@ -630,7 +630,9 @@ export struct AnniversaryPage {
         Button(this.editingId.length > 0 ? appText('anniv.save-changes', this.english) : appText('anniv.add', this.english))
           .layoutWeight(1).height(48)
           .backgroundColor(this.editingId.length > 0 ? ToolPalette.success : ToolPalette.primary)
-          .fontColor(Color.White).fontWeight(FontWeight.Medium)
+          // 保存按钮的品牌底色用 `onPrimary`（自定义浅色主题下是近黑）；编辑态是成功色，仍用白字。
+          .fontColor(this.editingId.length > 0 ? Color.White : ToolPalette.onPrimary)
+          .fontWeight(FontWeight.Medium)
           // 编辑态不受 20 条上限限制（只是覆盖已有条目）。
           .enabled(this.editingId.length > 0 || this.items.length < ANNIVERSARY_MAX)
           .onClick(() => this.addItem())

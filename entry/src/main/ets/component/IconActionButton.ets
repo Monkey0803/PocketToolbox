@@ -23,7 +23,8 @@ import { ToolPalette } from '../model/ToolPalette';
 @ComponentV2
 export struct IconActionButton {
   @Param icon: Resource = $r('sys.symbol.plus');
-  @Param tintColor: Resource = ToolPalette.primary;
+  // `ResourceColor` 而不是 `Resource`：强调色（`ToolPalette.primary` 等）是主题色的运行期值。
+  @Param tintColor: ResourceColor = ToolPalette.primary;
   // 不能叫 accessibilityText/enabled/size：它们与 CustomComponent 的通用属性方法重名，编译不过。
   @Param a11yText: string = '';
   @Param boxSize: number = 48;

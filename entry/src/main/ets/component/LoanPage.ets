@@ -279,7 +279,7 @@ export struct LoanPage {
           .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
         Row({ space: 8 }) {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('action.copySummary', this.english), onTap: () => this.onCopy(this.summary())
           })
         }.width('100%').justifyContent(this.actionAlign)

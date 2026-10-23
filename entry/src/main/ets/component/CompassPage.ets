@@ -353,13 +353,13 @@ export struct CompassPage {
       Row({ space: 8 }) {
         IconActionButton({
           icon: this.locked ? $r('sys.symbol.lock_fill') : $r('sys.symbol.lock'),
-          tintColor: this.locked ? ToolPalette.accentPurple : ToolPalette.textSecondary,
+          tintColor: this.locked ? ToolPalette.accentPurple : ToolPalette.primaryDeep,
           a11yText: this.locked ? appText('compass.unlock-the-bearing', this.english) : appText('compass.lock-the-current-bearing', this.english),
           boxSize: 44, iconSize: 22, usable: this.ready,
           onTap: (): void => { this.toggleLock(); }
         })
         IconActionButton({
-          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
           a11yText: appText('compass.copy-the-current-bearing', this.english),
           boxSize: 44, iconSize: 22, usable: this.ready,
           onTap: (): void => { this.copyReading(); }

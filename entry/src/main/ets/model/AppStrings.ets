@@ -65,6 +65,15 @@ export const APP_STRINGS: AppString[] = [
   // 设置页：分区标题
   new AppString('settings.language', '语言', 'Language'),
   new AppString('settings.icons', '应用图标', 'App icon'),
+  // 设置页：主题色（预设名本身来自 `model/ThemeColors.ets` 的登记表，不是固定文案）
+  new AppString('settings.themeColor', '主题色', 'Theme colour'),
+  new AppString('settings.themeColorNote',
+    '主题色会改变按钮、图标与选中态的颜色；成功、警告、危险等状态色与每个工具的卡片底色不变，浅色/深色自动适配。',
+    'The theme colour changes buttons, icons and selected states. Success, warning and danger colours and ' +
+    'per-tool card colours stay as they are, and light/dark are handled automatically.'),
+  new AppString('settings.themeColorInvalid', '这个颜色不能用，已保持原主题',
+    'That colour cannot be used; the previous theme was kept'),
+  new AppString('settings.themeColorWheel', '自定义主题色', 'Custom theme colour'),
   new AppString('settings.interaction', '操作方式', 'Interaction'),
   new AppString('settings.device', '设备信息', 'Device info'),
   new AppString('settings.about', '关于', 'About'),
@@ -219,8 +228,13 @@ export const APP_STRINGS: AppString[] = [
     '工具收藏及其顺序、语言偏好、智感握姿开关、触觉反馈开关、工具与收藏页的「每行显示几个」、' +
     '工具页的分类筛选、联网偏好（键 net_prefs：总开关 / 仅 Wi-Fi / 逐项开关）、' +
     '单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，' +
-    '可在纪念日页逐条删除）与上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。' +
+    '可在纪念日页逐条删除）、世界时钟的城市清单（键 world_clock_cities，只存城市 id）、番茄钟的设置与进度' +
+    '（键 pomodoro_state，可在计时页重置）与图片工具的上次选项（键 image_tool_state，不含任何图片内容），' +
+    '主题色偏好（键 theme_color / theme_custom_hex，只存预设 id 或你挑的 `#RRGGBB` 颜色），' +
+    '以及上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。' +
     '条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；' +
+    '身份证号与银行卡号只在本机内存里校验，图片只在本机内存与缓存里处理，都不写入存储、不进历史、不上传；' +
+    '证件扫描的照片只写进应用缓存、识别完立即删除（不进相册），识别也在本机用端侧文字识别完成；' +
     '文档扫描结果只在本次运行保留，由你主动导出。应用申请 6 项权限（代理提醒、握姿、加速度传感器、振动、网络、网络信息），' +
     '全部联网动作都登记在设置页的「联网」区块里、可逐项关闭，且只在**你点击时**发起：网络工具探测、链接信息、' +
     'IP 归属地与域名注册信息查询、TLS 证书查看、汇率更新、节假日数据更新、节气数据包更新与应用更新检查；' +
@@ -232,10 +246,17 @@ export const APP_STRINGS: AppString[] = [
     'haptic feedback switches, the per-row setting of the tools and favourites tabs, the tools tab’s category ' +
     'filter, the networking preferences (key net_prefs: master switch, Wi-Fi-only and per-action switches), the converter’s last ' +
     'category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary ' +
-    'list (up to 20, deletable entry by entry) and the last fetched exchange-rate cache (key fx_rates, overwritten ' +
-    'when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, base & bitwise, ' +
-    'text diff, random, kinship and password inputs and results remain in memory for this run only; document scans ' +
-    'stay in memory until you export them. The app requests six permissions (reminder agent, gesture, accelerometer, ' +
+    'list (up to 20, deletable entry by entry), the world clock city list (key world_clock_cities: city ids only), ' +
+    'the Pomodoro settings and progress (key pomodoro_state, resettable in the timers page), the image tool’s last ' +
+    'options (key image_tool_state, never any image content), the theme colour preference (keys theme_color / ' +
+    'theme_custom_hex: a preset id or the #RRGGBB colour you picked) and the last fetched exchange-rate cache (key fx_rates, ' +
+    'overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, ' +
+    'base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; ' +
+    'ID card and bank card numbers are checked in memory only, and images are processed in memory or cache only — ' +
+    'neither is stored, added to history or uploaded; a card-scan photo goes to the app cache only and is deleted ' +
+    'right after recognition (it never reaches the gallery), and recognition itself runs on-device; ' +
+    'document scans stay in memory until you export them. The app ' +
+    'requests six permissions (reminder agent, gesture, accelerometer, ' +
     'vibration, internet, network info). Every network action is listed — and can be switched off one by one — in ' +
     'the Networking section of Settings, and each starts only when you tap it: network tools probes, link info, ' +
     'IP lookup and domain registration data, TLS certificate viewing, rate updates, holiday data updates, the ' +
@@ -1216,6 +1237,9 @@ export const APP_STRINGS: AppString[] = [
     'Live view is off; enable it in system settings'),
   new AppString('timers.live-view-entitlement-unavailable', '当前设备未开通实况窗权益，已改用后台提醒',
     'Live view entitlement unavailable; using background reminder'),
+  // 倒计时实况窗归零时系统替换上的标题（比到点横幅的 `timers.*` 那句短，扩展区只有一行）。
+  new AppString('timers.countdown-finished', '倒计时结束',
+    'Countdown finished'),
   new AppString('timers.background-reminder-set', '后台提醒已设置',
     'Background reminder set'),
   new AppString('timers.in-app-only-live', '仅应用内计时：实况窗或后台提醒未启用',
@@ -1490,6 +1514,8 @@ export const APP_STRINGS: AppString[] = [
     'Haptic feedback on'),
   new AppString('shell.haptic-feedback-off', '触觉反馈已关闭',
     'Haptic feedback off'),
+  new AppString('shell.theme-save-failed', '主题色偏好保存失败，已恢复原设置',
+    'Could not save the theme colour preference; reverted'),
   new AppString('shell.history-not-cleared', '历史保存失败，未清空',
     'Could not save history; nothing was cleared'),
   new AppString('shell.history-cleared', '历史已清空',
@@ -1589,6 +1615,18 @@ export const APP_STRINGS: AppString[] = [
     'Custom size must be whole millimetres between 10 and 150, within the pixel limit.'),
   new AppString('idphoto.backgroundKept', '已保留原底色',
     'Original background kept'),
+  // —— 身份证 / 银行卡校验（2026-10-23 新增扫描）：两个扫描入口与扫描中的说明。
+  // 带类型的提示（「照片里没有识别到身份证号」等）在 `model/CardScan.ets` 的 `cardScanStatusText()`，
+  // 这里只放**与类型无关**的按钮与说明文案。
+  new AppString('idcheck.take-photo', '拍照识别',
+    'Take photo'),
+  new AppString('idcheck.choose-image', '从相册选择',
+    'Choose image'),
+  new AppString('idcheck.scanning', '正在识别照片里的号码…',
+    'Reading the number from the photo…'),
+  new AppString('idcheck.scan-note', '也可以拍照或选图识别号码：照片只写入应用缓存、识别完立即删除，不上传、不写相册。',
+    'You can also read the number from a photo: it goes to the app cache and is deleted right after ' +
+    'recognition — never uploaded, never saved to the gallery.'),
 ];
 
 /** 按 id 取固定文案；未知 id 原样返回 id（让拼错在界面上可见，而不是留白）。 */

@@ -1,9 +1,15 @@
 import { common } from '@kit.AbilityKit';
 import { uiMaterial, LengthMetrics } from '@kit.ArkUI';
+// 系统颜色选择器（UI Design Kit）：与颜色工具页、二维码页同一个取色入口（色轮按钮 → 系统面板）。
+import { HdsColorPicker } from '@kit.UIDesignKit';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
+// 主题色：登记表/名字/对比度推导在纯逻辑 `model/ThemeColors.ets`，深浅色标志读运行期单例。
+import { THEME_COLORS, THEME_COLOR_CUSTOM, ThemeColorOption, themeAccentOf,
+  themeColorLabel } from '../model/ThemeColors';
+import { appTheme } from '../model/ThemeState';
 import { PRIVACY_POLICY_URL, isUsablePolicyUrl, privacyCopyHintText, privacyEntryNoteText,
   privacyOpenFailedText, privacyPendingText } from '../model/AboutInfo';
 import { historyClearConfirmText } from '../model/HistoryKinds';
@@ -67,6 +73,17 @@ export struct SettingsPage {
   // 语言偏好 id（`system`/`zh`/`en`）由父组件持有并落盘，页面只把它映射成下拉选项与文案。
   @Param languagePreference: string = DEFAULT_LANGUAGE_PREFERENCE;
   @Event onLanguagePreference: (preference: string) => void = () => {};
+  /**
+   * 主题色：预设 id（`model/ThemeColors.THEME_COLORS`）或哨兵 `custom`，外加上次自定义色。
+   *
+   * 与语言同一口径：值的归一、落盘与失败回滚都在父组件（`Index.setThemeColor()` /
+   * `Index.setThemeCustomHex()`），页面只渲染色块选中态并派发选择。界面上的强调色不从这里传，
+   * 而是由 `ToolPalette` 的运行期 getter 现取（换主题时所有页面自动刷新）。
+   */
+  @Param themeColor: string = '';
+  @Param themeCustomHex: string = '';
+  @Event onThemeColor: (id: string) => void = () => {};
+  @Event onThemeCustomColor: (raw: string) => void = () => {};
   @Event onChooseIcon: (name: string) => void = () => {};
   @Event onClearHistory: () => void = () => {};
   // 清除全部本机数据（历史/收藏/计时/纪念日/汇率缓存/单位与语言偏好）。
@@ -723,7 +740,7 @@ export struct SettingsPage {
             Row({ space: 12 }) {
               Text(PRIVACY_POLICY_URL.trim()).fontSize(12).fontColor(ToolPalette.textMuted).layoutWeight(1)
               IconActionButton({
-                icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+                icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
                 a11yText: appText('settings.privacyCopyA11y', this.english),
                 boxSize: 44, iconSize: 22, usable: true,
                 onTap: () => this.onCopy(PRIVACY_POLICY_URL.trim())
@@ -753,7 +770,7 @@ export struct SettingsPage {
       }
     }
     .width(76).height(76)
-    .backgroundColor(this.iconReady && this.activeIconName === name ? ToolPalette.tintBlue : ToolPalette.surface)
+    .backgroundColor(this.iconReady && this.activeIconName === name ? ToolPalette.accentTint : ToolPalette.surface)
     .borderRadius(18)
     .border({
       width: this.iconReady && this.activeIconName === name ? 2 : 1,
@@ -763,6 +780,93 @@ export struct SettingsPage {
     .accessibilityText(this.tr(zh, en) + (this.iconReady && this.activeIconName === name ?
       appText('settings.iconSelectedSuffix', this.english) : ''))
     .onClick(() => this.onChooseIcon(name))
+  }
+
+  /**
+   * 主题色区块：7 个预设色块 + 1 个系统取色器（自定义）+ 当前选择说明。
+   *
+   * 色块底色**就是该主题最终会用的强调色**（`themeAccentOf()` 现算，随深浅色取对应那一套），
+   * 因此「看到的颜色 = 换上去的颜色」。名称只放在 `accessibilityText` 里（与图标格子同一套版式：
+   * 固定尺寸格子塞不下文字），当前选中的那个名字写在下面一行，看图与读屏都能对上。
+   */
+  @Builder private themeSection() {
+    Column({ space: 10 }) {
+      Text(appText('settings.themeColor', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
+      MaterialSurface({
+        supported: this.immersiveSupported, level: this.materialLevel,
+        fallback: ToolPalette.surface, corner: 16, lightEffect: true
+      }) {
+        Column({ space: 10 }) {
+          Text(appText('settings.themeColorNote', this.english))
+            .fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+          // 一行放不下时自动换行（窄屏 5 个一行、宽屏 8 个一行）。
+          Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(12), cross: LengthMetrics.vp(12) } }) {
+            ForEach(THEME_COLORS, (option: ThemeColorOption) => {
+              this.themeChoice(option)
+            }, (option: ThemeColorOption): string => option.id)
+            this.customThemeChoice()
+          }.width('100%')
+          Text(this.themeCaptionText()).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+        }.padding(16).width('100%')
+      }
+    }.width('100%')
+  }
+
+  /** 一个预设色块：固定 56×56，选中态＝描边 + 居中勾选（勾色取该主题自己的 `onPrimary`）。 */
+  @Builder private themeChoice(option: ThemeColorOption) {
+    Stack({ alignContent: Alignment.Center }) {
+      if (this.themeColor === option.id) {
+        SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(22)
+          .fontColor([themeAccentOf(option.id, this.themeCustomHex, appTheme.dark).onPrimary])
+      }
+    }
+    .width(56).height(56)
+    .backgroundColor(themeAccentOf(option.id, this.themeCustomHex, appTheme.dark).primary)
+    .borderRadius(16)
+    .border({
+      width: this.themeColor === option.id ? 2 : 1,
+      color: this.themeColor === option.id ? ToolPalette.textPrimary : ToolPalette.borderLight
+    })
+    .accessibilityText(themeColorLabel(option.id, this.english) +
+      (this.themeColor === option.id ? appText('settings.iconSelectedSuffix', this.english) : ''))
+    .onClick(() => this.onThemeColor(option.id))
+  }
+
+  /**
+   * 自定义色格子：系统取色器本身就是「色轮」这个可识别的外观，点开是系统的取色面板
+   * （网格 / 光谱 / 滑块三种方式都由系统给），回传值经父组件的 `parsePickedColor()` 归一。
+   * 选中态同样用描边 + 角标勾选，不覆盖色轮本身。
+   */
+  @Builder private customThemeChoice() {
+    Stack({ alignContent: Alignment.Center }) {
+      HdsColorPicker({
+        initialColor: this.themeCustomHex,
+        onColorSelected: (selectedColor: string): void => { this.onThemeCustomColor(selectedColor); },
+        options: { circleRadius: 24 }
+      })
+      if (this.themeColor === THEME_COLOR_CUSTOM) {
+        SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(18)
+          .fontColor([ToolPalette.primaryDeep]).offset({ x: 20, y: -20 })
+      }
+    }
+    .width(56).height(56)
+    .borderRadius(16)
+    .border({
+      width: this.themeColor === THEME_COLOR_CUSTOM ? 2 : 1,
+      color: this.themeColor === THEME_COLOR_CUSTOM ? ToolPalette.primary : ToolPalette.borderLight
+    })
+    .accessibilityText(appText('settings.themeColorWheel', this.english) +
+      (this.themeColor === THEME_COLOR_CUSTOM ? appText('settings.iconSelectedSuffix', this.english) : ''))
+  }
+
+  /** 当前选择说明：预设显示名字；自定义连色值一起显示（用户能看到自己挑的是哪个色）。 */
+  private themeCaptionText(): string {
+    const label: string = themeColorLabel(this.themeColor, this.english);
+    const prefix: string = this.tr('当前主题：', 'Current theme: ');
+    if (this.themeColor === THEME_COLOR_CUSTOM) {
+      return prefix + label + ' · ' + this.themeCustomHex;
+    }
+    return prefix + label;
   }
 
   build() {
@@ -784,6 +888,7 @@ export struct SettingsPage {
         this.iconChoice('toolbox_drawers', $r('app.media.toolbox_drawers_icon'), '工具抽屉', 'Toolbox drawers')
         this.iconChoice('toolbox_grid', $r('app.media.toolbox_grid_icon'), '工具网格', 'Toolbox grid')
       }.width('100%')
+      this.themeSection()
       this.interactionSection()
       this.networkSection()
       this.deviceSection()

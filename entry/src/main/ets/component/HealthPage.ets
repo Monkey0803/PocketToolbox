@@ -219,7 +219,7 @@ export struct HealthPage {
       } else {
         Row({ space: 8 }) {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('action.copySummary', this.english), onTap: () => this.copySummary()
           })
           IconActionButton({

@@ -157,7 +157,8 @@ struct SharePage {
   @Builder private actionButton(label: string, primary: boolean, enabled: boolean, action: () => void) {
     Button(label).height(48).padding({ left: 24, right: 24 })
       .backgroundColor(primary ? ToolPalette.primary : ToolPalette.surface)
-      .fontColor(primary ? Color.White : ToolPalette.textPrimary)
+      // 品牌底色上的文字走 `onPrimary`（自定义浅色主题下白字会糊掉）。
+      .fontColor(primary ? ToolPalette.onPrimary : ToolPalette.textPrimary)
       .fontWeight(FontWeight.Medium).fontSize(16).borderRadius(24)
       .enabled(enabled)
       .onClick(action)

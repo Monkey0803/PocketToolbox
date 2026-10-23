@@ -12,6 +12,10 @@
 **/.test
 /.appanalyzer
 /.deveco
+/.codegenie
+# AGC 服务账号凭据（`.env` 里指向的私钥 JSON）：绝不入库
+/.env
+*private.json
 .DS_Store
 hs_err_pid*.log
 replay_pid*.log

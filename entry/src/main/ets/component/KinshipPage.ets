@@ -152,7 +152,7 @@ export struct KinshipPage {
         }
         Row({ space: 8 }) {
           IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
             a11yText: appText('kin.copy-the-address', this.english),
             onTap: () => this.onCopy(kinCopyText(this.outcome, this.english))
           })

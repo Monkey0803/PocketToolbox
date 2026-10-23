@@ -331,7 +331,7 @@ export struct DocumentsPage {
    */
   @Builder private pageDeleteButton(index: number) {
     IconActionButton({
-      icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
+      icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
       boxSize: 36, iconSize: 18, a11yText: appText('docs.remove-page', this.english),
       onTap: () => this.onRemovePage(index)
     })
@@ -402,7 +402,7 @@ export struct DocumentsPage {
             .height(160)
             .onChange((value: string) => { this.ocrText = value; })
           IconActionButton({
-            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted,
+            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.primaryDeep,
             boxSize: 36, iconSize: 20, a11yText: appText('docs.ocr-clear', this.english),
             usable: this.ocrText.length > 0, onTap: () => { this.clearOcr(); }
           })
@@ -425,7 +425,7 @@ export struct DocumentsPage {
             onTap: () => { this.onSendToText(this.ocrText); }
           })
           IconActionButton({
-            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
+            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.danger,
             a11yText: appText('docs.ocr-clear', this.english), usable: this.ocrText.length > 0,
             onTap: () => { this.clearOcr(); }
           })

@@ -2,6 +2,7 @@ import { ShareExtensionAbility, UIExtensionContentSession, Want } from '@kit.Abi
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ShareRecord, clearSharedText, pickSharedText, setSharedText } from '../model/ShareIntent';
 import { readSharedRecords } from '../services/ShareIntake';
+import { seedThemeFromStorage } from '../services/ThemeRuntime';
 
 /**
  * 分享接收扩展（`ShareExtensionAbility`，配置在 `module.json5` 的 `extensionAbilities`，`type: "share"`）。
@@ -45,6 +46,9 @@ export default class ShareExtAbility extends ShareExtensionAbility {
       hilog.warn(DOMAIN, TAG, 'Failed to read shared content: %{public}s', JSON.stringify(error));
     }
     setSharedText(text);
+    // 分享详情页是独立 Ability（同一个应用的分享扩展），运行期主题状态不会被主入口种子到；
+    // 这里同步读一次偏好，页面上的品牌色按钮才与主应用一致（否则会显示默认蓝）。
+    seedThemeFromStorage(this.context);
     try {
       session.loadContent(SHARE_PAGE_PATH);
     } catch (error) {

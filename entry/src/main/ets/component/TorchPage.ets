@@ -399,7 +399,7 @@ export struct TorchPage {
     return $r('sys.symbol.play_fill');
   }
 
-  private heroColor(): Resource {
+  private heroColor(): ResourceColor {
     // 「开灯中」必须用 warning（`#B45309`，对浅色底 4.68:1）。此处原为 `accentAmber`（`#F5AD2D`），
     // 对浅色背景实测只有 1.80:1，远低于图形 3:1——与 AGENTS 里「橙色不要当图标色」同源问题
     // （2026-10-20 审计 P0）。

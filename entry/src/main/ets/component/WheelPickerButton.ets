@@ -30,7 +30,8 @@ export struct WheelPickerButton {
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
   @Param boxSize: number = 44;
   @Param iconSize: number = 22;
-  @Param tintColor: Resource = ToolPalette.textSecondary;
+  // `ResourceColor`：与 `IconActionButton.tintColor` 同口径（中性动作图标跟随主题色，2026-10-23）。
+  @Param tintColor: ResourceColor = ToolPalette.primaryDeep;
   @Param icon: Resource = $r('sys.symbol.text_and_arrow_up_and_down');
   @Event onPicked: (value: string) => void = () => {};
   @Event onStatus: (message: string) => void = () => {};

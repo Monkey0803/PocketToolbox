@@ -4,7 +4,7 @@ import { ToolPalette } from '../model/ToolPalette';
  * 「多个选项里选一项」的通用选项行——与单位换算页「类别」完全同一套 UI。
  *
  * 左标签固定 72 vp（`fontSize(14)` + `ToolPalette.textSecondary`），右侧系统 `Select` 占满余宽
- * （`layoutWeight(1)`），选中态统一用 `ToolPalette.primaryDeep` + `ToolPalette.tintBlue`。
+ * （`layoutWeight(1)`），选中态统一用 `ToolPalette.primaryDeep` + `ToolPalette.accentTint`。
  * 应用级沉浸光感开启时 `Select` 会自动生效，因此这里不再包 `MaterialSurface`（避免材质嵌套）。
  *
  * 用法约定：
@@ -37,7 +37,7 @@ export struct OptionSelect {
         // 菜单底必须走色板：曾经写死 `Color.White`，而选项文字用 `textStrong`（深色值近白 `#DCE4EE`），
         // 深色模式下就是「白底 + 近白字」（对比约 1.4:1）——所有下拉都不可读（2026-10-20 审计 P0）。
         // `surface` 浅色是 `#FFFFFF`（与写死时完全一致）、深色是 `#1A212B`，两套都保证对比度。
-        .selectedOptionBgColor(ToolPalette.tintBlue).menuBackgroundColor(ToolPalette.surface)
+        .selectedOptionBgColor(ToolPalette.accentTint).menuBackgroundColor(ToolPalette.surface)
         .accessibilityText(this.a11yText)
         .onSelect((index: number) => this.onSelected(index))
     }.width('100%')

@@ -97,6 +97,22 @@ const netCache = await loadEts('../entry/src/main/ets/model/NetCache.ets');
 const appUpdate = await loadEts('../entry/src/main/ets/model/AppUpdate.ets');
 const solarTerms = await loadEts('../entry/src/main/ets/model/SolarTerms.ets');
 const netInfo = await loadEts('../entry/src/main/ets/model/NetInfo.ets');
+// 金额大写（2026-10-23）：解析、中文大写（零/整/万/亿规则）、英文读法、千分位小写。
+const moneyWords = await loadEts('../entry/src/main/ets/model/MoneyWords.ets');
+// 身份证 / 银行卡校验（2026-10-23）：校验位、15→18 升位、生日合法性、Luhn 与卡组织前缀表。
+const idCheck = await loadEts('../entry/src/main/ets/model/IdCheck.ets');
+// 证件扫描取号（2026-10-23）：从 OCR 文本里挑身份证号/银行卡号（独立片段 → 压实滑窗 → 兜底）与状态文案。
+const cardScan = await loadEts('../entry/src/main/ets/model/CardScan.ets');
+// 世界时钟（2026-10-23）：城市清单解析/去重/上限、注入偏移的行拼装、日差与日夜、不支持时区。
+const worldClock = await loadEts('../entry/src/main/ets/model/WorldClock.ets');
+// 番茄钟（2026-10-23）：三阶段状态机、不可变复制、设置夹取、落盘解析、提醒与文案。
+const pomodoro = await loadEts('../entry/src/main/ets/model/PomodoroMath.ets');
+// 转盘（2026-10-23）：扇区角度/路径串/极坐标、加权抽签、角度与扇区的互逆映射。
+const wheelTools = await loadEts('../entry/src/main/ets/model/WheelTools.ets');
+// 图片工具（2026-10-23，第 30 个工具）：登记表、只缩不放的尺寸计算、像素预算、体积/文件名文案与落盘。
+const imageTools = await loadEts('../entry/src/main/ets/model/ImageTools.ets');
+// 主题色（2026-10-23）：预设登记表、偏好归一、以及**每个预设与自定义色的对比度门槛**（这是功能的安全网）。
+const themeColors = await loadEts('../entry/src/main/ets/model/ThemeColors.ets');
 const { createHash } = await import('node:crypto');
 
 // --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
@@ -483,8 +499,9 @@ assert.equal(timers.remainingAt(30000, 35000), 0);
 // --- 计时深化：常用时长预设与秒表计次 ---
 assert.deepEqual(timers.DURATION_PRESETS_MINUTES, [1, 5, 10, 15, 25, 30]);
 // 计时方式的登记表（页面「方式」下拉与 build() 分支都由它驱动）：条数、顺序、id 唯一、文案非空。
-assert.equal(timers.TIMER_MODES.length, 2);
-assert.deepEqual(timers.TIMER_MODES.map((mode) => mode.id), ['countdown', 'stopwatch']);
+// 2026-10-23 起含第 3 项「番茄钟」（状态机在 `model/PomodoroMath.ets`）。
+assert.equal(timers.TIMER_MODES.length, 3);
+assert.deepEqual(timers.TIMER_MODES.map((mode) => mode.id), ['countdown', 'stopwatch', 'pomodoro']);
 assert.equal(new Set(timers.TIMER_MODES.map((mode) => mode.id)).size, timers.TIMER_MODES.length);
 for (const mode of timers.TIMER_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
@@ -1356,9 +1373,10 @@ assert.equal(randomTools.GROUP_COUNTS.length, 7);
 assert.equal(randomTools.coinFlip(() => 0), true);
 assert.equal(randomTools.coinFlip(() => 1), false);
 // 随机方式的登记表（页面「方式」下拉与 build() 分支都由它驱动）：条数、id 唯一、文案非空。
-assert.equal(randomTools.RANDOM_MODES.length, 3);
+// 2026-10-23 起含第 4 项「转盘抽奖」（几何/抽签在 `model/WheelTools.ets`）。
+assert.equal(randomTools.RANDOM_MODES.length, 4);
 assert.equal(new Set(randomTools.RANDOM_MODES.map((mode) => mode.id)).size, randomTools.RANDOM_MODES.length);
-assert.deepEqual(randomTools.RANDOM_MODES.map((mode) => mode.id), ['number', 'dice', 'list']);
+assert.deepEqual(randomTools.RANDOM_MODES.map((mode) => mode.id), ['number', 'dice', 'list', 'wheel']);
 for (const mode of randomTools.RANDOM_MODES) {
   assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0, `incomplete mode ${mode.id}`);
 }
@@ -2553,11 +2571,12 @@ assert.equal(dates.workingDaysBetweenWithHolidays('2026-10-01', '2026-10-01', fa
 assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', true, [], []), undefined);
 
 // --- 工具元数据：单一数据源（收藏白名单与工具搜索都由它派生）---
-assert.equal(toolMeta.TOOL_META.length, 26);
-assert.equal(toolMeta.TOOL_IDS.length, 26);
-assert.equal(new Set(toolMeta.TOOL_IDS).size, 26);
+// 2026-10-23：26 → 30（新增「金额大写」「身份证校验」「世界时钟」「图片工具」四项）。
+assert.equal(toolMeta.TOOL_META.length, 30);
+assert.equal(toolMeta.TOOL_IDS.length, 30);
+assert.equal(new Set(toolMeta.TOOL_IDS).size, 30);
 assert.equal(toolMeta.TOOL_IDS[0], 'qr');
-assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'netinfo');
+assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'imagetools');
 assert.ok(toolMeta.TOOL_IDS.includes('timestamp'), 'timestamp must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('loan'), 'loan must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('color'), 'color must be a known tool id');
@@ -2598,7 +2617,7 @@ assert.deepEqual(toolMeta.allowedFavorites(['qr', 'qr']), ['qr']);
 assert.deepEqual(toolMeta.allowedFavorites([]), []);
 assert.deepEqual(toolMeta.allowedFavorites(['history']), []);
 assert.deepEqual(toolMeta.allowedFavorites(undefined), []);
-assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 26);
+assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 30);
 assert.deepEqual(toolMeta.allowedFavorites(toolMeta.TOOL_IDS), toolMeta.TOOL_IDS);
 
 // 工具搜索：空查询返回全部；中英双语与 id 都能命中；无命中返回空
@@ -2616,11 +2635,12 @@ assert.deepEqual(toolMeta.matchTools('毫秒'), ['timestamp']);
 assert.deepEqual(toolMeta.matchTools('millisecond'), ['timestamp']);
 // 'cal' 的分级（2026-10-22 命中分级生效后）：
 //  ① 前缀命中 id `calculator`；② `science` 的关键词 `calc` 是前缀命中（别名比标题子串更贴）；
-//  ③ 标题含 `cal` 的 Date/Loan/Health/Kinship calculator；④ `tax` 由分类名 `Calc & money` 最低档补上。
+//  ③ 标题含 `cal` 的 Date/Loan/Health/Kinship calculator；④ `tax`／`money` 由分类名 `Calc & money`
+//  最低档补上（2026-10-23 新增「金额大写」后同档内按 TOOL_IDS 顺序追加在末尾）。
 assert.deepEqual(toolMeta.matchTools('cal'),
-  ['calculator', 'science', 'dates', 'loan', 'health', 'kinship', 'tax']);
+  ['calculator', 'science', 'dates', 'loan', 'health', 'kinship', 'tax', 'money']);
 assert.deepEqual(toolMeta.matchTools('计算'),
-  ['tax', 'dates', 'loan', 'health', 'science', 'calculator']);
+  ['tax', 'dates', 'loan', 'health', 'science', 'calculator', 'money']);
 assert.deepEqual(toolMeta.matchTools('贷款'), ['loan']);
 assert.deepEqual(toolMeta.matchTools('loan'), ['loan']);
 assert.deepEqual(toolMeta.matchTools('健康'), ['health']);
@@ -2659,9 +2679,9 @@ assert.deepEqual(toolMeta.matchTools('称谓'), ['kinship']);
 assert.deepEqual(toolMeta.matchTools('kinship'), ['kinship']);
 assert.deepEqual(toolMeta.matchTools('relative'), ['kinship']);
 assert.deepEqual(toolMeta.matchTools('亲戚称呼'), ['kinship']);
-// 「计算」的命中集合不受亲戚称呼影响（关键词刻意不含「计算」）
+// 「计算」的命中集合受分类名影响（金额大写也属「计算与财务」），标题命中的 5 个仍排在前面
 assert.deepEqual(toolMeta.matchTools('计算'),
-  ['tax', 'dates', 'loan', 'health', 'science', 'calculator']);
+  ['tax', 'dates', 'loan', 'health', 'science', 'calculator', 'money']);
 assert.deepEqual(toolMeta.matchTools('介绍一个不存在的工具'), []);
 // 关键词不能反过来污染标题匹配：`barcode` 只应命中条形码（不是健康/贷款）
 assert.deepEqual(toolMeta.matchTools('barcode'), ['barcode']);
@@ -2672,9 +2692,9 @@ assert.deepEqual(toolMeta.matchTools('历史'), []);
 // 'er' = ③标题子串（Converter/Timers/Random picker/Password generator/Document scanner/Anniversaries）
 //      + netinfo 的关键词 `certificate` 里也含 'er'（2026-10-22 第 26 个工具加入后属同一档）
 //      → [units, timers, random, password, documents, anniversary, netinfo]
-//      + ④分类名 Everyday → [color, kinship]
+//      + ④分类名 Everyday → [color, kinship, idcheck]（身份证校验同属「生活与换算」）
 assert.deepEqual(toolMeta.matchTools('er'),
-  ['units', 'timers', 'random', 'password', 'documents', 'anniversary', 'netinfo', 'color', 'kinship']);
+  ['units', 'timers', 'random', 'password', 'documents', 'anniversary', 'netinfo', 'color', 'kinship', 'idcheck']);
 
 // --- 工具分类与搜索增强（2026-10-22：分类分组 + 拼音首字母 + 命中分级）---
 assert.equal(toolMeta.TOOL_CATEGORIES.length, 7);
@@ -2693,12 +2713,12 @@ assert.equal(toolMeta.categoryById('scan').nameEn, 'Scan & image');
 assert.equal(toolMeta.categoryById('time').nameZh, '时间与日期');
 assert.equal(toolMeta.categoryById('nope'), undefined);
 // 分区：每个分类的成员与顺序都钉住（顺序即 TOOL_IDS 顺序，不按分类重排登记表）
-assert.deepEqual(toolMeta.toolIdsInCategory('scan'), ['qr', 'barcode', 'documents', 'idphoto']);
-assert.deepEqual(toolMeta.toolIdsInCategory('calc'), ['calculator', 'tax', 'loan', 'health', 'science']);
+assert.deepEqual(toolMeta.toolIdsInCategory('scan'), ['qr', 'barcode', 'documents', 'idphoto', 'imagetools']);
+assert.deepEqual(toolMeta.toolIdsInCategory('calc'), ['calculator', 'tax', 'loan', 'health', 'science', 'money']);
 assert.deepEqual(toolMeta.toolIdsInCategory('text'), ['text', 'password', 'base', 'diff']);
 assert.deepEqual(toolMeta.toolIdsInCategory('time'), ['timers', 'dates', 'timestamp', 'anniversary']);
-assert.deepEqual(toolMeta.toolIdsInCategory('life'), ['units', 'random', 'color', 'kinship']);
-assert.deepEqual(toolMeta.toolIdsInCategory('system'), ['torch', 'level', 'compass', 'net', 'netinfo']);
+assert.deepEqual(toolMeta.toolIdsInCategory('life'), ['units', 'random', 'color', 'kinship', 'idcheck']);
+assert.deepEqual(toolMeta.toolIdsInCategory('system'), ['torch', 'level', 'compass', 'net', 'netinfo', 'worldclock']);
 assert.deepEqual(toolMeta.toolIdsInCategory('nope'), []);
 // 兜底分类「其他」必须恒为空（漏登记守卫）：有工具落进去说明分类表与工具表脱节
 assert.deepEqual(toolMeta.toolIdsInCategory(toolMeta.CATEGORY_FALLBACK_ID), []);
@@ -2711,7 +2731,7 @@ for (const category of toolMeta.TOOL_CATEGORIES) {
   }
   for (const id of ids) { groupedIds.push(id); }
 }
-assert.equal(groupedIds.length, 26);
+assert.equal(groupedIds.length, 30);
 assert.deepEqual(groupedIds.slice().sort(), toolMeta.TOOL_IDS.slice().sort());
 // categoryOfTool：已知工具 → 声明分类；未知 id → 显式兜底桶（绝不返回空串，否则工具会静默消失）
 for (const meta of toolMeta.TOOL_META) {
@@ -2741,18 +2761,20 @@ assert.deepEqual(toolMeta.matchTools('dkjs'), ['loan']);
 assert.deepEqual(toolMeta.matchTools('wdsm'), ['documents']);
 assert.deepEqual(toolMeta.matchTools('qqch'), ['kinship']);
 // 命中分级：标题前缀 > 子串 > 分类名；同档内保持 TOOL_IDS 顺序
-// （`compass` 由关键词「磁力计」以子串命中，排在分类名命中「计算与财务」之前）
+// （`compass` 由关键词「磁力计」以子串命中，排在分类名命中「计算与财务」之前；
+//   分类名档在 2026-10-23 起还含「金额大写」）
 assert.deepEqual(toolMeta.matchTools('计'),
-  ['timers', 'tax', 'dates', 'loan', 'health', 'science', 'compass', 'calculator']);
+  ['timers', 'tax', 'dates', 'loan', 'health', 'science', 'compass', 'calculator', 'money']);
 assert.equal(toolMeta.matchTools('计')[0], 'timers');
 // 「折扣与均摊」自己不含「计算」，靠分类「计算与财务」命中，因此排在标题命中的 5 个之后
 assert.equal(toolMeta.matchTools('计算')[5], 'calculator');
-// 分类名参与搜索（最低档）：搜「时间」一次列出全部时间类工具，标题命中的时间戳排最前
-assert.deepEqual(toolMeta.matchTools('时间'), ['timestamp', 'timers', 'dates', 'anniversary']);
-// 分类名参与搜索（最低档）：搜「设备」列出全部「系统与设备」类工具（2026-10-22 起含网络查询）
-assert.deepEqual(toolMeta.matchTools('设备'), ['torch', 'level', 'compass', 'net', 'netinfo']);
-// 「扫码」：二维码/条形码按关键词命中，「文档扫描」「证件照」由分类名「扫码与图像」以最低档补在末尾
-assert.deepEqual(toolMeta.matchTools('扫码'), ['qr', 'barcode', 'documents', 'idphoto']);
+assert.equal(toolMeta.matchTools('计算')[6], 'money');
+// 分类名参与搜索（最低档）：搜「时间」一次列出全部时间类工具；世界时钟靠关键词「世界时间」子串命中
+assert.deepEqual(toolMeta.matchTools('时间'), ['timestamp', 'worldclock', 'timers', 'dates', 'anniversary']);
+// 分类名参与搜索（最低档）：搜「设备」列出全部「系统与设备」类工具（2026-10-22 起含网络查询，2026-10-23 起含世界时钟）
+assert.deepEqual(toolMeta.matchTools('设备'), ['torch', 'level', 'compass', 'net', 'netinfo', 'worldclock']);
+// 「扫码」：二维码/条形码按关键词命中，「文档扫描」「证件照」「图片工具」由分类名「扫码与图像」以最低档补在末尾
+assert.deepEqual(toolMeta.matchTools('扫码'), ['qr', 'barcode', 'documents', 'idphoto', 'imagetools']);
 // 精确命中仍排在子串命中之前（`hex` 是两个工具的关键词精确命中，顺序仍按 TOOL_IDS）
 assert.deepEqual(toolMeta.matchTools('hex'), ['color', 'base']);
 
@@ -10828,6 +10850,1117 @@ for (const mode of netInfo.NETINFO_MODES) {
   assert.ok(pastZh.includes('每年重复') && pastEn.includes('repeats yearly'));
   assert.notEqual(pastZh, pastEn);
   assert.equal(pastZh.includes('**'), false);
+}
+
+// --- 金额大写（2026-10-23，第 27 个工具 `money`）---
+// 口径：金额一律按整数分；中文大写的零/整/万/亿规则与英文读法见 `model/MoneyWords.ets` 头注释。
+{
+  // 上限常量本身也是口径的一部分（12 位元位，正好到「亿」组顶格）
+  assert.equal(moneyWords.MONEY_MAX_CENTS, 99999999999999);
+
+  // 解析：空白、货币符号、千分位、全角标点都归一；两位小数内补零到分
+  assert.equal(moneyWords.parseMoneyInput('  ¥1,234.56 '), 123456);
+  assert.equal(moneyWords.parseMoneyInput('1234.56'), 123456);
+  assert.equal(moneyWords.parseMoneyInput('1234.5'), 123450);
+  assert.equal(moneyWords.parseMoneyInput('1234'), 123400);
+  assert.equal(moneyWords.parseMoneyInput('0.05'), 5);
+  assert.equal(moneyWords.parseMoneyInput('000123'), 12300);
+  assert.equal(moneyWords.parseMoneyInput('1.'), 100, '尾随小数点按整数元处理');
+  assert.equal(moneyWords.parseMoneyInput('1，234．56'), 123456, '全角逗号/句点先归一');
+  assert.equal(moneyWords.parseMoneyInput('999999999999.99'), moneyWords.MONEY_MAX_CENTS);
+  // 非法形态：一律 undefined，且错误码能区分原因（界面据此给不同提示）
+  assert.equal(moneyWords.parseMoneyInput(''), undefined);
+  assert.equal(moneyWords.moneyErrorCode(''), 'empty');
+  assert.equal(moneyWords.parseMoneyInput('   '), undefined);
+  assert.equal(moneyWords.moneyErrorCode('   '), 'empty');
+  assert.equal(moneyWords.moneyErrorCode(undefined), 'empty', '非字符串按「还没填」处理，不抛');
+  assert.equal(moneyWords.parseMoneyInput('1.234'), undefined);
+  assert.equal(moneyWords.moneyErrorCode('1.234'), 'format');
+  assert.equal(moneyWords.moneyErrorCode('abc'), 'format');
+  assert.equal(moneyWords.moneyErrorCode('+1'), 'format');
+  assert.equal(moneyWords.moneyErrorCode('1e3'), 'format', '不接受科学计数法');
+  assert.equal(moneyWords.moneyErrorCode('-1'), 'negative');
+  assert.equal(moneyWords.moneyErrorCode('1000000000000'), 'range', '13 位元位越界');
+  assert.equal(moneyWords.parseMoneyInput('1000000000000'), undefined);
+  assert.equal(moneyWords.moneyErrorCode('999999999999.99'), '', '上限本身合法（含端点）');
+  // 提示文案：合法返回空串（页面不显示错误行）；三种失败中英各不同
+  assert.equal(moneyWords.moneyInputError('12.34', false), '');
+  assert.equal(moneyWords.moneyInputError('abc', false), '请填数字，最多两位小数');
+  assert.equal(moneyWords.moneyInputError('abc', true), 'Digits only, with up to two decimals');
+  assert.equal(moneyWords.moneyInputError('-1', false), '金额不能为负数');
+  assert.equal(moneyWords.moneyInputError('1000000000000', true),
+    'Amount is too large (up to 999,999,999,999.99)');
+  assert.notEqual(moneyWords.moneyInputError('', false), moneyWords.moneyInputError('', true));
+
+  // 中文大写：零的合并、元/角/分与「整」的规则
+  assert.equal(moneyWords.moneyWordsFromCents(0), '人民币零元整');
+  assert.equal(moneyWords.moneyWordsFromCents(100), '人民币壹元整');
+  assert.equal(moneyWords.moneyWordsFromCents(5), '人民币伍分', '元位为零且只有分：省略「零元」');
+  assert.equal(moneyWords.moneyWordsFromCents(50), '人民币伍角整');
+  assert.equal(moneyWords.moneyWordsFromCents(55), '人民币伍角伍分');
+  assert.equal(moneyWords.moneyWordsFromCents(1000), '人民币壹拾元整');
+  assert.equal(moneyWords.moneyWordsFromCents(1005), '人民币壹拾元零伍分', '角为零分不为零要补「零」');
+  assert.equal(moneyWords.moneyWordsFromCents(1550), '人民币壹拾伍元伍角整', '到角为止写「整」');
+  assert.equal(moneyWords.moneyWordsFromCents(1556), '人民币壹拾伍元伍角陆分');
+  assert.equal(moneyWords.moneyWordsFromCents(10005), '人民币壹佰元零伍分');
+  assert.equal(moneyWords.moneyWordsFromCents(1100), '人民币壹拾壹元整');
+  assert.equal(moneyWords.moneyWordsFromCents(123456), '人民币壹仟贰佰叁拾肆元伍角陆分');
+  assert.equal(moneyWords.moneyWordsFromCents(100100), '人民币壹仟零壹元整', '组内零合并成一个');
+  assert.equal(moneyWords.moneyWordsFromCents(1000000000), '人民币壹仟万元整');
+  assert.equal(moneyWords.moneyWordsFromCents(100000000), '人民币壹佰万元整');
+  assert.equal(moneyWords.moneyWordsFromCents(100000001), '人民币壹佰万元零壹分');
+  assert.equal(moneyWords.moneyWordsFromCents(10000000000), '人民币壹亿元整');
+  assert.equal(moneyWords.moneyWordsFromCents(10000000001), '人民币壹亿元零壹分');
+  assert.equal(moneyWords.moneyWordsFromCents(100000000000), '人民币壹拾亿元整');
+  assert.equal(moneyWords.moneyWordsFromCents(moneyWords.MONEY_MAX_CENTS),
+    '人民币玖仟玖佰玖拾玖亿玖仟玖佰玖拾玖万玖仟玖佰玖拾玖元玖角玖分');
+  assert.equal(moneyWords.moneyWordsFromCents(-1), '', '负数（界面不会走到：解析已拦住）');
+  assert.equal(moneyWords.moneyWordsFromCents(1.5), '', '非整数分');
+  assert.equal(moneyWords.moneyWordsFromCents(moneyWords.MONEY_MAX_CENTS + 1), '');
+
+  // 英文读法：三位一组、连字符、与中文一致地省略「零元」、只在角分都为零时收尾 only
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(0), 'RMB zero yuan only');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(100), 'RMB one yuan only');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(5), 'RMB five fen');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(50), 'RMB five jiao');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(205), 'RMB two yuan and five fen');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(1556), 'RMB fifteen yuan and five jiao six fen');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(123456),
+    'RMB one thousand two hundred thirty-four yuan and five jiao six fen');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(100000000), 'RMB one million yuan only');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(10000000000), 'RMB one hundred million yuan only');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(100000000000), 'RMB one billion yuan only');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(-1), '');
+  assert.equal(moneyWords.moneyEnglishWordsFromCents(moneyWords.MONEY_MAX_CENTS + 1), '');
+
+  // 千分位小写
+  assert.equal(moneyWords.moneyDigitsText(0), '¥0.00');
+  assert.equal(moneyWords.moneyDigitsText(5), '¥0.05');
+  assert.equal(moneyWords.moneyDigitsText(100), '¥1.00');
+  assert.equal(moneyWords.moneyDigitsText(123456), '¥1,234.56');
+  assert.equal(moneyWords.moneyDigitsText(100000000), '¥1,000,000.00');
+  assert.equal(moneyWords.moneyDigitsText(moneyWords.MONEY_MAX_CENTS), '¥999,999,999,999.99');
+  assert.equal(moneyWords.moneyDigitsText(-1), '');
+
+  // 复制用的整句（历史记录也用它）：小写 + 读法，中英各取当前语言
+  assert.equal(moneyWords.moneyResultText(123456, false),
+    '¥1,234.56 = 人民币壹仟贰佰叁拾肆元伍角陆分');
+  assert.equal(moneyWords.moneyResultText(123456, true),
+    '¥1,234.56 = RMB one thousand two hundred thirty-four yuan and five jiao six fen');
+  assert.equal(moneyWords.moneyResultText(-1, false), '');
+}
+
+// --- 身份证 / 银行卡校验（2026-10-23，第 28 个工具 `idcheck`）---
+// 口径：身份证只校验格式 + MOD 11-2 校验位 + 生日合法性 + 由号码推字段；银行卡只做 Luhn + 长度 +
+// 卡组织**参考**前缀。号码不落盘、不写历史（`HistoryKinds` 里没有对应类别，模型里也不写日志）。
+{
+  // 省级码表：32 个内地省级 + 港澳台 + 「国外」= 35 条；前两位不重复、中英不同名
+  assert.equal(idCheck.ID_PROVINCE_PREFIXES.length, 35);
+  assert.equal(new Set(idCheck.ID_PROVINCE_PREFIXES.map((item) => item.prefix)).size, 35);
+  for (const item of idCheck.ID_PROVINCE_PREFIXES) {
+    assert.ok(/^[0-9]{2}$/.test(item.prefix), `province prefix ${item.prefix}`);
+    assert.ok(item.zh.length > 0 && item.en.length > 0 && item.zh !== item.en);
+  }
+  assert.equal(idCheck.idProvinceName('11', false), '北京');
+  assert.equal(idCheck.idProvinceName('11', true), 'Beijing');
+  assert.equal(idCheck.idProvinceName('71', false), '台湾');
+  assert.equal(idCheck.idProvinceName('91', true), 'Overseas');
+  assert.equal(idCheck.idProvinceName('99', false), '', '未登记前缀不猜');
+
+  // 闰年与月份天数（生日合法性的基础）
+  assert.equal(idCheck.daysInMonth(2024, 2), 29);
+  assert.equal(idCheck.daysInMonth(2025, 2), 28);
+  assert.equal(idCheck.daysInMonth(2000, 2), 29);
+  assert.equal(idCheck.daysInMonth(1900, 2), 28);
+  assert.equal(idCheck.daysInMonth(2026, 4), 30);
+  assert.equal(idCheck.daysInMonth(2026, 12), 31);
+  assert.equal(idCheck.daysInMonth(2026, 13), 0);
+  assert.equal(idCheck.daysInMonth(2026, 0), 0);
+
+  // 校验位：权重表 + `10X98765432` 映射
+  assert.equal(idCheck.idCardChecksum('11010119900101001'), '5');
+  assert.equal(idCheck.idCardChecksum('44030119851231123'), '4');
+  assert.equal(idCheck.idCardChecksum(''), '');
+  assert.equal(idCheck.idCardChecksum('1101011990010100'), '', '16 位不算');
+  assert.equal(idCheck.idCardChecksum('1101011990010100X'), '', '含字母不算');
+
+  // 归一化：去空白、小写 x 升大写、15 位升 18 位
+  assert.equal(idCheck.normalizeIdCard(' 110101 199001010015 '), '110101199001010015');
+  assert.equal(idCheck.normalizeIdCard('11010119900101001x'), '11010119900101001X');
+  assert.equal(idCheck.normalizeIdCard('110101900101001'), '110101199001010015', '15 位补 19 并算校验位');
+  assert.equal(idCheck.normalizeIdCard('11010119900101001'), '', '17 位不算');
+  assert.equal(idCheck.normalizeIdCard('11010119900101001Y'), '', '非法字符');
+  assert.equal(idCheck.normalizeIdCard(''), '');
+
+  const now = new Date(2026, 9, 23, 12, 0, 0, 0).getTime();
+  // 通过：生日/性别/年龄/省份都按号码推出
+  const ok = idCheck.idCardResult('110101199001010015', now);
+  assert.equal(ok.code, 'ok');
+  assert.equal(ok.value, '110101199001010015');
+  assert.equal(ok.birthday, '1990-01-01');
+  assert.equal(ok.gender, 'male', '第 17 位是奇数 → 男');
+  assert.equal(ok.provincePrefix, '11');
+  assert.equal(ok.age, 36);
+  const female = idCheck.idCardResult('310101199912310024', now);
+  assert.equal(female.code, 'ok');
+  assert.equal(female.gender, 'female');
+  assert.equal(female.birthday, '1999-12-31');
+  assert.equal(female.age, 26, '生日还没到 → 未满 27');
+  assert.equal(idCheck.idCardResult('440301198512311234', now).age, 40);
+  // 年龄跨生日当天：生日前一天 35、当天 36
+  assert.equal(idCheck.idCardResult('110101199001010015', new Date(2025, 11, 31, 12).getTime()).age, 35);
+  assert.equal(idCheck.idCardResult('110101199001010015', new Date(2026, 0, 1, 12).getTime()).age, 36);
+  assert.equal(idCheck.idCardResult('110101199001010015', Number.NaN).age, -1, '时基非法时不猜年龄');
+  // 闰日生日本身合法
+  assert.equal(idCheck.idCardResult('110101200002290018', now).code, 'ok');
+  assert.equal(idCheck.idCardResult('110101200002290018', now).birthday, '2000-02-29');
+  // 各错误码互不混淆
+  assert.equal(idCheck.idCardResult('', now).code, 'empty');
+  assert.equal(idCheck.idCardResult('   ', now).code, 'empty');
+  assert.equal(idCheck.idCardResult('123', now).code, 'format');
+  assert.equal(idCheck.idCardResult('110101199001010016', now).code, 'checksum', '校验位不符');
+  assert.equal(idCheck.idCardResult('110101199001010016', now).birthday, '',
+    '校验位不符时不给推出来的字段（号码本身不可信）');
+  assert.equal(idCheck.idCardResult('110101202502290013', now).code, 'date', '2025-02-29 不存在');
+  assert.equal(idCheck.idCardResult('110101202502290013', now).birthday, '');
+  // 文案：四类分开，中英不同；`ok` 返回空串（由摘要句负责）
+  assert.equal(idCheck.idCardErrorText('ok', false), '');
+  assert.equal(idCheck.idCardErrorText('empty', false), '请输入号码');
+  assert.ok(idCheck.idCardErrorText('format', false).includes('18 位'));
+  assert.equal(idCheck.idCardErrorText('checksum', true), 'The check digit does not match this number');
+  assert.equal(idCheck.idCardErrorText('date', false), '号码里的出生日期不存在');
+  assert.notEqual(idCheck.idCardErrorText('date', false), idCheck.idCardErrorText('date', true));
+  // 摘要句（复制用）：中英各一份、含关键字段、非 ok 时为空串
+  assert.equal(idCheck.idCardSummaryText(ok, false),
+    '身份证校验通过 · 生日 1990-01-01 · 男 · 年龄 36 · 省份 北京');
+  assert.equal(idCheck.idCardSummaryText(ok, true),
+    'ID card check passed · birth date 1990-01-01 · male · age 36 · province Beijing');
+  assert.equal(idCheck.idCardSummaryText(idCheck.idCardResult('', now), false), '');
+  const unknownProvince = idCheck.idCardResult('990101199001010019', now);
+  assert.equal(unknownProvince.code, 'ok');
+  assert.ok(idCheck.idCardSummaryText(unknownProvince, false).includes('未能识别省份'));
+
+  // 银行卡：归一化、分组、Luhn、长度
+  assert.equal(idCheck.normalizeBankCard(' 4111 1111-1111 1111 '), '4111111111111111');
+  assert.equal(idCheck.normalizeBankCard('4111x'), '');
+  assert.equal(idCheck.normalizeBankCard(''), '');
+  assert.equal(idCheck.groupBankCard('4111111111111111'), '4111 1111 1111 1111');
+  assert.equal(idCheck.groupBankCard('378282246310005'), '3782 8224 6310 005', '末组不足 4 位照常显示');
+  assert.equal(idCheck.groupBankCard(''), '');
+  assert.equal(idCheck.luhnValid('4111111111111111'), true);
+  assert.equal(idCheck.luhnValid('4111111111111112'), false);
+  assert.equal(idCheck.luhnValid('12345678901'), false, '长度不足 12 位');
+  assert.equal(idCheck.luhnValid('4111 1111 1111 1111'), false, '含空格不算（先归一化）');
+
+  // 卡组织参考识别（前缀表 + 四位号段）
+  assert.equal(idCheck.bankBrand('4111111111111111').id, 'visa');
+  assert.equal(idCheck.bankBrand('6200000000000005').id, 'unionpay');
+  assert.equal(idCheck.bankBrand('5105105105105100').id, 'mastercard');
+  assert.equal(idCheck.bankBrand('2223003122003222').id, 'mastercard', '2221–2720 号段');
+  assert.equal(idCheck.bankBrand('378282246310005').id, 'amex');
+  assert.equal(idCheck.bankBrand('3530111333300000').id, 'jcb');
+  assert.equal(idCheck.bankBrand('6011111111111117').id, 'discover');
+  assert.equal(idCheck.bankBrand('30569309025904').id, 'diners');
+  assert.equal(idCheck.bankBrand('9999999999999999'), undefined, '未识别不猜');
+  assert.equal(idCheck.bankBrand(''), undefined);
+  assert.equal(idCheck.bankBrandText('visa', false), 'Visa');
+  assert.equal(idCheck.bankBrandText('unionpay', false), '银联');
+  assert.equal(idCheck.bankBrandText('nope', false), '未能识别卡组织');
+  assert.equal(idCheck.bankBrandText('nope', true), 'Card network not recognised');
+
+  const bankOk = idCheck.bankCardResult('4111 1111 1111 1111');
+  assert.equal(bankOk.code, 'ok');
+  assert.equal(bankOk.value, '4111111111111111');
+  assert.equal(bankOk.brandId, 'visa');
+  assert.equal(bankOk.grouped, '4111 1111 1111 1111');
+  assert.equal(idCheck.bankCardResult('').code, 'empty');
+  assert.equal(idCheck.bankCardResult('4111-1111-1111-111x').code, 'format');
+  assert.equal(idCheck.bankCardResult('12345678901').code, 'length');
+  assert.equal(idCheck.bankCardResult('123456789012345678901').code, 'length', '20 位越界');
+  assert.equal(idCheck.bankCardResult('4111111111111112').code, 'luhn');
+  assert.equal(idCheck.bankCardResult('4111111111111112').grouped, '4111 1111 1111 1112',
+    'Luhn 不符也给出分组号码，便于对照敲错的那一位');
+  assert.equal(idCheck.bankCardResult('9999999999999995').brandId, '', '未识别卡组织给空 id');
+  // 文案与摘要：卡组织一律带「参考」二字
+  assert.equal(idCheck.bankCardErrorText('ok', false), '');
+  assert.equal(idCheck.bankCardErrorText('empty', true), 'Enter the number');
+  assert.equal(idCheck.bankCardErrorText('format', false), '只能填数字（空格与连字符会被忽略）');
+  assert.equal(idCheck.bankCardErrorText('length', false), '银行卡号是 12 到 19 位数字');
+  assert.ok(idCheck.bankCardErrorText('luhn', false).includes('Luhn'));
+  assert.equal(idCheck.bankCardSummaryText(bankOk, false),
+    '银行卡校验通过 · 卡组织 Visa（参考） · 4111 1111 1111 1111');
+  assert.ok(idCheck.bankCardSummaryText(bankOk, true).includes('(reference)'));
+  assert.equal(idCheck.bankCardSummaryText(idCheck.bankCardResult(''), false), '');
+
+  // 类型登记表
+  assert.equal(idCheck.ID_CHECK_MODES.length, 2);
+  assert.deepEqual(idCheck.ID_CHECK_MODES.map((mode) => mode.id), ['id', 'bank']);
+  for (const mode of idCheck.ID_CHECK_MODES) {
+    assert.ok(mode.zh.length > 0 && mode.en.length > 0 && mode.zh !== mode.en);
+  }
+  // 长度边界只有一份（扫描提取与校验共用；写死 12/19 的地方会是漂移源）
+  assert.equal(idCheck.BANK_CARD_MIN_DIGITS, 12);
+  assert.equal(idCheck.BANK_CARD_MAX_DIGITS, 19);
+  assert.equal(idCheck.luhnValid('4'.repeat(idCheck.BANK_CARD_MIN_DIGITS)), false,
+    '12 位也要按 Luhn 判，不是「位数够就算过」');
+  assert.equal(idCheck.luhnValid('4'.repeat(idCheck.BANK_CARD_MIN_DIGITS - 1)), false, '低于下界不通过');
+}
+
+// --- 证件扫描取号（2026-10-23：身份证 / 银行卡支持拍照或从相册识别号码）---
+// 口径（`model/CardScan.ets`）：OCR 文本 → 号码，三步优先级 = 独立片段 → 压实滑窗 → 兜底片段。
+// **校验位是把关条件**：滑窗会从几百个候选里挑，没有校验位把关就是在掷骰子；而「形态完整但校验位不符」
+// 的独立片段仍然填进去（认错一位时用户能对着证件核对），并标记 `verified = false`。
+{
+  // 身份证：号码整段读出来（最常见形态）
+  const plain = cardScan.extractIdCardNumber('姓名 张三\n公民身份号码 110101199001010015');
+  assert.equal(plain.value, '110101199001010015');
+  assert.equal(plain.verified, true);
+  // 与校验模型同一结论：挑出来的号码必须是 `idCardResult()` 认可的号码
+  assert.equal(idCheck.idCardResult(plain.value, new Date(2026, 9, 23, 12).getTime()).code, 'ok');
+
+  // 被空格拆开 / 按分组打印：压实后滑窗（只认校验位一致的）
+  assert.equal(cardScan.extractIdCardNumber('110101 19900101 0015').value, '110101199001010015');
+  assert.equal(cardScan.extractIdCardNumber('110101 19900101 0015').verified, true);
+
+  // 出生日期与号码粘在同一行：滑窗必须挑出真正的那个 18 位，而不是从第 0 位切一个假的
+  const glued = cardScan.extractIdCardNumber('出生 1990 01 01 公民身份号码 110101199001010015');
+  assert.equal(glued.value, '110101199001010015');
+  assert.equal(glued.verified, true);
+
+  // 跨行拆开：整段压实后仍能找到
+  assert.equal(cardScan.extractIdCardNumber('110101\n19900101\n0015').value, '110101199001010015');
+
+  // 15 位旧号：升位后的校验位是按同一套权重算出来的
+  const legacy = cardScan.extractIdCardNumber('110101900101001');
+  assert.equal(legacy.value, '110101199001010015');
+  assert.equal(legacy.verified, true);
+
+  // 认错一位：填进去但标记「校验位不符」，而不是既不填也不说
+  const wrong = cardScan.extractIdCardNumber('公民身份号码 110101199001010016');
+  assert.equal(wrong.value, '110101199001010016');
+  assert.equal(wrong.verified, false);
+
+  // 图里没有号码：空串（绝不猜）
+  assert.equal(cardScan.extractIdCardNumber('姓名 张三\n性别 男\n民族 汉').value, '');
+  assert.equal(cardScan.extractIdCardNumber('').value, '');
+  assert.equal(cardScan.extractIdCardNumber('签发日期 2015.03.12 有效期限 2025.03.12').value, '',
+    '只有日期时不给候选');
+  assert.equal(cardScan.extractIdCardNumber('110101 1990 0101 001').value, '', '位数不够不给候选');
+
+  // 银行卡：整段数字
+  const card = cardScan.extractBankCardNumber('4111111111111111');
+  assert.equal(card.value, '4111111111111111');
+  assert.equal(card.verified, true);
+  // 四位分组 + 前面夹着标签
+  assert.equal(cardScan.extractBankCardNumber('卡号 4111 1111 1111 1111').value, '4111111111111111');
+  // 与有效期粘在一起：从长到短滑窗要挑出真正的卡号（而不是它的某个短子串）
+  assert.equal(cardScan.extractBankCardNumber('卡号 4111 1111 1111 1111 有效期 12/25').value,
+    '4111111111111111');
+  // 银联号段同样能挑出来（卡组织参考由 `IdCheck.bankBrand()` 负责，这里只保证号码对）
+  const unionpay = cardScan.extractBankCardNumber('6222 0212 3456 7894 12/25');
+  assert.equal(unionpay.value, '6222021234567894');
+  assert.equal(unionpay.verified, true);
+  assert.equal(idCheck.bankBrand(unionpay.value).id, 'unionpay');
+  // 认错一位：填进去但 Luhn 不符（页面会显示分组号码与卡组织供对照）
+  const badCard = cardScan.extractBankCardNumber('4111 1111 1111 1112');
+  assert.equal(badCard.value, '4111111111111112');
+  assert.equal(badCard.verified, false);
+  // 没有号码
+  assert.equal(cardScan.extractBankCardNumber('有效期 12/25 CVV 123').value, '');
+  assert.equal(cardScan.extractBankCardNumber('').value, '');
+
+  // 状态文案：每种码中英各一份、互不相同，未知码如实说「未完成」（不兜底成某个具体原因）
+  const scanCodes = ['ok', 'unverified', 'none', 'unsupported', 'capture', 'failed'];
+  for (const code of scanCodes) {
+    for (const mode of ['id', 'bank']) {
+      const zh = cardScan.cardScanStatusText(code, mode, false);
+      const en = cardScan.cardScanStatusText(code, mode, true);
+      assert.ok(zh.length > 0 && en.length > 0, `${code}/${mode} 文案非空`);
+      assert.notEqual(zh, en, `${code}/${mode} 中英不同`);
+      assert.equal(zh.includes('110101'), false, '提示语里不能出现号码本身');
+    }
+  }
+  assert.ok(cardScan.cardScanStatusText('none', 'id', false).includes('身份证号'));
+  assert.ok(cardScan.cardScanStatusText('none', 'bank', false).includes('银行卡号'));
+  assert.ok(cardScan.cardScanStatusText('none', 'id', true).includes('ID number'));
+  assert.ok(cardScan.cardScanStatusText('unsupported', 'id', false).includes('不支持'));
+  assert.ok(cardScan.cardScanStatusText('capture', 'bank', false).includes('相册'));
+  assert.equal(cardScan.cardScanStatusText('nope', 'id', false), '扫描未完成');
+  assert.equal(cardScan.cardScanStatusText('nope', 'id', true), 'Scanning did not complete');
+}
+
+// --- 世界时钟（2026-10-23，第 29 个工具 `worldclock`）---
+// 口径：城市清单复用 `TIME_ZONES`（不另抄一份）；偏移由调用方注入（生产含夏令时）；
+// 设备不支持该时区时该行 `unsupported`，时间留空——**不显示 0、不回退本机**。
+{
+  // 可添加的城市 = IANA 城市条目（排除「本机」哨兵与 UTC±HH:MM 固定偏移条目）
+  const addable = worldClock.worldClockAddable();
+  assert.equal(addable.length, 17, '登记表 28 项 = 17 个 IANA 城市 + 本机 + 10 条固定偏移');
+  assert.equal(addable.some((entry) => entry.id === 'local'), false, '本机不是可添加城市');
+  assert.equal(addable.some((entry) => Number.isFinite(entry.fixedOffsetMinutes)), false,
+    '固定偏移条目不是城市');
+  assert.equal(worldClock.worldClockIsAddable('Asia/Tokyo'), true);
+  assert.equal(worldClock.worldClockIsAddable('local'), false);
+  assert.equal(worldClock.worldClockIsAddable('UTC'), false);
+  assert.equal(worldClock.worldClockIsAddable('UTC+05:00'), false);
+  assert.equal(worldClock.worldClockIsAddable('Nope/Nowhere'), false);
+  assert.equal(worldClock.worldClockIsAddable(''), false);
+
+  // 清单解析：坏 JSON/非数组空表；单条非法只丢那一条；去重保序；按上限截断
+  assert.deepEqual(worldClock.parseWorldClockCities(''), []);
+  assert.deepEqual(worldClock.parseWorldClockCities('   '), []);
+  assert.deepEqual(worldClock.parseWorldClockCities('{bad json'), []);
+  assert.deepEqual(worldClock.parseWorldClockCities('"x"'), []);
+  assert.deepEqual(worldClock.parseWorldClockCities('{"a":1}'), []);
+  assert.deepEqual(worldClock.parseWorldClockCities(undefined), []);
+  assert.deepEqual(
+    worldClock.parseWorldClockCities(JSON.stringify(['Asia/Tokyo', 'Asia/Tokyo', 'local', 'UTC',
+      'Nope/Nowhere', 'Europe/London'])),
+    ['Asia/Tokyo', 'Europe/London'], '去重 + 只留可添加的城市 + 保序');
+  const allCities = addable.map((entry) => entry.id);
+  assert.equal(allCities.length, 17);
+  assert.equal(worldClock.parseWorldClockCities(JSON.stringify(allCities)).length, worldClock.WORLD_CLOCK_MAX);
+  assert.equal(worldClock.WORLD_CLOCK_MAX, 12);
+  assert.deepEqual(worldClock.parseWorldClockCities(JSON.stringify(allCities)).slice(0, 2),
+    ['Asia/Shanghai', 'Asia/Hong_Kong'], '截断是保序的（先添加的优先保留）');
+  assert.equal(worldClock.serializeWorldClockCities(['local', 'Asia/Tokyo', 'Asia/Tokyo']),
+    JSON.stringify(['Asia/Tokyo']));
+  assert.equal(worldClock.serializeWorldClockCities([]), '[]');
+  assert.equal(worldClock.serializeWorldClockCities(undefined), '[]');
+
+  // 列表操作都返回**新数组**（交给 @Local 才会刷新），越界/非法原样返回
+  const added = worldClock.worldClockAdd([], 'Asia/Tokyo');
+  assert.deepEqual(added, ['Asia/Tokyo']);
+  assert.notEqual(added, []);
+  assert.deepEqual(worldClock.worldClockAdd(added, 'Asia/Tokyo'), ['Asia/Tokyo'], '不重复添加');
+  assert.deepEqual(worldClock.worldClockAdd(added, 'UTC'), ['Asia/Tokyo'], '固定偏移条目加不进来');
+  assert.deepEqual(worldClock.worldClockAdd(allCities.slice(0, worldClock.WORLD_CLOCK_MAX), 'Pacific/Auckland').length,
+    worldClock.WORLD_CLOCK_MAX, '满了不再加');
+  assert.deepEqual(worldClock.worldClockRemoveAt(['Asia/Tokyo', 'Europe/London'], 0), ['Europe/London']);
+  assert.deepEqual(worldClock.worldClockRemoveAt(['Asia/Tokyo', 'Europe/London'], 1), ['Asia/Tokyo']);
+  assert.deepEqual(worldClock.worldClockRemoveAt(['Asia/Tokyo'], 5), ['Asia/Tokyo'], '越界下标不动');
+  assert.deepEqual(worldClock.worldClockRemoveAt(['Asia/Tokyo'], -1), ['Asia/Tokyo']);
+  assert.deepEqual(worldClock.worldClockRemoveAt(['Asia/Tokyo'], 0.5), ['Asia/Tokyo'], '非整数下标不动');
+  assert.equal(worldClock.worldClockCityName('Asia/Tokyo', false), '东京');
+  assert.equal(worldClock.worldClockCityName('Asia/Tokyo', true), 'Tokyo');
+  assert.equal(worldClock.worldClockCityName('local', false), '', '本机不是城市行');
+  assert.equal(worldClock.worldClockCityName('Nope/Nowhere', false), '');
+
+  // 行拼装：注入偏移（生产传系统 i18n 结果），断言与运行机器时区无关
+  const offsets = { 'Asia/Shanghai': 480, 'Asia/Tokyo': 540, 'Europe/London': 60,
+    'America/New_York': -240, 'Pacific/Auckland': 780 };
+  const offsetOf = (zoneId) => (zoneId in offsets ? offsets[zoneId] : Number.NaN);
+  const instant = Date.UTC(2026, 9, 23, 4, 0, 0); // 2026-10-23T04:00Z
+  const rows = worldClock.worldClockRows(
+    ['Asia/Shanghai', 'Europe/London', 'America/New_York', 'Pacific/Auckland'],
+    instant, 480, offsetOf, false);
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map((row) => row.cityId),
+    ['Asia/Shanghai', 'Europe/London', 'America/New_York', 'Pacific/Auckland'], '顺序即用户添加顺序');
+  assert.equal(rows[0].timeText, '12:00');
+  assert.equal(rows[0].dateText, '2026-10-23');
+  assert.equal(rows[0].offsetText, 'UTC+08:00');
+  assert.equal(rows[0].diffText, '与本机相同');
+  assert.equal(rows[0].dayDiff, 0);
+  assert.equal(rows[0].night, false, '12:00 属白天');
+  assert.equal(rows[0].unsupported, false);
+  assert.equal(rows[1].timeText, '05:00');
+  assert.equal(rows[1].night, true, '05:00 属夜间');
+  assert.equal(rows[1].diffText, '比本机慢 7 小时');
+  assert.equal(rows[2].timeText, '00:00');
+  assert.equal(rows[2].diffText, '比本机慢 12 小时');
+  assert.equal(rows[3].timeText, '17:00', '奥克兰 10 月是夏令时 +13（这里注入的就是 780）');
+  assert.equal(rows[3].night, false);
+  // 日/夜边界：06:00 是白天、18:00 是夜间
+  const boundary = worldClock.worldClockRows(['Asia/Shanghai'], Date.UTC(2026, 9, 22, 22, 0, 0), 480, offsetOf, false);
+  assert.equal(boundary[0].timeText, '06:00');
+  assert.equal(boundary[0].night, false);
+  const evening = worldClock.worldClockRows(['Asia/Shanghai'], Date.UTC(2026, 9, 23, 10, 0, 0), 480, offsetOf, false);
+  assert.equal(evening[0].timeText, '18:00');
+  assert.equal(evening[0].night, true);
+  // 日差：本机在 2026-10-24 04:00（+08:00），纽约还停在前一天 → 昨天
+  const past = worldClock.worldClockRows(['America/New_York'],
+    Date.UTC(2026, 9, 23, 20, 0, 0), 480, offsetOf, false);
+  assert.equal(past[0].dateText, '2026-10-23');
+  assert.equal(past[0].dayDiff, -1);
+  assert.equal(worldClock.worldClockDayDiffText(past[0].dayDiff, false), '昨天');
+  // 日差：本机在 2026-10-22 22:00（-04:00），上海已是 10-23 → 明天
+  const ahead = worldClock.worldClockRows(['Asia/Shanghai'],
+    Date.UTC(2026, 9, 23, 2, 0, 0), -240, offsetOf, false);
+  assert.equal(ahead[0].dateText, '2026-10-23');
+  assert.equal(ahead[0].dayDiff, 1);
+  assert.equal(worldClock.worldClockDayDiffText(ahead[0].dayDiff, true), 'Tomorrow');
+  // 设备不支持该时区：偏移 NaN → unsupported，时间空串（绝不显示 0）
+  const unsupported = worldClock.worldClockRows(['Europe/Paris'], instant, 480, offsetOf, false);
+  assert.equal(unsupported.length, 1);
+  assert.equal(unsupported[0].unsupported, true);
+  assert.equal(unsupported[0].timeText, '');
+  assert.equal(unsupported[0].dateText, '');
+  assert.equal(unsupported[0].offsetText, '');
+  assert.equal(unsupported[0].name, '巴黎');
+  assert.equal(worldClock.worldClockUnsupportedText(false), '当前设备不支持该时区');
+  assert.equal(worldClock.worldClockRows([], instant, 480, offsetOf, false).length, 0);
+  // 传入的清单同样先规范化（未知 id 不会产出「空名字行」）
+  assert.equal(worldClock.worldClockRows(['local', 'UTC', 'Nope/Nowhere'], instant, 480, offsetOf, false).length, 0);
+
+  assert.equal(worldClock.worldClockLocalText(instant, 480), '2026-10-23 12:00:00');
+  assert.equal(worldClock.worldClockLocalText(instant, -240), '2026-10-23 00:00:00');
+  assert.equal(worldClock.worldClockLocalText(Number.NaN, 480), '', '瞬间非法时留空，不猜');
+  // 日夜与日差文案
+  assert.equal(worldClock.worldClockDayPartText(false, false), '白天');
+  assert.equal(worldClock.worldClockDayPartText(true, true), 'Night');
+  assert.equal(worldClock.worldClockDayDiffText(0, false), '今天');
+  assert.equal(worldClock.worldClockDayDiffText(1, false), '明天');
+  assert.equal(worldClock.worldClockDayDiffText(2, false), '后天');
+  assert.equal(worldClock.worldClockDayDiffText(-2, false), '前天');
+  assert.equal(worldClock.worldClockDayDiffText(-3, false), '早 3 天');
+  assert.equal(worldClock.worldClockDayDiffText(3, true), 'In 3 days');
+  assert.equal(worldClock.worldClockDayDiffText(Number.NaN, false), '');
+  // 其余文案：中英不同、确认框带真实数量
+  assert.notEqual(worldClock.worldClockEmptyText(false), worldClock.worldClockEmptyText(true));
+  assert.ok(worldClock.worldClockFullText(false).includes('12'));
+  assert.ok(worldClock.worldClockClearConfirmText(3, false).includes('3'));
+  assert.ok(worldClock.worldClockClearConfirmText(3, true).includes('3'));
+  assert.ok(worldClock.worldClockClearConfirmText(0, false).includes('0'));
+  assert.equal(worldClock.worldClockClearConfirmText(Number.NaN, false).includes('NaN'), false,
+    '数量非法时按 0 算，不把 NaN 写进确认框');
+  assert.notEqual(worldClock.worldClockNoteText(false), worldClock.worldClockNoteText(true));
+  assert.ok(worldClock.worldClockNoteText(false).includes('夏令时'));
+}
+
+// --- 番茄钟（2026-10-23，计时第 3 种方式 `pomodoro`）---
+// 口径：三阶段状态机（工作 → 短休 / 每 4 轮长休）；只有自然结束的工作阶段计入轮次；
+// 状态用不可变复制（页面必须整体换新实例，`this.x = this.x` 在 V2 里不触发刷新）。
+{
+  assert.equal(pomodoro.POMODORO_ROUNDS_BEFORE_LONG, 4);
+  assert.deepEqual(pomodoro.POMODORO_PHASE_IDS, ['work', 'short', 'long']);
+
+  // 有界分钟域：滚轮选项与校验共用同一组边界常量
+  const workOptions = pomodoro.pomodoroWorkOptions();
+  const shortOptions = pomodoro.pomodoroShortOptions();
+  const longOptions = pomodoro.pomodoroLongOptions();
+  assert.equal(workOptions.length, 56, '5..60');
+  assert.equal(workOptions[0], '5');
+  assert.equal(workOptions[workOptions.length - 1], '60');
+  assert.equal(shortOptions.length, 30, '1..30');
+  assert.equal(shortOptions[0], '1');
+  assert.equal(shortOptions[shortOptions.length - 1], '30');
+  assert.equal(longOptions.length, 56, '5..60');
+  assert.equal(pomodoro.POMODORO_WORK_MIN_MINUTES, 5);
+  assert.equal(pomodoro.POMODORO_WORK_MAX_MINUTES, 60);
+  assert.equal(pomodoro.POMODORO_SHORT_MIN_MINUTES, 1);
+  assert.equal(pomodoro.POMODORO_SHORT_MAX_MINUTES, 30);
+  assert.equal(pomodoro.POMODORO_LONG_MIN_MINUTES, 5);
+  assert.equal(pomodoro.POMODORO_LONG_MAX_MINUTES, 60);
+  // 夹取：非法（NaN/小数）回最小值；越界夹到端点
+  assert.equal(pomodoro.pomodoroClampMinutes(25, 5, 60), 25);
+  assert.equal(pomodoro.pomodoroClampMinutes(3, 5, 60), 5);
+  assert.equal(pomodoro.pomodoroClampMinutes(99, 5, 60), 60);
+  assert.equal(pomodoro.pomodoroClampMinutes(1.5, 5, 60), 5);
+  assert.equal(pomodoro.pomodoroClampMinutes(Number.NaN, 5, 60), 5);
+  const wildSettings = new pomodoro.PomodoroSettings();
+  wildSettings.workMinutes = 0;
+  wildSettings.shortMinutes = 999;
+  wildSettings.longMinutes = 1;
+  wildSettings.autoStart = 'yes';
+  const safeSettings = pomodoro.pomodoroClampSettings(wildSettings);
+  assert.equal(safeSettings.workMinutes, 5);
+  assert.equal(safeSettings.shortMinutes, 30);
+  assert.equal(safeSettings.longMinutes, 5);
+  assert.equal(safeSettings.autoStart, false, '非布尔一律按 false');
+
+  // 阶段时长
+  const settings = new pomodoro.PomodoroSettings();
+  assert.equal(pomodoro.pomodoroPhaseDurationMs('work', settings), 25 * 60000);
+  assert.equal(pomodoro.pomodoroPhaseDurationMs('short', settings), 5 * 60000);
+  assert.equal(pomodoro.pomodoroPhaseDurationMs('long', settings), 15 * 60000);
+  assert.equal(pomodoro.pomodoroPhaseDurationMs('nope', settings), 25 * 60000, '未知阶段按工作处理');
+
+  // 初始状态与「开始 / 暂停 / 继续」
+  const initial = pomodoro.defaultPomodoroState();
+  assert.equal(initial.phase, 'work');
+  assert.equal(initial.running, false);
+  assert.equal(initial.remainingMs, 25 * 60000);
+  assert.equal(initial.completedRounds, 0);
+  assert.equal(initial.reminderId, -1);
+  const started = pomodoro.pomodoroStart(initial, 1000);
+  assert.equal(started.running, true);
+  assert.equal(started.phaseEndMs, 1000 + 25 * 60000);
+  assert.equal(started.remainingMs, 0);
+  assert.equal(initial.running, false, '不可变：原状态不被改写');
+  assert.notEqual(started, initial);
+  assert.equal(pomodoro.pomodoroRemainingMs(started, 1000), 25 * 60000);
+  assert.equal(pomodoro.pomodoroRemainingMs(started, 1000 + 60000), 24 * 60000);
+  assert.equal(pomodoro.pomodoroRemainingMs(started, 1000 + 99 * 60000), 0, '不会给出负数');
+  assert.equal(pomodoro.pomodoroRemainingMs(started, Number.NaN), 0);
+  const paused = pomodoro.pomodoroPause(started, 1000 + 60000);
+  assert.equal(paused.running, false);
+  assert.equal(paused.remainingMs, 24 * 60000);
+  assert.equal(paused.phaseEndMs, 0);
+  assert.equal(pomodoro.pomodoroPause(paused, 2000).remainingMs, 24 * 60000, '已暂停再暂停不动剩余');
+  const resumed = pomodoro.pomodoroStart(paused, 5000);
+  assert.equal(resumed.running, true);
+  assert.equal(resumed.phaseEndMs, 5000 + 24 * 60000);
+  assert.equal(pomodoro.pomodoroStart(started, 9000).phaseEndMs, started.phaseEndMs, '运行中再开始不动');
+
+  // 阶段推进：工作结束才计轮次；第 4 轮工作结束进长休；休息结束回工作
+  const afterFirstWork = pomodoro.pomodoroAdvance(started, true);
+  assert.equal(afterFirstWork.phase, 'short');
+  assert.equal(afterFirstWork.completedRounds, 1);
+  assert.equal(afterFirstWork.running, false, '是否自动开始由页面按设置决定');
+  assert.equal(afterFirstWork.remainingMs, 5 * 60000);
+  assert.equal(afterFirstWork.reminderId, -1, '推进阶段时清掉旧提醒 id');
+  const skippedWork = pomodoro.pomodoroAdvance(started, false);
+  assert.equal(skippedWork.phase, 'short');
+  assert.equal(skippedWork.completedRounds, 0, '跳过不计轮次');
+  const afterShort = pomodoro.pomodoroAdvance(afterFirstWork, false);
+  assert.equal(afterShort.phase, 'work');
+  assert.equal(afterShort.completedRounds, 1, '休息阶段不影响轮次');
+  assert.equal(afterShort.remainingMs, 25 * 60000);
+  // 第 4 个工作阶段自然结束 → 长休
+  const threeRounds = pomodoro.pomodoroCopy(afterShort);
+  threeRounds.completedRounds = 3;
+  const fourth = pomodoro.pomodoroAdvance(threeRounds, true);
+  assert.equal(fourth.completedRounds, 4);
+  assert.equal(fourth.phase, 'long');
+  assert.equal(fourth.remainingMs, 15 * 60000);
+  const afterLong = pomodoro.pomodoroAdvance(fourth, false);
+  assert.equal(afterLong.phase, 'work');
+  assert.equal(afterLong.completedRounds, 4);
+  // 重置整轮
+  const reset = pomodoro.pomodoroReset(fourth);
+  assert.equal(reset.phase, 'work');
+  assert.equal(reset.completedRounds, 0);
+  assert.equal(reset.running, false);
+  assert.equal(reset.remainingMs, 25 * 60000);
+  // 改设置：未运行重算剩余，运行中不动当前阶段
+  const longer = new pomodoro.PomodoroSettings();
+  longer.workMinutes = 50;
+  assert.equal(pomodoro.pomodoroWithSettings(afterShort, longer).remainingMs, 50 * 60000);
+  assert.equal(pomodoro.pomodoroWithSettings(started, longer).phaseEndMs, started.phaseEndMs);
+  assert.equal(pomodoro.pomodoroWithSettings(started, longer).settings.workMinutes, 50);
+  // 提醒 id 的写入与清除
+  assert.equal(pomodoro.pomodoroSetReminder(started, 42).reminderId, 42);
+  assert.equal(pomodoro.pomodoroSetReminder(started, 'x').reminderId, -1);
+  assert.equal(pomodoro.pomodoroClearReminder(pomodoro.pomodoroSetReminder(started, 42)).reminderId, -1);
+  // 实况窗 id 的写入与清除（2026-10-23 番茄钟接入实况窗）：与提醒同一种容错
+  assert.equal(pomodoro.pomodoroSetLiveView(started, 7).liveViewId, 7);
+  assert.equal(pomodoro.pomodoroSetLiveView(started, 'x').liveViewId, -1);
+  assert.equal(pomodoro.pomodoroSetLiveView(started, 1.5).liveViewId, -1);
+  assert.equal(pomodoro.pomodoroClearLiveView(pomodoro.pomodoroSetLiveView(started, 7)).liveViewId, -1);
+  assert.equal(pomodoro.pomodoroCopy(pomodoro.pomodoroSetLiveView(started, 7)).liveViewId, 7,
+    '复制保留实况窗 id（暂停/继续不能把 id 弄丢）');
+  // 阶段切换沿用同一个实况窗（只是更新内容），重置整轮才清掉
+  assert.equal(pomodoro.pomodoroAdvance(pomodoro.pomodoroSetLiveView(started, 7), true).liveViewId, 7);
+  assert.equal(pomodoro.pomodoroPause(pomodoro.pomodoroSetLiveView(started, 7), 2000).liveViewId, 7);
+  assert.equal(pomodoro.pomodoroReset(pomodoro.pomodoroSetLiveView(started, 7)).liveViewId, -1,
+    '重置整轮是全新状态：页面必须先用旧 id 结束实况窗');
+
+  // 落盘解析：坏数据一律回退，单字段非法只影响那一个字段
+  assert.equal(pomodoro.parsePomodoroState('').phase, 'work');
+  assert.equal(pomodoro.parsePomodoroState('').reminderId, -1);
+  assert.equal(pomodoro.parsePomodoroState('').liveViewId, -1, '旧数据没有 liveViewId 字段');
+  assert.equal(pomodoro.parsePomodoroState('{bad json').running, false);
+  assert.equal(pomodoro.parsePomodoroState('"x"').running, false);
+  assert.equal(pomodoro.parsePomodoroState(undefined).phase, 'work');
+  assert.equal(pomodoro.parsePomodoroState('{"phase":"nope"}').phase, 'work', '未知阶段回工作');
+  const runningRaw = pomodoro.parsePomodoroState(JSON.stringify({ phase: 'short', running: true,
+    phaseEndMs: 123456, remainingMs: 0, completedRounds: 2, reminderId: 7, liveViewId: 99,
+    settings: { workMinutes: 999, shortMinutes: 5, longMinutes: 15, autoStart: true } }));
+  assert.equal(runningRaw.phase, 'short');
+  assert.equal(runningRaw.running, true);
+  assert.equal(runningRaw.phaseEndMs, 123456);
+  assert.equal(runningRaw.completedRounds, 2);
+  assert.equal(runningRaw.reminderId, 7);
+  assert.equal(runningRaw.liveViewId, 99);
+  assert.equal(runningRaw.settings.workMinutes, 60, '越界设置被夹取');
+  assert.equal(runningRaw.settings.autoStart, true);
+  const halfRaw = pomodoro.parsePomodoroState(JSON.stringify({ running: true }));
+  assert.equal(halfRaw.running, false, '运行中但没有结束时刻 → 当作暂停');
+  assert.equal(halfRaw.remainingMs, 25 * 60000);
+  assert.equal(pomodoro.parsePomodoroState(JSON.stringify({ completedRounds: -3 })).completedRounds, 0);
+  assert.equal(pomodoro.parsePomodoroState(JSON.stringify({ reminderId: 'x' })).reminderId, -1);
+  assert.equal(pomodoro.parsePomodoroState(JSON.stringify({ liveViewId: 'x' })).liveViewId, -1);
+  assert.equal(pomodoro.parsePomodoroState(JSON.stringify({ remainingMs: -5 })).remainingMs, 25 * 60000);
+  // 往返：encode → parse 不丢信息
+  const roundTrip = pomodoro.parsePomodoroState(pomodoro.encodePomodoroState(runningRaw));
+  assert.equal(roundTrip.phase, 'short');
+  assert.equal(roundTrip.running, true);
+  assert.equal(roundTrip.phaseEndMs, 123456);
+  assert.equal(roundTrip.completedRounds, 2);
+  assert.equal(roundTrip.reminderId, 7);
+  assert.equal(roundTrip.liveViewId, 99, '实况窗 id 也要经得起落盘往返');
+  assert.equal(roundTrip.settings.workMinutes, 60);
+
+  // 文案
+  assert.equal(pomodoro.pomodoroPhaseLabel('work', false), '专注');
+  assert.equal(pomodoro.pomodoroPhaseLabel('short', false), '短休');
+  assert.equal(pomodoro.pomodoroPhaseLabel('long', true), 'Long break');
+  assert.equal(pomodoro.pomodoroPhaseLabel('nope', false), '专注');
+  assert.equal(pomodoro.pomodoroProgressText(initial, false), '第 1/4 轮');
+  assert.equal(pomodoro.pomodoroProgressText(afterShort, false), '第 2/4 轮');
+  assert.equal(pomodoro.pomodoroProgressText(afterShort, true), 'Round 2/4');
+  assert.equal(pomodoro.pomodoroProgressText(afterLong, false), '第 1/4 轮', '长休后回到第 1 轮');
+  assert.equal(pomodoro.pomodoroProgressText(fourth, false), '已完成 4 轮', '长休期间显示已完成轮次');
+  assert.equal(pomodoro.pomodoroProgressText(afterFirstWork, false), '已完成 1 轮');
+  assert.equal(pomodoro.pomodoroDurationText(25, false), '25 分钟');
+  assert.equal(pomodoro.pomodoroDurationText(25, true), '25 min');
+  assert.equal(pomodoro.pomodoroFinishedText('work', false), '专注结束，休息一下');
+  assert.equal(pomodoro.pomodoroFinishedText('short', true), 'Break finished — back to focus');
+  assert.equal(pomodoro.pomodoroReminderTitle('short', false), '短休');
+  assert.equal(pomodoro.pomodoroReminderContent('work', false), '专注阶段结束');
+  assert.equal(pomodoro.pomodoroReminderContent('short', true), 'Break finished');
+  // 实况窗文案（2026-10-23）：标题/进度/结束语都由模型给出，服务层不另拼一份
+  assert.equal(pomodoro.pomodoroLiveViewTitle(initial, false), '番茄钟 · 专注');
+  assert.equal(pomodoro.pomodoroLiveViewTitle(initial, true), 'Pomodoro · Focus');
+  assert.equal(pomodoro.pomodoroLiveViewTitle(afterFirstWork, false), '番茄钟 · 短休');
+  assert.equal(pomodoro.pomodoroLiveViewContent(initial, false), '第 1/4 轮');
+  assert.equal(pomodoro.pomodoroLiveViewContent(afterShort, true), 'Round 2/4');
+  assert.equal(pomodoro.pomodoroLiveViewDoneText('work', false), '专注结束');
+  assert.equal(pomodoro.pomodoroLiveViewDoneText('short', true), 'Short break finished');
+  assert.equal(pomodoro.pomodoroLiveViewDoneText('nope', false), '专注结束', '未知阶段按工作处理');
+  assert.notEqual(pomodoro.pomodoroLiveViewTitle(initial, false), pomodoro.pomodoroLiveViewTitle(initial, true));
+  assert.notEqual(pomodoro.pomodoroLiveViewDoneText('work', false),
+    pomodoro.pomodoroLiveViewDoneText('work', true));
+  assert.equal(pomodoro.pomodoroReminderText('', false), '', '成功时没有额外文案');
+  assert.ok(pomodoro.pomodoroReminderText('denied', false).includes('系统通知未允许'));
+  assert.ok(pomodoro.pomodoroReminderText('other', true).includes('Could not schedule'));
+  assert.notEqual(pomodoro.pomodoroReminderText('denied', false), pomodoro.pomodoroReminderText('denied', true));
+  // 本页专属收尾语：不要复用倒计时那句「应用内计时不受影响」以外的页面文案
+  assert.equal(pomodoro.pomodoroReminderText('denied', false).includes('**'), false);
+  assert.ok(pomodoro.pomodoroResetConfirmText(afterFirstWork, false).includes('1'));
+  assert.ok(pomodoro.pomodoroResetConfirmText(afterFirstWork, true).includes('1'));
+  assert.ok(pomodoro.pomodoroNoteText(false).includes('4'));
+  assert.ok(pomodoro.pomodoroNoteText(true).includes('4'));
+  assert.notEqual(pomodoro.pomodoroNoteText(false), pomodoro.pomodoroNoteText(true));
+  // 后台口径的如实说明（2026-10-23 收口）：应用没有后台常驻能力，必须说明「后台只通知、
+  // 自动进入下一阶段回到应用后接着进行」，不能让人以为后台会连续跑完整个循环。
+  assert.ok(pomodoro.pomodoroNoteText(false).includes('后台'), '中文要写明后台行为');
+  assert.ok(pomodoro.pomodoroNoteText(false).includes('自动进入下一阶段'), '中文要说明自动开始的时机');
+  assert.ok(pomodoro.pomodoroNoteText(true).includes('background'), '英文要写明后台行为');
+  assert.ok(pomodoro.pomodoroNoteText(true).includes('auto-start'), '英文要说明自动开始的时机');
+  // 滚轮落点（与 `NumberOptions.optionIndex()` 同一套口径：只决定停在哪，不改输入）
+  assert.equal(pomodoro.pomodoroOptionIndex(workOptions, '25'), 20);
+  assert.equal(pomodoro.pomodoroOptionIndex(workOptions, '5'), 0);
+  assert.equal(pomodoro.pomodoroOptionIndex(workOptions, ''), 0, '空串停在最小项');
+  assert.equal(pomodoro.pomodoroOptionIndex(workOptions, '3'), 0, '越界回最小项，不改输入');
+  assert.equal(pomodoro.pomodoroOptionIndex(workOptions, '0x10'), 0, '十六进制写法不算整数（只收十进制）');
+  assert.equal(pomodoro.pomodoroOptionIndex(workOptions, '999'), 56 - 1, '越上界夹到末项');
+  assert.equal(pomodoro.pomodoroOptionIndex([], '25'), 0);
+}
+
+// --- 转盘（2026-10-23，随机第 4 种方式 `wheel`）---
+// 口径：角度以 12 点为 0°、顺时针为正；扇区按权重占比分配且总和恰为 360°；
+// 「把第 i 个扇区转到指针下」与「指针下是哪个扇区」互为逆运算（下面做往返断言）。
+{
+  assert.equal(wheelTools.WHEEL_MIN_SECTORS, 2);
+  assert.equal(wheelTools.WHEEL_MAX_SECTORS, 12);
+  assert.equal(wheelTools.WHEEL_EXTRA_TURNS, 4);
+  assert.equal(wheelTools.WHEEL_LABEL_MAX, 6);
+
+  // 极坐标：0° 在正上方，顺时针为正
+  const top = wheelTools.wheelPolarPoint(0, 10);
+  assert.equal(top.x, 0);
+  assert.equal(top.y, -10);
+  const right = wheelTools.wheelPolarPoint(90, 10);
+  assert.ok(Math.abs(right.x - 10) < 1e-9);
+  assert.ok(Math.abs(right.y) < 1e-9);
+  const bottom = wheelTools.wheelPolarPoint(180, 10);
+  assert.ok(Math.abs(bottom.x) < 1e-9);
+  assert.ok(Math.abs(bottom.y - 10) < 1e-9);
+
+  // 扇区：等概率均分；按权重按占比；总和恰为 360°
+  const equalItems = randomTools.parseWeightedCandidates('甲\n乙');
+  const equalSectors = wheelTools.wheelSectors(equalItems);
+  assert.equal(equalSectors.length, 2);
+  assert.equal(equalSectors[0].startDeg, 0);
+  assert.equal(equalSectors[0].endDeg, 180);
+  assert.equal(equalSectors[0].midDeg, 90);
+  assert.equal(equalSectors[1].startDeg, 180);
+  assert.equal(equalSectors[1].endDeg, 360, '最后一块补齐到 360，不留缝');
+  assert.equal(equalSectors[1].midDeg, 270);
+  const weightedItems = randomTools.parseWeightedCandidates('甲*3\n乙');
+  const weightedSectors = wheelTools.wheelSectors(weightedItems);
+  assert.equal(weightedSectors[0].weight, 3);
+  assert.equal(weightedSectors[0].endDeg, 270);
+  assert.equal(weightedSectors[1].endDeg, 360);
+  assert.equal(weightedSectors[1].midDeg, 315);
+  const fourSectors = wheelTools.wheelSectors(randomTools.parseWeightedCandidates('a\nb\nc\nd'));
+  assert.deepEqual(fourSectors.map((sector) => sector.endDeg), [90, 180, 270, 360]);
+  assert.deepEqual(fourSectors.map((sector) => sector.midDeg), [45, 135, 225, 315]);
+  assert.deepEqual(wheelTools.wheelSectors([]), []);
+  assert.deepEqual(wheelTools.wheelSectors(randomTools.parseWeightedCandidates('只有一个')), []);
+  const thirteen = [];
+  for (let index = 0; index < 13; index++) { thirteen.push('c' + index.toString()); }
+  assert.deepEqual(wheelTools.wheelSectors(randomTools.parseWeightedCandidates(thirteen.join('\n'))), [],
+    '超过 12 项不画盘');
+  // 权重非法（0/负数）按 1 处理，角度仍然加得起来
+  const zeroWeight = [new randomTools.WeightedItem(), new randomTools.WeightedItem()];
+  zeroWeight[0].name = 'x';
+  zeroWeight[0].weight = 0;
+  zeroWeight[1].name = 'y';
+  zeroWeight[1].weight = -5;
+  const zeroSectors = wheelTools.wheelSectors(zeroWeight);
+  assert.equal(zeroSectors.length, 2);
+  assert.equal(zeroSectors[1].endDeg, 360);
+
+  // 扇区文字截断（只影响显示，不改候选名）
+  assert.equal(wheelTools.wheelLabelText('abc'), 'abc');
+  assert.equal(wheelTools.wheelLabelText('abcdefg'), 'abcde…');
+  assert.equal(wheelTools.wheelLabelText(undefined), '');
+  const labelPoints = wheelTools.wheelLabelPositions(equalSectors, 78);
+  assert.equal(labelPoints.length, 2);
+  assert.ok(Math.abs(labelPoints[0].x - 78) < 1e-9);
+  assert.ok(Math.abs(labelPoints[0].y) < 1e-9);
+  assert.ok(Math.abs(labelPoints[1].x + 78) < 1e-9);
+  assert.deepEqual(wheelTools.wheelLabelPositions(equalSectors, 0), []);
+
+  // 路径串：圆心 → 起点 → 弧 → 闭合；跨度 >180° 时 largeArc=1
+  assert.equal(wheelTools.wheelSectorPath(140, 140, 132, 0, 90), 'M 140 140 L 140 8 A 132 132 0 0 1 272 140 Z');
+  assert.ok(wheelTools.wheelSectorPath(140, 140, 132, 0, 270).includes(' 0 1 1 '));
+  assert.equal(wheelTools.wheelSectorPath(140, 140, 132, 0, 360), '', '整圆不是扇区');
+  assert.equal(wheelTools.wheelSectorPath(140, 140, 132, 90, 90), '');
+  assert.equal(wheelTools.wheelSectorPath(140, 140, 0, 0, 90), '');
+  assert.equal(wheelTools.wheelSectorPath(Number.NaN, 140, 132, 0, 90), '');
+  assert.equal(wheelTools.wheelSectorPath(140, 140, 132, Number.NaN, 90), '');
+
+  // 加权抽签：与扇区角度同一套权重
+  const threeItems = randomTools.parseWeightedCandidates('a\nb\nc');
+  assert.equal(wheelTools.wheelPickIndex(threeItems, 0), 0);
+  assert.equal(wheelTools.wheelPickIndex(threeItems, 0.34), 1);
+  assert.equal(wheelTools.wheelPickIndex(threeItems, 0.9), 2);
+  assert.equal(wheelTools.wheelPickIndex(threeItems, 1), 2, '上界夹取后最后一个仍可中');
+  assert.equal(wheelTools.wheelPickIndex(threeItems, Number.NaN), 0);
+  assert.equal(wheelTools.wheelPickIndex(threeItems, -1), 0);
+  const weight31 = randomTools.parseWeightedCandidates('重*3\n轻');
+  assert.equal(wheelTools.wheelPickIndex(weight31, 0), 0);
+  assert.equal(wheelTools.wheelPickIndex(weight31, 0.7), 0, '0.7×4 = 2.8 仍落在权重 3 的第一块');
+  assert.equal(wheelTools.wheelPickIndex(weight31, 0.8), 1);
+  assert.equal(wheelTools.wheelPickIndex(weight31, 0.99), 1);
+  assert.equal(wheelTools.wheelPickIndex(randomTools.parseWeightedCandidates('只有一个'), 0.5), -1);
+  assert.equal(wheelTools.wheelPickIndex([], 0.5), -1);
+
+  // 角度与扇区互逆：把每个扇区转到指针下后，指针下正是它
+  for (let index = 0; index < fourSectors.length; index++) {
+    const rotation = wheelTools.wheelTargetRotation(index, fourSectors, 4);
+    assert.equal(rotation >= 4 * 360, true, '总是至少多转 4 圈');
+    assert.equal(wheelTools.wheelSectorIndexAt(rotation, fourSectors), index);
+  }
+  for (let index = 0; index < weightedSectors.length; index++) {
+    const rotation = wheelTools.wheelTargetRotation(index, weightedSectors, 3);
+    assert.equal(wheelTools.wheelSectorIndexAt(rotation, weightedSectors), index);
+  }
+  // 不额外转圈时落点角度在 [0,360)
+  const noTurns = wheelTools.wheelTargetRotation(1, fourSectors, 0);
+  assert.equal(noTurns, 225, '135° 的扇区要转到指针下：360-135 = 225');
+  assert.equal(wheelTools.wheelTargetRotation(9, fourSectors, 4), 0, '下标非法给 0');
+  assert.equal(wheelTools.wheelTargetRotation(0, [], 4), 0);
+  assert.equal(wheelTools.wheelSectorIndexAt(0, []), -1);
+  assert.equal(wheelTools.wheelTargetRotation(1, fourSectors, Number.NaN),
+    wheelTools.wheelTargetRotation(1, fourSectors, 0), '额外圈数非法时按 0 圈');
+
+  // 等概率/按权重两种模式的候选项解析（与名单抽取共用同一份解析）
+  const equalMode = wheelTools.wheelItems('a*5\nb\na', false);
+  assert.deepEqual(equalMode.map((item) => item.name), ['a', 'b']);
+  assert.deepEqual(equalMode.map((item) => item.weight), [1, 1], '等概率忽略权重写法');
+  const weightedMode = wheelTools.wheelItems('a*5\nb', true);
+  assert.deepEqual(weightedMode.map((item) => item.weight), [5, 1]);
+
+  // 文案
+  assert.ok(wheelTools.wheelCountText(1, false).includes('2'));
+  assert.ok(wheelTools.wheelCountText(13, true).includes('12'));
+  assert.notEqual(wheelTools.wheelCountText(1, false), wheelTools.wheelCountText(1, true));
+  assert.notEqual(wheelTools.wheelCountText(1, false), wheelTools.wheelCountText(13, false));
+  assert.equal(wheelTools.wheelResultText('甲', false), '转盘选中：甲');
+  assert.equal(wheelTools.wheelResultText('甲', true), 'Wheel picked: 甲');
+  assert.notEqual(wheelTools.wheelNoteText(false), wheelTools.wheelNoteText(true));
+  assert.ok(wheelTools.wheelNoteText(false).includes('权重'));
+}
+
+// --- 图片工具（2026-10-23，第 30 个工具 `imagetools`）---
+// 口径：比例与档位只在这里算（服务层只认这里给的尺寸）；只缩不放；超像素预算缩着解码并如实说明；
+// 体积与文件名文案都不写占位假值（拿不到就说拿不到）。
+{
+  assert.equal(imageTools.IMAGE_FORMATS.length, 3);
+  assert.deepEqual(imageTools.IMAGE_FORMATS.map((format) => format.id), ['jpeg', 'png', 'webp']);
+  for (const format of imageTools.IMAGE_FORMATS) {
+    assert.ok(format.ext.length > 0 && format.mime.length > 0);
+  }
+  assert.equal(imageTools.IMAGE_FORMATS[0].mime, 'image/jpeg');
+  assert.equal(imageTools.IMAGE_FORMATS[1].qualityEnabled, false, 'PNG 走无损，不使用画质档');
+  assert.equal(imageTools.IMAGE_FORMATS[2].ext, 'webp');
+  assert.equal(imageTools.IMAGE_QUALITY_PRESETS.length, 4);
+  assert.deepEqual(imageTools.IMAGE_QUALITY_PRESETS.map((preset) => preset.quality), [100, 88, 72, 55]);
+  assert.equal(imageTools.IMAGE_SIZE_PRESETS.length, 5);
+  assert.deepEqual(imageTools.IMAGE_SIZE_PRESETS.map((preset) => preset.id),
+    ['full', '75', '50', '25', imageTools.IMAGE_SIZE_EDGE]);
+  assert.equal(imageTools.IMAGE_SIZE_EDGE, 'edge');
+  assert.equal(imageTools.IMAGE_EDGE_OPTIONS.length, 8);
+  assert.equal(imageTools.IMAGE_EDGE_OPTIONS.indexOf(imageTools.DEFAULT_IMAGE_EDGE) >= 0, true);
+  for (let index = 1; index < imageTools.IMAGE_EDGE_OPTIONS.length; index++) {
+    assert.ok(imageTools.IMAGE_EDGE_OPTIONS[index] > imageTools.IMAGE_EDGE_OPTIONS[index - 1], '档位升序');
+  }
+  assert.deepEqual(imageTools.IMAGE_ROTATIONS, [0, 90, 180, 270]);
+  assert.equal(imageTools.IMAGE_SOURCE_MAX_PIXELS, 24000000);
+  assert.equal(imageTools.IMAGE_SOURCE_DECODE_MAX_EDGE, 6000);
+  assert.equal(imageTools.IMAGE_PREVIEW_MAX, 1280);
+
+  // 下标/id 互转：越界回退到默认项，不暴露内部数组
+  assert.equal(imageTools.imageFormatIndex('webp'), 2);
+  assert.equal(imageTools.imageFormatIndex('nope'), 0);
+  assert.equal(imageTools.imageFormatIdAt(-1), 'jpeg');
+  assert.equal(imageTools.imageFormatIdAt(99), 'jpeg');
+  assert.equal(imageTools.imageFormatIdAt(2), 'webp');
+  assert.equal(imageTools.imageFormatById('nope').id, 'jpeg', '未知格式回退 JPEG（页面只从登记表取值）');
+  assert.equal(imageTools.imageFormatById('webp').mime, 'image/webp');
+  assert.equal(imageTools.imageQualityIndex('small'), 3);
+  assert.equal(imageTools.imageQualityIndex('nope'), 0);
+  assert.equal(imageTools.imageQualityIdAt(9), 'original');
+  assert.equal(imageTools.imageQualityIdAt(1), 'high');
+  assert.equal(imageTools.imageQualityValue('small'), 55);
+  assert.equal(imageTools.imageQualityValue('nope'), 100);
+  assert.equal(imageTools.imageSizeIndex('50'), 2);
+  assert.equal(imageTools.imageSizeIndex('nope'), 0);
+  assert.equal(imageTools.imageSizeIdAt(4), imageTools.IMAGE_SIZE_EDGE);
+  assert.equal(imageTools.imageSizeIdAt(-3), 'full');
+  assert.equal(imageTools.imageEdgeIndex(1024), 2);
+  assert.equal(imageTools.imageEdgeIndex(9999), imageTools.IMAGE_EDGE_OPTIONS.indexOf(
+    imageTools.DEFAULT_IMAGE_EDGE), '未知档位回默认档');
+  assert.equal(imageTools.imageRotationValue(270), 270);
+  assert.equal(imageTools.imageRotationValue(45), 0, '未知角度回 0');
+  assert.equal(imageTools.imageRotationIndex(270), 3);
+  assert.equal(imageTools.imageRotationIndex(45), 0);
+
+  // 输出尺寸：只缩不放、比例档、指定最长边（大于原图时不放大）
+  const full = imageTools.outputSizeFor(4000, 3000, 'full', 1280);
+  assert.equal(full.width, 4000);
+  assert.equal(full.height, 3000);
+  const half = imageTools.outputSizeFor(4000, 3000, '50', 1280);
+  assert.equal(half.width, 2000);
+  assert.equal(half.height, 1500);
+  assert.equal(imageTools.outputSizeFor(4000, 3000, '75', 1280).width, 3000);
+  assert.equal(imageTools.outputSizeFor(4000, 3000, '25', 1280).height, 750);
+  const edge = imageTools.outputSizeFor(4000, 3000, imageTools.IMAGE_SIZE_EDGE, 1280);
+  assert.equal(edge.width, 1280);
+  assert.equal(edge.height, 960);
+  // 竖图按长边缩
+  const portrait = imageTools.outputSizeFor(3000, 4000, imageTools.IMAGE_SIZE_EDGE, 800);
+  assert.equal(portrait.width, 600);
+  assert.equal(portrait.height, 800);
+  const noUpscale = imageTools.outputSizeFor(800, 600, imageTools.IMAGE_SIZE_EDGE, 3840);
+  assert.equal(noUpscale.width, 800);
+  assert.equal(noUpscale.height, 600, '放大只是变糊，按原尺寸处理');
+  assert.equal(imageTools.outputSizeFor(4000, 3000, 'nope', 1280).width, 4000, '未知尺寸档按整幅');
+  assert.equal(imageTools.outputSizeFor(4000, 3000, imageTools.IMAGE_SIZE_EDGE, 12345).width, 1280,
+    '未知最长边档用默认值');
+  assert.equal(imageTools.outputSizeFor(0, 3000, 'full', 1280).width, 0, '原尺寸非法 → 0×0（不启用生成）');
+  assert.equal(imageTools.outputSizeFor(Number.NaN, 3000, 'full', 1280).height, 0);
+  assert.equal(imageTools.outputSizeFor(1001, 1000, '50', 1280).width, 501, '四舍五入且至少 1 px');
+  assert.equal(imageTools.outputSizeFor(1, 1, '25', 1280).width, 1);
+
+  // 像素预算与缩着解码
+  assert.equal(imageTools.imageSourceOversize(6000, 4000), false, '24 MP 正好不超');
+  assert.equal(imageTools.imageSourceOversize(6001, 4000), true);
+  assert.equal(imageTools.imageSourceOversize(Number.NaN, 4000), false);
+  const smallDecode = imageTools.decodeSizeFor(4000, 3000);
+  assert.equal(smallDecode.width, 4000);
+  assert.equal(smallDecode.height, 3000);
+  const capped = imageTools.decodeSizeFor(8000, 6000);
+  assert.equal(capped.width, 6000, '超预算时最长边收到 6000');
+  assert.equal(capped.height, 4500);
+
+  // 文件名：只含日期时间，不含用户内容；时间戳非法也不写出 NaN
+  const stampMs = new Date(2026, 9, 23, 11, 45, 0, 0).getTime();
+  assert.equal(imageTools.imageFileBaseName(stampMs, 'jpeg'), 'PocketToolbox-Image-20261023-1145.jpg');
+  assert.equal(imageTools.imageFileBaseName(stampMs, 'webp'), 'PocketToolbox-Image-20261023-1145.webp');
+  assert.equal(imageTools.imageFileBaseName(stampMs, 'nope'), 'PocketToolbox-Image-20261023-1145.jpg');
+  assert.equal(imageTools.imageFileBaseName(Number.NaN, 'png'), 'PocketToolbox-Image.png');
+  assert.equal(imageTools.imageFileTitle(stampMs), 'PocketToolbox-Image-20261023-1145');
+  assert.equal(imageTools.imageFileTitle(Number.NaN), 'PocketToolbox-Image');
+  assert.equal(imageTools.imageFileTitle(stampMs).includes('NaN'), false);
+
+  // 体积文案（1024 进制；非法输入不显示 0）
+  assert.equal(imageTools.humanBytes(0), '0 B');
+  assert.equal(imageTools.humanBytes(1023), '1023 B');
+  assert.equal(imageTools.humanBytes(1024), '1 KB');
+  assert.equal(imageTools.humanBytes(1536), '1.5 KB');
+  assert.equal(imageTools.humanBytes(1048576), '1 MB');
+  assert.equal(imageTools.humanBytes(1572864), '1.5 MB');
+  assert.equal(imageTools.humanBytes(1073741824), '1 GB');
+  assert.equal(imageTools.humanBytes(-1), '');
+  assert.equal(imageTools.humanBytes(Number.NaN), '');
+
+  // 落盘状态：坏 JSON / 未知 id / 未知档位按字段回退
+  const defaultState = imageTools.parseImageToolState('');
+  assert.equal(defaultState.formatId, 'jpeg');
+  assert.equal(defaultState.qualityId, 'high');
+  assert.equal(defaultState.sizeId, 'full');
+  assert.equal(defaultState.edgePx, imageTools.DEFAULT_IMAGE_EDGE);
+  assert.equal(defaultState.rotation, 0);
+  assert.equal(defaultState.flipH, false);
+  assert.equal(defaultState.flipV, false);
+  assert.equal(imageTools.parseImageToolState('{bad json').formatId, 'jpeg');
+  assert.equal(imageTools.parseImageToolState('"x"').rotation, 0);
+  assert.equal(imageTools.parseImageToolState(undefined).formatId, 'jpeg');
+  const partial = imageTools.parseImageToolState(JSON.stringify({ formatId: 'webp' }));
+  assert.equal(partial.formatId, 'webp');
+  assert.equal(partial.qualityId, 'high', '只覆盖出现过的字段，其余保持默认');
+  const wild = imageTools.parseImageToolState(JSON.stringify({
+    formatId: 'nope', qualityId: 'nope', sizeId: 'nope', edgePx: 12345, rotation: 45,
+    flipH: 'yes', flipV: true
+  }));
+  assert.equal(wild.formatId, 'jpeg');
+  assert.equal(wild.qualityId, 'high');
+  assert.equal(wild.sizeId, 'full');
+  assert.equal(wild.edgePx, imageTools.DEFAULT_IMAGE_EDGE);
+  assert.equal(wild.rotation, 0);
+  assert.equal(wild.flipH, false);
+  assert.equal(wild.flipV, true);
+  const goodState = new imageTools.ImageToolState();
+  goodState.formatId = 'webp';
+  goodState.qualityId = 'small';
+  goodState.sizeId = imageTools.IMAGE_SIZE_EDGE;
+  goodState.edgePx = 2560;
+  goodState.rotation = 90;
+  goodState.flipH = true;
+  const roundTrip = imageTools.parseImageToolState(imageTools.encodeImageToolState(goodState));
+  assert.equal(roundTrip.formatId, 'webp');
+  assert.equal(roundTrip.qualityId, 'small');
+  assert.equal(roundTrip.sizeId, imageTools.IMAGE_SIZE_EDGE);
+  assert.equal(roundTrip.edgePx, 2560);
+  assert.equal(roundTrip.rotation, 90);
+  assert.equal(roundTrip.flipH, true);
+  assert.equal(roundTrip.flipV, false);
+
+  // 文案：错误码覆盖七个分支且中英不同、未知码不编文案
+  const codes = ['pick', 'decode', 'encode', 'format', 'toobig', 'save', 'share'];
+  for (const code of codes) {
+    assert.ok(imageTools.imageErrorText(code, false).length > 0, `missing zh text for ${code}`);
+    assert.notEqual(imageTools.imageErrorText(code, false), imageTools.imageErrorText(code, true));
+  }
+  assert.equal(new Set(codes.map((code) => imageTools.imageErrorText(code, false))).size, codes.length,
+    '七个错误码的文案互不相同');
+  assert.equal(imageTools.imageErrorText('nope', false), '');
+
+  // 体积对比：节省为负也如实显示
+  assert.equal(imageTools.imageSizeCompareText(1048576, 262144, false), '1 MB → 256 KB（-75%）');
+  assert.equal(imageTools.imageSizeCompareText(262144, 1048576, false), '256 KB → 1 MB（+300%）');
+  assert.equal(imageTools.imageSizeCompareText(1024, 1024, false), '1 KB → 1 KB（+0%）');
+  assert.equal(imageTools.imageSizeCompareText(Number.NaN, 1024, false), '');
+  assert.equal(imageTools.imageSizeCompareText(1024, Number.NaN, false), '');
+
+  // 结果摘要与旋转/翻转说明
+  assert.equal(imageTools.imageResultSummaryText(295, 413, 20480, 'jpeg', false),
+    '295 × 413 · 20 KB · image/jpeg');
+  assert.equal(imageTools.imageResultSummaryText(295, 413, -1, 'png', false), '295 × 413 · image/png');
+  assert.equal(imageTools.imageTransformText(0, false, false, false), '未旋转、未翻转');
+  assert.equal(imageTools.imageTransformText(90, true, false, false), '旋转 90°、水平翻转');
+  assert.equal(imageTools.imageTransformText(180, true, true, true),
+    'rotated 180°, flipped horizontally, flipped vertically');
+  assert.equal(imageTools.imageTransformText(45, false, false, true), 'No rotation or flip', '未知角度不写进文案');
+
+  // 超预算说明只在真的超预算时出现
+  assert.equal(imageTools.imageOversizeNoteText(4000, 3000, false), '');
+  assert.ok(imageTools.imageOversizeNoteText(8000, 6000, false).includes('6000'));
+  assert.ok(imageTools.imageOversizeNoteText(8000, 6000, true).includes('6000'));
+  assert.notEqual(imageTools.imageNoteText(false), imageTools.imageNoteText(true));
+  assert.ok(imageTools.imageNoteText(false).includes('PNG'));
+}
+
+// --- 主题色（2026-10-23）：预设登记表、偏好归一与自定义色的对比度夹取 ---
+// 口径：强调色四件套（primary/primaryDeep/tint/onPrimary）在浅色与深色下都必须过对比度门槛，
+// 否则用户挑一个浅黄主题就会出现「图标看不见 / 按钮文字糊掉」——这类问题不能靠肉眼验收，只能断言。
+{
+  // 登记表：7 套预设、id 唯一、第一项是默认项，中英名称都有且不相同。
+  assert.equal(themeColors.THEME_COLORS.length, 7);
+  assert.equal(themeColors.DEFAULT_THEME_COLOR, 'blue');
+  assert.equal(themeColors.THEME_COLOR_CUSTOM, 'custom');
+  assert.equal(themeColors.THEME_COLORS[0].id, themeColors.DEFAULT_THEME_COLOR, '第一项即默认主题');
+  assert.equal(new Set(themeColors.THEME_COLORS.map((option) => option.id)).size, 7, 'id 不重复');
+  for (const option of themeColors.THEME_COLORS) {
+    assert.ok(option.labelZh.length > 0 && option.labelEn.length > 0, `${option.id} 名称不能为空`);
+    assert.notEqual(option.labelZh, option.labelEn, `${option.id} 中英名称要不相同`);
+    for (const hex of [option.lightPrimary, option.lightPrimaryDeep, option.lightTint,
+      option.darkPrimary, option.darkPrimaryDeep, option.darkTint]) {
+      assert.match(hex, /^#[0-9A-F]{6}$/, `${option.id} 的色值要是大写 #RRGGBB`);
+    }
+  }
+  // 默认预设必须就是升级前的强调色（否则「加了主题色」会顺带改掉默认外观）。
+  const blue = themeColors.themeColorById('blue');
+  assert.equal(blue.lightPrimary, '#2673DD');
+  assert.equal(blue.lightPrimaryDeep, '#1455A0');
+  assert.equal(blue.lightTint, '#DDEDFE');
+  assert.equal(blue.darkPrimary, '#4C8DF6');
+  assert.equal(blue.darkPrimaryDeep, '#8CB8FB');
+  assert.equal(blue.darkTint, '#1C2C44');
+
+  // 归一：预设 id 大小写/空白不敏感、custom 保留，其余（手改备份、旧版本残留、非字符串）回退默认。
+  assert.equal(themeColors.normalizeThemeColorId('teal'), 'teal');
+  assert.equal(themeColors.normalizeThemeColorId(' TEAL '), 'teal');
+  assert.equal(themeColors.normalizeThemeColorId('custom'), themeColors.THEME_COLOR_CUSTOM);
+  assert.equal(themeColors.normalizeThemeColorId(''), themeColors.DEFAULT_THEME_COLOR);
+  assert.equal(themeColors.normalizeThemeColorId('nope'), themeColors.DEFAULT_THEME_COLOR);
+  assert.equal(themeColors.normalizeThemeColorId(undefined), themeColors.DEFAULT_THEME_COLOR);
+  // 自定义色归一：#RGB 展开、系统取色器的 #AARRGGBB 丢透明度、非法回退兜底色。
+  assert.equal(themeColors.normalizeCustomThemeHex('#abc'), '#AABBCC');
+  assert.equal(themeColors.normalizeCustomThemeHex('#80FFE066'), '#FFE066');
+  assert.equal(themeColors.normalizeCustomThemeHex('  #FFE066 '), '#FFE066');
+  assert.equal(themeColors.normalizeCustomThemeHex('junk'), themeColors.DEFAULT_CUSTOM_THEME_HEX);
+  assert.equal(themeColors.normalizeCustomThemeHex(''), themeColors.DEFAULT_CUSTOM_THEME_HEX);
+  assert.equal(themeColors.DEFAULT_CUSTOM_THEME_HEX, blue.lightPrimary, '兜底自定义色＝默认主题的强调色');
+
+  // 名字：未知 id 回退默认主题的名字（界面绝不露出空串），custom 有自己的名字。
+  assert.equal(themeColors.themeColorLabel('blue', false), blue.labelZh);
+  assert.equal(themeColors.themeColorLabel('blue', true), blue.labelEn);
+  assert.equal(themeColors.themeColorLabel('custom', false), '自定义');
+  assert.equal(themeColors.themeColorLabel('custom', true), 'Custom');
+  assert.equal(themeColors.themeColorLabel('nope', false), blue.labelZh);
+  assert.notEqual(themeColors.themeColorLabel('teal', false), themeColors.themeColorLabel('teal', true));
+  assert.equal(themeColors.themeColorById('nope').id, themeColors.DEFAULT_THEME_COLOR);
+
+  // 对比度门槛：两套基准面（surface / background）在各模式下都要过。
+  const surfacesOf = (dark) => dark
+    ? [themeColors.THEME_SURFACE_DARK, themeColors.THEME_BACKGROUND_DARK]
+    : [themeColors.THEME_SURFACE_LIGHT, themeColors.THEME_BACKGROUND_LIGHT];
+  const checkAccent = (label, accent, dark) => {
+    for (const surface of surfacesOf(dark)) {
+      assert.ok(colors.contrastRatio(colors.parseColor(accent.primary), colors.parseColor(surface))
+        >= themeColors.THEME_MIN_ICON_CONTRAST, `${label} primary 对 ${surface} 要 ≥ 3:1`);
+      assert.ok(colors.contrastRatio(colors.parseColor(accent.primaryDeep), colors.parseColor(surface))
+        >= themeColors.THEME_MIN_TEXT_CONTRAST, `${label} primaryDeep 对 ${surface} 要 ≥ 4.5:1`);
+    }
+    assert.ok(colors.contrastRatio(colors.parseColor(accent.primaryDeep),
+      colors.parseColor(accent.tint)) >= themeColors.THEME_MIN_TEXT_CONTRAST,
+      `${label} primaryDeep 对软底 tint 要 ≥ 4.5:1`);
+    assert.ok(colors.contrastRatio(colors.parseColor(accent.primary),
+      colors.parseColor(accent.onPrimary)) >= themeColors.THEME_MIN_TEXT_CONTRAST,
+      `${label} 压在 primary 上的文字要 ≥ 4.5:1`);
+    assert.ok(accent.onPrimary === '#FFFFFF' || accent.onPrimary === '#000000',
+      `${label} onPrimary 只能是白或黑`);
+    assert.match(accent.tint, /^#[0-9A-F]{6}$/, `${label} tint 要是 #RRGGBB`);
+    assert.notEqual(accent.tint, accent.primary, `${label} 软底不能等于强调色本身`);
+  };
+  // 预设：浅色与深色两套都过门槛（手挑的字面量由这条断言兜住，改错数就会红）。
+  for (const option of themeColors.THEME_COLORS) {
+    checkAccent(`${option.id}(light)`, themeColors.themeAccentOf(option.id, '', false), false);
+    checkAccent(`${option.id}(dark)`, themeColors.themeAccentOf(option.id, '', true), true);
+  }
+  // 自定义色：极端输入也必须被夹到门槛内（纯黑/纯白/荧光黄/纯绿/中灰/品红）。
+  const extremes = ['#000000', '#FFFFFF', '#FFE066', '#00FF00', '#7F7F7F', '#FF00FF', '#123456'];
+  for (const hex of extremes) {
+    checkAccent(`custom ${hex}(light)`, themeColors.deriveThemeAccent(hex, false), false);
+    checkAccent(`custom ${hex}(dark)`, themeColors.deriveThemeAccent(hex, true), true);
+    // 走登记表入口与直接推导必须同源（`custom` 就是靠这条接到推导上的）。
+    assert.deepEqual(themeColors.themeAccentOf(themeColors.THEME_COLOR_CUSTOM, hex, false),
+      themeColors.deriveThemeAccent(hex, false));
+  }
+  // 没越过门槛的颜色要**原样保留**（保真）：默认蓝的浅色 primary 已经是登记值、且达标。
+  assert.equal(themeColors.deriveThemeAccent('#2673DD', false).primary, '#2673DD');
+  // 浅色模式下过亮的颜色会被压暗（这就是「挑荧光黄也不会看不见图标」的保证）；
+  // 压暗后它仍然偏亮，因此压在它上面的文字要取近黑而不是白色（否则白字糊在黄底上）。
+  assert.notEqual(themeColors.deriveThemeAccent('#FFE066', false).primary, '#FFE066');
+  assert.equal(themeColors.deriveThemeAccent('#FFE066', false).onPrimary, '#000000');
+  assert.equal(themeColors.deriveThemeAccent('#2673DD', false).onPrimary, '#FFFFFF');
 }
 
 console.log('All toolbox model assertions passed');

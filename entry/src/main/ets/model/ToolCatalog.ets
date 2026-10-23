@@ -73,6 +73,14 @@ function toolSpecs(): Map<string, ToolSpec> {
   // 网络查询复用**已核实存在**的这一枚符号（本机核不到「globe / shield」一类系统符号名，写错会直接编不过；
   // 卡片底色换成 tintMint 与「网络工具」区分开）。
   specs.set('netinfo', new ToolSpec($r('sys.symbol.dot_radiowaves_left_and_right'), ToolPalette.tintMint));
+  // 金额大写（2026-10-23）：符号名已按 SDK `toolchains/id_defined.json` 核对（`type: symbol`）。
+  specs.set('money', new ToolSpec($r('sys.symbol.yuansign_circle'), ToolPalette.tintGreen));
+  // 身份证校验：`person_text_rectangle` = 人像 + 文字块，语义最接近（已核 `type: symbol`）。
+  specs.set('idcheck', new ToolSpec($r('sys.symbol.person_text_rectangle'), ToolPalette.tintRose));
+  // 世界时钟：`worldclock`（已核 `type: symbol`）。
+  specs.set('worldclock', new ToolSpec($r('sys.symbol.worldclock'), ToolPalette.tintAmber));
+  // 图片工具：`picture`（已核 `type: symbol`）。
+  specs.set('imagetools', new ToolSpec($r('sys.symbol.picture'), ToolPalette.tintTeal));
   return specs;
 }
 

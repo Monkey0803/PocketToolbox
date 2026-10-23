@@ -512,7 +512,7 @@ export struct TimestampPage {
           // 多行 `TextArea` 没有系统取消按钮（系统只给单行 `TextInput` 提供 `cancelButton`），
           // 右上角自绘 ✕；结果全部由 `@Computed` 驱动，清空输入后自动重算。
           IconActionButton({
-            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.textMuted, boxSize: 36, iconSize: 20,
+            icon: $r('sys.symbol.xmark_circle_fill'), tintColor: ToolPalette.primaryDeep, boxSize: 36, iconSize: 20,
             usable: this.input.length > 0,
             a11yText: appText('stamp.clear-the-timestamp-input', this.english),
             onTap: () => { this.input = ''; }

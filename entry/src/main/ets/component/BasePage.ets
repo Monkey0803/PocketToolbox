@@ -186,7 +186,7 @@ export struct BasePage {
           .fontColor(ToolPalette.textPrimary).width('100%')
       }.layoutWeight(1)
       IconActionButton({
-        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
         a11yText: appText('action.copy', this.english) + this.valueLabel(kind),
         boxSize: 44, iconSize: 22, usable: this.rawValue(kind).length > 0,
         onTap: () => this.onCopy(this.rawValue(kind))
@@ -300,7 +300,7 @@ export struct BasePage {
           .fontColor(ToolPalette.textPrimary).width('100%')
       }.layoutWeight(1)
       IconActionButton({
-        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
         a11yText: appText('action.copy', this.english) + this.bitwiseValueLabel(kind),
         boxSize: 44, iconSize: 22, usable: this.bitwiseRaw(kind).length > 0,
         onTap: () => this.onCopy(this.bitwiseRaw(kind))
