@@ -5606,37 +5606,37 @@ assert.equal(layout.layoutMetrics(360, 800).narrow, false);
 assert.equal(layout.layoutMetrics(366, 809).narrow, false);  // 常规手机
 assert.equal(layout.layoutMetrics(440, 744).narrow, false);  // 阔直板
 
-// 智感握姿：操作手优先于持握手、宽屏恒 0、未知恒 0（界面据此保持原布局）
-assert.equal(layout.actionHandSide(-1, 1, layout.WIDTH_SM), -1, '操作手优先于持握手');
-assert.equal(layout.actionHandSide(1, -1, layout.WIDTH_SM), 1);
-assert.equal(layout.actionHandSide(0, -1, layout.WIDTH_SM), -1, '操作手未知时退回持握手');
+// 智感握姿（2026-10-23 口径）：持握手优先 → 操作手兜底 → **默认右手**；双手持握按右手；宽屏恒 0
+assert.equal(layout.DEFAULT_ACTION_HAND_SIDE, 1, '没有任何握姿信号时默认右手');
+assert.equal(layout.actionHandSide(-1, 1, layout.WIDTH_SM), 1, '持握手优先于操作手（手握右手就以右手为准）');
+assert.equal(layout.actionHandSide(1, -1, layout.WIDTH_SM), -1);
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM), -1, '持握手未知时用操作手兜底');
+assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_SM), 1);
+assert.equal(layout.actionHandSide(0, -1, layout.WIDTH_SM), -1);
 assert.equal(layout.actionHandSide(0, 1, layout.WIDTH_SM), 1);
-assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM), 0, '都未知 → 0（不要自己猜左右）');
+assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM), 1, '两个信号都没有 → 默认右手（不再停在正中）');
 assert.equal(layout.actionHandSide(-1, 1, layout.WIDTH_MD), 0, '宽屏不跟随握姿');
 assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_LG), 0);
 assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_XL), 0);
+assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_MD), 0, '宽屏即使没有信号也保持页面原本版式');
 // 外部数值收敛：非有限值（NaN/±Infinity）一律按「未知」处理，越界有限值只取符号
-assert.equal(layout.actionHandSide(Number.NaN, Number.POSITIVE_INFINITY, layout.WIDTH_SM), 0,
-  '非有限值不是可信的握姿信号，必须当未知');
-assert.equal(layout.actionHandSide(Number.POSITIVE_INFINITY, Number.NaN, layout.WIDTH_SM), 0);
-assert.equal(layout.actionHandSide(0, Number.NaN, layout.WIDTH_SM), 0);
+assert.equal(layout.actionHandSide(Number.NaN, Number.POSITIVE_INFINITY, layout.WIDTH_SM), 1,
+  '非有限值不是可信的握姿信号，当未知 → 默认右手');
+assert.equal(layout.actionHandSide(Number.POSITIVE_INFINITY, Number.NaN, layout.WIDTH_SM), 1);
+assert.equal(layout.actionHandSide(0, Number.NaN, layout.WIDTH_SM), 1);
 assert.equal(layout.actionHandSide(7, 0, layout.WIDTH_SM), 1, '越界正数按右手');
 assert.equal(layout.actionHandSide(-7, 0, layout.WIDTH_SM), -1, '越界负数按左手');
 assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_MD), 0);
 
-// 双手持握 / 未持握（系统明确报出来的状态）→ 保持默认版式，**连操作手也不跟**：
-// 两侧一样好够，跟随只会让按钮在交替用拇指时左右横跳
-assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM, true), 0, '双手持握时不跟操作手');
-assert.equal(layout.actionHandSide(1, 1, layout.WIDTH_SM, true), 0);
-assert.equal(layout.actionHandSide(-1, -1, layout.WIDTH_SM, true), 0);
-assert.equal(layout.actionHandSide(0, 1, layout.WIDTH_SM, true), 0);
-// 不冻结时行为不变（默认参数 = false，向后兼容）
-assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM), -1, '不冻结时仍跟操作手');
-assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_SM, false), 1);
-assert.equal(layout.actionHandSide(0, -1, layout.WIDTH_SM, false), -1);
-// 「冻结」与「持握手未知」是两件事：后者要用操作手兜底（否则不支持握姿的机型整个功能失效）
-assert.equal(layout.actionHandSide(1, 0, layout.WIDTH_SM, false), 1, '持握手未知时用操作手兜底');
-assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM, false), 0);
+// 双手持握（系统明确报出来的状态）→ 按**右手**处理：既不冻结在中位，也不跟操作手
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM, true), 1, '双手持握按右手（不跟左手操作手）');
+assert.equal(layout.actionHandSide(1, 1, layout.WIDTH_SM, true), 1);
+assert.equal(layout.actionHandSide(-1, -1, layout.WIDTH_SM, true), 1, '双手持握时不采信持握手信号');
+assert.equal(layout.actionHandSide(0, 1, layout.WIDTH_SM, true), 1);
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_MD, true), 0, '宽屏仍然不动');
+// 默认参数 false = 没有报「双手持握」，行为与上面一致（向后兼容）
+assert.equal(layout.actionHandSide(-1, 0, layout.WIDTH_SM, false), -1);
+assert.equal(layout.actionHandSide(0, 0, layout.WIDTH_SM, false), 1);
 
 // 固定文案登记表（model/AppStrings.ets，2026-10-21 C 项「文案外置」第一批）
 assert.ok(appStrings.APP_STRINGS.length >= 15, '登记表至少有第一批的条目');
@@ -5712,15 +5712,26 @@ const postureUnsupportedZh = handPosture.handPostureNoteText(true, false, false)
 assert.ok(postureOnZh.length > 0 && postureOffZh.length > 0 && postureUnsupportedZh.length > 0);
 assert.notEqual(postureOnZh, postureOffZh, '开/关说明不能同一句');
 assert.notEqual(postureOnZh, postureUnsupportedZh, '不支持时要单独说明');
-assert.ok(postureUnsupportedZh.indexOf('不') >= 0, '不支持的说明要写清「开关暂时不生效」');
-assert.ok(postureOnZh.indexOf('双手') >= 0, '打开的说明要写清双手持握时保持默认版式');
+assert.ok(postureUnsupportedZh.indexOf('不') >= 0, '不支持的说明要写清「开关不会生效」');
+// 不支持时只剩「默认右手」这一条路：说明必须如实交代按钮会固定靠右，而不是含糊地说「开关无效」
+assert.ok(postureUnsupportedZh.indexOf('默认为右手') >= 0, '不支持的说明要写清「动作按钮按默认右侧排列」');
+assert.ok(handPosture.handPostureNoteText(true, false, true).indexOf('the default') >= 0,
+  '英文的不支持说明同样要写清默认靠右');
+assert.ok(postureOnZh.indexOf('双手') >= 0, '打开的说明要写清双手持握时按右手处理');
 assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('both hands') >= 0,
   '英文说明同样要写清双手持握');
-// 2026-10-22 口径变更：「未持握（平放/立在桌上）」**不再**冻结，说明文案必须跟着改（不能还写「未持握保持默认版式」）
-assert.ok(postureOnZh.indexOf('平放') >= 0, '打开的说明要写清「平放/立在桌上时仍跟随」');
+// 2026-10-23 口径变更：左手靠左、其余一律靠右、**默认右手**；说明文案必须跟着改
+assert.ok(postureOnZh.indexOf('左手') >= 0, '打开的说明要写清「左手握持靠左」');
+assert.ok(postureOnZh.indexOf('默认为右手') >= 0, '打开的说明要写清「默认为右手」');
+assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('left hand') >= 0,
+  '英文说明要写清 left hand');
+assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('right is the') >= 0,
+  '英文说明要写清右手是默认');
+// 手机平放属于「识别不出握姿」→ 靠右（不能还承诺「平放时跟随操作手」）
+assert.ok(postureOnZh.indexOf('平放') >= 0, '打开的说明要写清「手机平放在桌面上也算识别不出握姿」');
 assert.equal(postureOnZh.indexOf('未持握'), -1, '不能再说「未持握时保持默认版式」');
 assert.ok(handPosture.handPostureNoteText(true, true, true).indexOf('resting on a surface') >= 0,
-  '英文说明要写清「放着时仍跟随」');
+  '英文说明要写清「平放也算没有信号」');
 assert.ok(handPosture.handPostureNoteText(false, false, true).length > 0);
 assert.ok(handPosture.handPostureNoteText(true, true, true) !== postureOnZh, '英文与中文说明不同');
 assert.equal(handPosture.handPostureTitleZh().length > 0, true);

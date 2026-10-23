@@ -2933,6 +2933,33 @@ Pura X / Pura X View 480、Pura X Max 440、Mate XT 460、Mate 90 Pro 560、Mate
 - **抽取组件后的复验（同一台模拟器，展开态 2210×2416）**：四行左输入框仍是 `x 75–983`、右输入框 `1121–2029`、行尾槽到 `2135`，运算符/`%` 与输入框 `cy` 逐行相等（`786 / 1457 / 2128`），不带 `%` 的那一行照样留着空槽。证据图 [`calc-percent-aligned-unfolded-zh.jpeg`](screenshots/emulator/calc-percent-aligned-unfolded-zh.jpeg)（上一节那张 `calc-percent-aligned-zh.jpeg` 是收起态、且是抽取组件之前的构建）。
 - **未覆盖（真机待验）**：英文界面长标签（`Change (%)` / `Price factor (0–10)`）在折叠态窄窗是否仍单行（单行是这套对齐的前提）；系统字体放大档位；真机（非模拟器）密度下的同一套判据。本轮的审计与截图都在模拟器上完成。
 
+## 追加回执（2026-10-23：智感握姿口径改「左手 → 左，其余 → 右，默认右手」+ 全应用动作行漏接补齐）
+
+**来源**：用户给了华为「智感握姿」文档（`developer.huawei.com/consumer/cn/doc/doccenter-advanced-features/bpta-smart-reach`），并要求「排查整个 app，检测到双手、右手握持按右手处理，左手握持按左手显示，默认为右手」。用户确认的入参口径与范围：**持握手优先、操作手兜底**；**一并补齐排查中发现的漏接动作行**。
+
+**判定口径（`model/LayoutAdaptive.actionHandSide()`，仍是唯一判定处）**：`宽档 >= WIDTH_MD → 0`（保持页面原本版式）→ `bothHandsHeld → 右手` → `持握手侧` → `操作手侧` → **都没有信号时 `DEFAULT_ACTION_HAND_SIDE = 1`（右手）**。取代 2026-10-21/22 的「未知与双手一律冻结在中位」：真机上「平放在桌面」这种形态系统根本不报信号（上一节采样），停在正中让右手用户多伸一截。`Index` 的 `holdingFreezes` 字段改名 `bothHandsHeld`（不再「冻结」，而是明确按右手）；`syncHandPostureSubscription()` 关闭开关时一并清零。返回值 `0` 现在只等于「宽屏」或「设置页关掉了智感握姿」两种情况。
+
+**全应用动作行排查（只读审计 + 逐行复核）**：`@Param actionAlign` 共 20 个组件、`@Param handSide` 原为 `DiffPage`/`AnniversaryPage` 两处；29 个路由分支里 6 个（`scanner`/`calculator`/`tax`/`units`/`color`/`base`）**正当不接线**（系统组件、只有逐值复制、满宽按钮或折叠行）。**修掉的漏接与死接线**：
+- `component/LoanPage.ets` 结果卡「复制汇总」行（`Row().width('100%')` 没有 `justifyContent`，恒贴左）→ 补 `this.actionAlign`；
+- `component/KinshipPage.ets` 结果卡「复制地址」行 → 同上补 `this.actionAlign`；
+- `component/RandomPage.ets` 随机数结果、名单抽取结果两处复制按钮原来是**裸放在 `Column` 里**（列居中，先包 `Row().width('100%')` 才谈得上跟随）→ 补 `Row` + `justifyContent(this.actionAlign)`；
+- `component/NetInfoPage.ets` 的「查询」是 `layoutWeight(1)` 满宽按钮，上一版传了 `actionAlign` 却**完全不起作用**（死接线）→ 按 `BasePage` 的口径删掉参数与父组件传参，并在源码注明理由；
+- `component/DocumentsPage.ets` 每页缩略图下的「第 N 页 + 删除」是**行内动作**（行宽只有缩略图宽，`justifyContent` 换不了边）→ 新增 `@Param handSide` + `Stack`/`Row` 顺序镜像，左手时删除落到缩略图左下角、页码文字到右侧（删除按钮抽成 `pageDeleteButton(index)` 供左右两处共用）；`Index` 同时传 `actionAlign` 与 `handSide`。
+- **仍按设计不跟随**（逐类记录，避免下次重复排查）：键位/网格类（科学计算器键盘、常用键、内存键、设置页图标网格、亲戚称呼拼接条）、满宽按钮与折叠行、与输入强耦合的控件（滚轮、色轮、把结果套用到输入框的按钮）、逐值复制按钮、设置页表单行的开关、系统确认框、`pages/Share.ets`（系统面板，拿不到握姿信号）。
+
+**设置页文案（`model/HandPosture.ets`）三态同步改**：开启态写「左手握持时靠左，右手、双手或识别不出握姿（手机平放在桌面上也算）时靠右，默认为右手；宽窗口保持默认版式。」；**不支持态**不再只说「开关不生效」——本机没有握姿能力时判定只会走「默认右手」，所以如实写成「本机未提供握姿识别能力：动作按钮一律按默认的右侧排列（默认为右手），这个开关不会生效。」
+
+**门禁（`node tools/build-hap.mjs --tests`）**：`BUILD SUCCESSFUL`；一致性检查 **16 项通过**；`All toolbox model assertions passed`（`actionHandSide` 断言整段重写：持握手优先/操作手兜底/默认右手/双手按右手/宽屏恒 0/非有限值与越界值，共 20 余条；开关三态文案新增「默认为右手」「不支持的说明要写清默认靠右」等断言）；逐函数覆盖 59 模块 / 673 个导出函数；HMSymbol 图标名 79 个全在 SDK 内；`emu.mjs smoke` **26/26**；`check-align.mjs --views` **29 屏通过**（新增的右对齐动作行不影响该门禁的判据——它只判「两列输入行 / 行内槽位」，不是动作行）。**口径说明**：`smoke` 与 `check-align` 跑在「判定口径 + 全部动作行改动」那一版构建上；之后只再改了设置页那句说明文案（`model/HandPosture.ets` 的字符串），改完重新构建并覆盖安装、**用 `dumpLayout` 逐字核对了设置页文案**（见下），几何与门禁判据不受这句文案影响。
+
+**模拟器实测（API 26 · Mate X7，同一个实例的折叠/展开两态；系统不产生握姿事件，因此收起态走的就是「默认右手」这条真实路径）**：
+- **收起态（1080 px 宽 ≈ 345 vp，SM 档）**：随机页「生成随机数」按钮 `[668,903][1018,1053]`——**贴内容区右边界（62–1018）**，改动前这里是回退定位的居中（中心 540）；生成后随机数结果卡的复制行 `Row 62–1018`、复制按钮 `[868,1350][1018,1500]` 同样贴右。截图 [`hand-default-right-random.jpeg`](screenshots/emulator/hand-default-right-random.jpeg)。
+- **左手探针（临时把 `Index.actionSide()` 写死 `return -1`，验完已还原并重跑门禁）**：同一按钮 `[62,903][412,1053]`、结果复制按钮 `[62,1350][212,1500]`——**整组换到左侧**，证明「靠哪一侧」确实由这一个判定驱动。截图 [`hand-left-probe-random.jpeg`](screenshots/emulator/hand-left-probe-random.jpeg)。
+- **展开态（2210×2416 ≈ 707 vp，MD 档）**：同一按钮 `[930,903][1280,1053]`（中心 1105 = 内容区 75–2136 的中心）——**宽窗口仍不跟随**，与改动前的版式一致。
+- **设置页**：`智感握姿` 行下方说明实测为上面那句新开启态文案（`uitest dumpLayout` 逐字读出）。
+- 探针还原有据：`Select-String -Pattern 临时探针` 在 `Index.ets` 无命中，随后重新构建并覆盖安装，再复核收起态按钮仍在 `668–1018`。
+
+**未覆盖（真机待验，清单见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的「智感握姿」一节）**：系统真的报出 `LEFT_HAND_HELD`/`RIGHT_HAND_HELD`/`BOTH_HANDS_HELD`/`NOT_HELD` 四种持握手状态时按钮是否如预期（模拟器不产生握姿事件，本轮只跑了「无信号默认态 + 探针」）；权限被拒后的路径；平板/折叠真机形态下的同一条判定；英文说明在窄窗的换行。
+
 
 
 

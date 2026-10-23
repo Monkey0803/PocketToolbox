@@ -39,6 +39,14 @@ export const HEIGHT_SM: number = 0;
 export const HEIGHT_MD: number = 1;
 export const HEIGHT_LG: number = 2;
 
+/**
+ * 智感握姿在「没有任何握姿信号」时采用的默认侧：`1` = 右手。
+ *
+ * 右手人群是多数，停在正中会让右手用户多伸一截（2026-10-23 用户口径）；
+ * 这与「设置页关掉开关」「宽窗口」返回的 `0`（保持页面原本版式）是两件事。
+ */
+export const DEFAULT_ACTION_HAND_SIDE: number = 1;
+
 /** 官方宽度断点阈值（vp）。 */
 export const WIDTH_SM_MIN_VP: number = 320;
 export const WIDTH_MD_MIN_VP: number = 600;
@@ -101,33 +109,31 @@ const FALLBACK_WIDTH_VP: number = 390;
 const FALLBACK_HEIGHT_VP: number = 844;
 
 /**
- * 智感握姿：动作按钮该靠向哪一侧。
+ * 智感握姿：动作按钮该靠向哪一侧（`-1` 左 / `1` 右 / `0` 保持页面原本的版式）。
  *
- * 入参是两个系统信号——**操作手**（正在滑动/点击的那只手，`motion.OperatingHandStatus`）与
- * **持握手**（握住手机的那只手，`motion.HoldingHandStatus`），各映射成 `-1` 左 / `0` 未知 / `1` 右。
+ * 入参是两个系统信号——**持握手**（握住手机的那只手，`motion.HoldingHandStatus`）与
+ * **操作手**（正在滑动/点击的那只手，`motion.OperatingHandStatus`），各映射成 `-1` 左 / `0` 未知 / `1` 右。
  *
- * 规则（与界面代码原先内联的判定一致，抽出来是为了可单测）：
- * ① 操作手优先于持握手（用户滑屏的手才是要够到按钮的那只手）；
- * ② **宽窗口（MD 及以上）恒返回 0**：平板/展开态双手操作，控件跟着握姿跳来跳去反而更差；
- * ③ 两个信号都未知返回 0，调用方据此保持原布局（不能自己猜左右）；
- * ④ **`holdingFreezes`（系统明确报了「双手持握」）恒返回 0**——见下面那段理由。
+ * 规则（2026-10-23 用户口径，取代 2026-10-21/22 的「未知与双手一律冻结在中位」）：
+ * ① **宽窗口（MD 及以上）恒返回 0**：平板/展开态是双手操作，控件跟着手机握姿跳来跳去反而更差；
+ * ② **持握手优先**：系统报了左手就靠左、报了右手就靠右——握持的手才是要够到按钮的那只手；
+ * ③ **双手持握按右手处理**（`bothHandsHeld`）：不再「冻结在中位」，两手都在手机上时一律按右手；
+ * ④ **持握手未知（含 `NOT_HELD` 平放/立在桌面上）时用操作手兜底**：手机平放、或设备（API 20 以下）
+ *    根本不报持握手时，仍然靠向正在点按的那只手，而不是让整个功能失效；
+ * ⑤ **两个信号都没有时默认右手**（`DEFAULT_ACTION_HAND_SIDE`）：右手人群是多数，动作行停在正中会让
+ *    右手用户多伸一截；代价是左撇子在完全识别不出握姿的机型上会看到按钮靠右。
  *
- * 为什么双手持握要「冻结」而不是跟随操作手：双手持握时**两侧一样好够**，跟随操作手没有任何够不着的收益，
- * 却会带来两个真实损失——用户交替用左右拇指时动作行左右横跳（点完一下按钮就跑到另一边，破坏肌肉记忆），
- * 以及「按钮位置随我换手变来变去」的不确定感。
- *
- * **「未持握」（`NOT_HELD`，手机平放或立在桌面上用手指点）不冻结**（2026-10-22 用户决定，原先也冻结）：
- * 这种形态下用户是单手来点按钮的，「水平仪 / 指南针把手机放着测」正是典型场景，按钮要靠到那只手边；
- * 代价是平放时交替用左右手点会让按钮换边，用户明确选了这一侧。它与
- * 「持握手未知（`holdingFreezes=false` 且 `holdingSide=0`）」仍是**两件事**：后者是设备没给握姿信息，
- * 这时同样只能用操作手兜底（否则老设备/不支持的机型整个功能都失效）。
+ * 「未持握」与「持握手未知」在这里走同一条路（都用操作手兜底），不再区分——`NOT_HELD` 下用户是单手
+ * 来点按钮的（水平仪 / 指南针「放着测、单手点」正是典型场景），必须靠到那只手边。
  */
 export function actionHandSide(operatingSide: number, holdingSide: number, widthBand: number,
-  holdingFreezes: boolean = false): number {
+  bothHandsHeld: boolean = false): number {
   if (widthBand >= WIDTH_MD) { return 0; }
-  if (holdingFreezes) { return 0; }
-  const side: number = sideOf(operatingSide);
-  return side !== 0 ? side : sideOf(holdingSide);
+  if (bothHandsHeld) { return DEFAULT_ACTION_HAND_SIDE; }
+  const held: number = sideOf(holdingSide);
+  if (held !== 0) { return held; }
+  const operating: number = sideOf(operatingSide);
+  return operating !== 0 ? operating : DEFAULT_ACTION_HAND_SIDE;
 }
 
 /** 把任意外部数值收敛成 -1 / 0 / 1（非有限值、越界值一律按「未知」处理）。 */

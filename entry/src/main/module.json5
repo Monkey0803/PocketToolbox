@@ -83,44 +83,23 @@
             "actions": [
               "ohos.want.action.sendData"
             ],
-            // 分享面板怎么匹配本扩展（2026-10-22 真机排查）：
+            // 分享面板怎么匹配本扩展（2026-10-22 起排查、2026-10-23 收敛）：
             // ① **UTD 是主判据**——华为侧分享面板（`com.huawei.hmos.instantshare/SystemShareModalAbility`）与
-            //    `@kit.ShareKit` 走 `SharedRecord.utd`（统一数据类型）。真机上装了微信后 dump 它的 bundle：
-            //    分享扩展的 uris 是 `{ "scheme": "file", "type": "", "utd": "general.text" }` 这种形状，
-            //    而本应用原来的 uris 里 `utd` 全是空串 —— 只声明 MIME 时面板里**一次都没出现**。
-            // ② module.json5 的 schema 要求：`utd` 必须和 `scheme` 同时出现（单独的 `{ "utd": … }` 会被
-            //    「missingProperty: scheme」拒掉），因此 UTD 条目写成 `{ "scheme": "file", "utd": … }`。
-            // ③ MIME 的 `type` 条目保留：三方应用自己拼 want 时可能只给 MIME。
-            // ④ 仍然只收文本类：图片/视频/文件分享不出现本应用是设计如此（`ShareExtAbility` 只挑文本；
-            //    文本以文件形式交过来时 `ShareIntake` 会读文件内容）。
+            //    `@kit.ShareKit` 走 `SharedRecord.utd`（统一数据类型）。真机上 dump 微信的分享扩展，其 uris 形状是
+            //    `{ "scheme": "file", "type": "", "utd": "general.text" }`；本应用原先 `utd` 全空 —— 只声明 MIME
+            //    时面板里**一次都没出现**。
+            // ② **`maxFileSupported` 必须写**：官方文档写明它**默认 0 = 不支持该类分享**，不写就等于声明了「不支持」。
+            // ③ module.json5 的 schema 要求 `utd`/`maxFileSupported` 与 `scheme` 同时出现（`scheme` 在分享场景里
+            //    是预留字段、不生效，写 `file` 只是合规写法）。
+            // ④ **只声明父类型 `general.text` 一条**：2026-10-23 真机截图出现了**两个一模一样的「随身工具箱」**，
+            //    原因是同时声明了 `general.plain-text` 与它的父类型 `general.text`，一条纯文本分享**同时命中两条**，
+            //    面板就为同一个应用列了两行；官方口径是「支持全部子类型就声明父类型」。
+            // ⑤ 仍然只收文本类：图片/视频/文件分享不出现本应用是设计如此（`ShareExtAbility` 只挑文本）。
             "uris": [
               {
                 "scheme": "file",
-                "utd": "general.plain-text"
-              },
-              {
-                "scheme": "file",
-                "utd": "general.text"
-              },
-              {
-                "scheme": "file",
-                "utd": "general.hyperlink"
-              },
-              {
-                "scheme": "file",
-                "utd": "general.html"
-              },
-              {
-                "type": "text/plain"
-              },
-              {
-                "type": "text/html"
-              },
-              {
-                "type": "text/uri-list"
-              },
-              {
-                "type": "text/*"
+                "utd": "general.text",
+                "maxFileSupported": 1
               }
             ]
           }

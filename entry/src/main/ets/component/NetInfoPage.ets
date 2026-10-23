@@ -29,7 +29,9 @@ export struct NetInfoPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
-  @Param actionAlign: FlexAlign = FlexAlign.End;
+  // 本页**不声明 `actionAlign`**：唯一的动作是满宽的「查询」按钮（`layoutWeight(1)`），行内没有可跟随的
+  // 余量——声明了也没用，属于「看起来支持、实际不起作用」的死参数（与 `BasePage` 同口径，2026-10-23）。
+  // 行尾的值复制按钮按「逐值复制」口径本就不跟随。
   /** 存储句柄：门控要读联网偏好（`services/NetGate.ets`）。未打开时入口仍可用，按默认偏好放行。 */
   @Param data: LocalData | undefined = undefined;
   @Event onCopy: (value: string) => void = () => {};
@@ -176,7 +178,8 @@ export struct NetInfoPage {
         }.padding({ left: 12, right: 12 }).width('100%')
       }
 
-      // 单个 Button 直接放 Column 里没法靠 `justifyContent` 定位，必须先包一层 Row（AGENTS 口径）。
+      // 单个 Button 直接放 Column 里没法靠 `justifyContent` 定位，必须先包一层 Row（AGENTS 口径）；
+      // 它自己 `layoutWeight(1)` 占满整行，因此这一行没有「靠向哪只手」的余量（不接 `actionAlign`）。
       Row({ space: 8 }) {
         Button(this.loading
           ? (this.english ? 'Looking up…' : '查询中…')
@@ -184,7 +187,7 @@ export struct NetInfoPage {
           .backgroundColor(Color.Transparent).fontColor(ToolPalette.primary).fontWeight(FontWeight.Medium)
           .enabled(!this.loading)
           .onClick(() => { this.run(); })
-      }.width('100%').justifyContent(this.actionAlign)
+      }.width('100%')
 
       if (this.hasResult) {
         MaterialSurface({

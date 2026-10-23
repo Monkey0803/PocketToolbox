@@ -6,7 +6,7 @@
       "icon": "$media:toolbox_icon",
       "wants": [
         {
-          "bundleName": "com.example.pockettoolbox",
+          "bundleName": "com.xiaohuihu.tools",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": { "tool": "qr" }
@@ -19,7 +19,7 @@
       "icon": "$media:toolbox_icon",
       "wants": [
         {
-          "bundleName": "com.example.pockettoolbox",
+          "bundleName": "com.xiaohuihu.tools",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": { "tool": "barcode" }
@@ -32,7 +32,7 @@
       "icon": "$media:toolbox_icon",
       "wants": [
         {
-          "bundleName": "com.example.pockettoolbox",
+          "bundleName": "com.xiaohuihu.tools",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": { "tool": "science" }
@@ -45,7 +45,7 @@
       "icon": "$media:toolbox_icon",
       "wants": [
         {
-          "bundleName": "com.example.pockettoolbox",
+          "bundleName": "com.xiaohuihu.tools",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": { "tool": "timers" }

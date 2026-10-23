@@ -560,12 +560,16 @@ export struct RandomPage {
         Text(this.randomNumberResult)
           .fontSize(this.numberDrawCount <= 1 ? 30 : 22).fontWeight(FontWeight.Bold).padding(16).width('100%')
       }
-      IconActionButton({
-        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-        a11yText: appText('random.copy-random-number', this.english),
-        onTap: () => this.copyResult(this.randomNumberResult,
-          this.numberContext(false), this.numberContext(true))
-      })
+      // 结果复制的按钮同样要先包一层 100% 宽的 Row 才谈得上靠向使用的那只手（与上面的「生成」按钮同理，
+      // 2026-10-23 智感握姿全量排查补）。
+      Row() {
+        IconActionButton({
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          a11yText: appText('random.copy-random-number', this.english),
+          onTap: () => this.copyResult(this.randomNumberResult,
+            this.numberContext(false), this.numberContext(true))
+        })
+      }.width('100%').justifyContent(this.actionAlign)
     }
   }
 
@@ -819,11 +823,13 @@ export struct RandomPage {
         Text(this.listResult).fontSize(20).fontWeight(FontWeight.Bold).padding(16).width('100%')
           .copyOption(CopyOptions.LocalDevice)
       }
-      IconActionButton({
-        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
-        a11yText: appText('action.copyResult', this.english),
-        onTap: () => this.copyResult(this.listResult, this.listResultLabel, this.listResultLabel)
-      })
+      Row() {
+        IconActionButton({
+          icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
+          a11yText: appText('action.copyResult', this.english),
+          onTap: () => this.copyResult(this.listResult, this.listResultLabel, this.listResultLabel)
+        })
+      }.width('100%').justifyContent(this.actionAlign)
     }
   }
 

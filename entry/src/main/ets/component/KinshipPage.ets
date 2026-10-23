@@ -156,7 +156,7 @@ export struct KinshipPage {
             a11yText: appText('kin.copy-the-address', this.english),
             onTap: () => this.onCopy(kinCopyText(this.outcome, this.english))
           })
-        }.width('100%')
+        }.width('100%').justifyContent(this.actionAlign)
       }
     }.padding(16).width('100%')
   }

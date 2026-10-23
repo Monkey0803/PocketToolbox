@@ -38,6 +38,13 @@ export struct DocumentsPage {
   @Param docScanShooting: string = DEFAULT_DOC_SCAN_SHOOTING;
   @Param actionAlign: FlexAlign = FlexAlign.Center;
   /**
+   * 智感握姿的「靠哪一侧」（`-1` 左 / `0` 不跟随 / `1` 右）。
+   *
+   * 每页缩略图下的「第 N 页 + 删除」是**行内动作**，整行只有缩略图那么宽、没有多余横向空间，
+   * `justifyContent` 做不到换边，必须把删除按钮与页码文字整行镜像（与纪念日每行、文本对比页同一套）。
+   */
+  @Param handSide: number = 0;
+  /**
    * 预览图宽度（vp）：由父组件按断点算好传进来（`LayoutAdaptive` 是唯一的宽度口径），
    * 高度用固定长宽比跟随，避免「固定 180×240」在折叠屏/平板上比例失真
    * （2026-10-20 审计 §3.23②）。
@@ -316,6 +323,20 @@ export struct DocumentsPage {
     return !this.documentPdf && this.documentUris.length > 0;
   }
 
+  /**
+   * 单页删除按钮（随握姿整行镜像时左右两处共用同一份实现，避免两处各写一份）。
+   *
+   * 单页删除：一次只影响一行，按 AGENTS 的例外**保留即时执行**（不进确认框）；
+   * 删掉的是内存里的这一页，系统缓存文件仍在，重新扫描即可拿回来。
+   */
+  @Builder private pageDeleteButton(index: number) {
+    IconActionButton({
+      icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
+      boxSize: 36, iconSize: 18, a11yText: appText('docs.remove-page', this.english),
+      onTap: () => this.onRemovePage(index)
+    })
+  }
+
   /** 一页：缩略图 + 页码 +（非排序模式下）删除。排序模式内不挂删除，避免与拖动抢同一块手势。 */
   @Builder private pageItem(uri: string, index: number) {
     Column({ space: 4 }) {
@@ -323,17 +344,11 @@ export struct DocumentsPage {
       Image(uri).width(this.previewWidth).aspectRatio(0.75).objectFit(ImageFit.Contain)
         .backgroundColor(Color.White).borderRadius(12)
       Row() {
+        // 左手握持时整行换边：删除按钮落到缩略图左下角、页码文字到右侧（`SpaceBetween` 只认子节点顺序）。
+        if (!this.sorting && this.handSide < 0) { this.pageDeleteButton(index) }
         Text(this.tr('第 ' + (index + 1).toString() + ' 页', 'Page ' + (index + 1).toString()))
           .fontSize(13).fontColor(ToolPalette.textSecondary)
-        if (!this.sorting) {
-          // 单页删除：一次只影响一行，按 AGENTS 的例外**保留即时执行**（不进确认框）；
-          // 删掉的是内存里的这一页，系统缓存文件仍在，重新扫描即可拿回来。
-          IconActionButton({
-            icon: $r('sys.symbol.trash'), tintColor: ToolPalette.textSecondary,
-            boxSize: 36, iconSize: 18, a11yText: appText('docs.remove-page', this.english),
-            onTap: () => this.onRemovePage(index)
-          })
-        }
+        if (!this.sorting && this.handSide >= 0) { this.pageDeleteButton(index) }
       }.width(this.previewWidth).justifyContent(FlexAlign.SpaceBetween)
     }.alignItems(HorizontalAlign.Start)
   }

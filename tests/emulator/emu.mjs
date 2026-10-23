@@ -33,7 +33,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..');
 const OUT = join(ROOT, '.cache', 'emulator');
 const HAP = join(ROOT, 'entry', 'build', 'default', 'outputs', 'default', 'entry-default-signed.hap');
-const BUNDLE = 'com.example.pockettoolbox';
+const BUNDLE = 'com.xiaohuihu.tools';
 const ABILITY = 'EntryAbility';
 
 // hdc 位置：优先环境变量，其次 DevEco SDK，最后 PATH。

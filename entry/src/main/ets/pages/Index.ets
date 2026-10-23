@@ -173,10 +173,9 @@ struct Index {
   // 扫描回调无论成功/取消都复位（与 `docScanAppending` 同一处），避免下次扫描莫名进编辑页。
   private pendingEditUris: string[] = [];
   @Local holdingSide: number = 0;
-  // 系统明确报了「双手持握」：动作行保持默认版式（不跟随操作手，理由见 `actionHandSide()`）。
-  // **「未持握」（平放/立在桌上）不再冻结**——2026-10-22 按用户决定改为仍按操作手靠边：
-  // 水平仪/指南针这类「把手机放着测、单手点按钮」的页面正需要按钮到手边。
-  @Local holdingFreezes: boolean = false;
+  // 系统明确报了「双手持握」：动作行按**右手**处理（2026-10-23 口径，见 `actionHandSide()`）。
+  // 「未持握」（平放/立在桌上）与「持握手未知」走同一条路——用操作手兜底，都没有信号时默认右手。
+  @Local bothHandsHeld: boolean = false;
   @Local operatingSide: number = 0;
   // 智感握姿开关（设置页可关）。关闭时不订阅系统握姿事件、所有动作行保持原位（见 `actionSide()`）。
   @Local handPosture: boolean = DEFAULT_HAND_POSTURE;
@@ -228,18 +227,15 @@ struct Index {
   private scanConfig: DocumentScannerConfig | undefined = undefined;
   private readonly scannerSupported: boolean = canIUse('SystemCapability.AI.Component.DocScan');
   /**
-   * 持握手状态 → 是否「冻结布局」。
+   * 持握手状态 → 靠哪一侧。
    *
-   * **只有 `BOTH_HANDS_HELD`（双手持握）冻结**：两手都在手机上，两侧一样好够，跟随操作手只会让动作行
-   * 在交替用左右拇指时左右横跳（点完一下按钮就跑到另一边，破坏肌肉记忆）。
-   *
-   * **`NOT_HELD`（没握住，例如平放在桌上/立在桌面上用手指点）不再冻结**（2026-10-22 用户决定）：
-   * 这种形态下用户是「单手来点」的，「水平仪/指南针把手机放着测」正是典型场景，按钮要靠到那只手边；
-   * 代价是平放时交替用左右手点会让按钮换边，用户明确选了这一侧。
-   * `UNKNOWN_STATUS`（设备没给握姿信息）也**不冻结**——这时仍要用操作手兜底，否则老设备整个功能失效。
+   * **左手 / 右手**直接定侧；**`BOTH_HANDS_HELD`（双手持握）按右手处理**（`bothHandsHeld`，不再冻结在中位）；
+   * **`NOT_HELD`（平放在桌上/立在桌面上用手指点）与 `UNKNOWN_STATUS` 都按「持握手未知」**处理——
+   * 这时由操作手兜底、都没有信号时默认右手（2026-10-23 用户口径，判定细节见
+   * `model/LayoutAdaptive.actionHandSide()`）。
    */
   private holdingCallback: (status: motion.HoldingHandStatus) => void = (status: motion.HoldingHandStatus): void => {
-    this.holdingFreezes = status === motion.HoldingHandStatus.BOTH_HANDS_HELD;
+    this.bothHandsHeld = status === motion.HoldingHandStatus.BOTH_HANDS_HELD;
     this.holdingSide = status === motion.HoldingHandStatus.LEFT_HAND_HELD ? -1 :
       status === motion.HoldingHandStatus.RIGHT_HAND_HELD ? 1 : 0;
   };
@@ -430,12 +426,11 @@ struct Index {
       try { motion.off('holdingHandChanged', this.holdingCallback); } catch (_) {}
       this.holdingSubscribed = false;
     }
-    // 关掉后把已知的手位清成「未知」：重新打开时先保持原位，等系统给一次新的回调再移动。
+    // 关掉后把已知的手位清成「未知」：重新打开时按「没有握姿信号」起步（默认右手），等系统给一次新的回调再移动。
     this.operatingSide = 0;
     this.holdingSide = 0;
-    // 「冻结」也一起清掉：重新打开时按「没有握姿信息」起步（宁可跟随操作手，也不要被上一次的
-    // 双手持握状态永久冻住——系统只在状态**变化**时回调，冻住可能一直等不到下一次回调）。
-    this.holdingFreezes = false;
+    // 「双手持握」也一起清掉：系统只在状态**变化**时回调，留着可能一直等不到下一次回调。
+    this.bothHandsHeld = false;
   }
 
   /**
@@ -505,24 +500,24 @@ struct Index {
     this.cardHeight = cardHeightVp(scale);
   }
 
-  // 智感握姿：把高频操作靠近正在使用的手。宽屏（MD 及以上）不按手机握姿移动控件，保持稳定布局。
+  // 智感握姿：把高频操作靠近正在使用的那只手。宽屏（MD 及以上）不按手机握姿移动控件，保持稳定布局。
   private actionAlignment(fallback: FlexAlign = FlexAlign.Center): FlexAlign {
     const side: number = this.actionSide();
     return side < 0 ? FlexAlign.Start : side > 0 ? FlexAlign.End : fallback;
   }
 
   /**
-   * 操作手在哪一侧：`-1` 左手、`1` 右手、`0` 未知（或宽屏——宽屏不按手机握姿移动控件）。
+   * 操作手在哪一侧：`-1` 左手、`1` 右手、`0` 保持页面原本版式（宽屏，或设置页关掉了智感握姿）。
    *
-   * 判定（操作手优先于持握手、宽屏恒 0）在纯逻辑 `LayoutAdaptive.actionHandSide()` 里，可被单测覆盖；
-   * 这里只做「读两个 @Local + 当前宽度档位」的取值。**设置页关掉智感握姿后恒返回 0**（保持原位）。
+   * 判定（持握手优先 → 操作手兜底 → 默认右手；宽屏恒 0）在纯逻辑 `LayoutAdaptive.actionHandSide()` 里，
+   * 可被单测覆盖；这里只做「读两个 @Local + 当前宽度档位」的取值。**设置页关掉智感握姿后恒返回 0**。
    *
    * 给「需要整行镜像」的地方用（列表行的行内动作要把按钮和留白一起换边，光靠 `justifyContent` 做不到）：
-   * 例如纪念日列表每行的「编辑 / 删除」按钮。
+   * 例如纪念日列表每行的「编辑 / 删除」按钮、文本对比页、文档扫描每页的删除。
    */
   private actionSide(): number {
     if (!this.handPosture) { return 0; }
-    return actionHandSide(this.operatingSide, this.holdingSide, this.metrics().widthBand, this.holdingFreezes);
+    return actionHandSide(this.operatingSide, this.holdingSide, this.metrics().widthBand, this.bothHandsHeld);
   }
 
   private async load(): Promise<void> {
@@ -2193,6 +2188,9 @@ struct Index {
               DocumentsPage({ english: this.english, scannerSupported: this.scannerSupported,
                 documentUris: this.documentUris, documentPdf: this.documentPdf,
                 documentSaving: this.documentSaving, actionAlign: this.actionAlignment(),
+                // 每页缩略图下的「第 N 页 + 删除」是**行内动作**：整行只有缩略图宽，靠 `justifyContent`
+                // 做不到换边，必须把「靠哪一侧」交给页面自己去镜像（与纪念日每行同一套）。
+                handSide: this.actionSide(),
                 previewWidth: this.documentPreviewWidth(),
                 docScanFilter: this.docScanFilter, docScanShooting: this.docScanShooting,
                 // 主扫描按钮必须显式清掉「追加」意图：两者都会推 `scanner` 路由，只靠结果回调复位
@@ -2277,8 +2275,10 @@ struct Index {
             else if (name === 'netinfo') {
               // 网络查询：结果**不写历史**（与「网络工具」同一口径：查询类结果的价值在于当下核对，
               // 写进历史只会把 50 条上限挤满）。
+              // 本页唯一的动作是满宽的「查询」按钮（`layoutWeight(1)`），行内没有可跟随的余量，
+              // 所以**不传 `actionAlign`**（与 `BasePage` 同口径：不留「看起来支持、实际不起作用」的死参数）。
               NetInfoPage({ english: this.english, immersiveSupported: this.immersiveSupported,
-                materialLevel: this.materialLevel, actionAlign: this.actionAlignment(),
+                materialLevel: this.materialLevel,
                 data: this.data,
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })

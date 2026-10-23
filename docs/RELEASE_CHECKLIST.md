@@ -455,7 +455,7 @@
 
 ## 权限用途
 
-- `ohos.permission.DETECT_GESTURE`：仅在本机识别握持手和交互手，以调整常用按钮位置；不保存或上传握姿状态。设备不支持或权限不可用时保留默认布局。
+- `ohos.permission.DETECT_GESTURE`：仅在本机识别握持手和交互手，以调整常用按钮位置；不保存或上传握姿状态。判定次序是「持握手 → 操作手 → **默认右手**」（系统报双手持握时按右手）；设备不支持、权限不可用或宽窗口（平板/展开态）时保持页面原本版式。
 - `ohos.permission.PUBLISH_AGENT_REMINDER`：用户启动倒计时后，在应用退到后台或进程结束时由系统按时提醒。需要代理提醒权益和通知授权。
 - `ohos.permission.ACCELEROMETER`：仅在水平仪页面读取设备加速度，计算倾角和气泡位置；离开页面或应用退后台后取消订阅，不保存数据。
 - 应用**不申请任何网络权限**（**历史批次记录，2026-10-16 的状态**；2026-10-20 起应用已引入联网能力与 `ohos.permission.INTERNET`/`GET_NETWORK_INFO`，当前口径见本文顶部批次段与 `docs/PRIVACY.md`）：节假日数据随包内置（构建期生成，见上），运行时没有联网入口。`ohos.permission.INTERNET` 已于 2026-10-16 从 `entry/src/main/module.json5` 移除；任何联网行为都必须同时更新本文件、`docs/PRIVACY.md`、`docs/STORE_LISTING.md` 与 `docs/THIRD_PARTY_NOTICES.md`。
@@ -497,7 +497,7 @@
 | 工具、收藏、设置 Tab 切换与返回 | 手机与约 853 vp 宽屏均通过；收藏加入/取消后收藏页即时增删（QR code / Password generator / Spirit level），设置页语言、五款图标、隐私文案正常；**切换语言后工具卡片标题不刷新**的缺陷已修复并复验 | API 26 模拟器，截图见 `docs/screenshots/emulator/tools-grid-language-stale-before-fix.jpeg`（修复前）与 `tools-grid-language-fixed-en.jpeg`（修复后） |
 | 五款应用图标切换、恢复默认与重启保持 | 手机通过；四款备选与默认均可选择，桌面图标及选中状态正确，进程重启后保持，设置页中英文显示正常 | PLR-AL00（API 26）；平板另验 |
 | 五类个税计算、正反推、错误输入和官方链接 | 模型测试与构建通过；手机五类基础结果、工资及劳务反推、收藏返回、英文显示、错误输入、房贷扣除、税务及社保链接、首期折叠与后续期数展开通过；其他复杂扣除组合待测 | PLR-AL00 调试签名包；平板和折叠屏另验 |
-| 智感握姿左右手适配及未知状态退化 | 待测 | 支持此能力的真机；模拟器不能替代 |
+| 智感握姿左右手适配及未知状态退化 | 待测（**2026-10-23 改为「左手靠左、其余一律靠右、默认右手」**：模拟器已核对默认右手与左手探针的布局，宽窗口仍不跟随；真机上「双手持握 / 平放」两态是否按预期靠右待复验） | 支持此能力的真机；模拟器不能替代 |
 | 全局沉浸光感、材质类型与设备材质等级 | 导航与入口基础显示、点击通过；模拟器复验输入框/多行文本框/结果卡片/列表行为**单层圆角、无材质嵌套、行内布局未被撑坏**；**深色模式**：色板已于 2026-10-19 资源化并跟随系统（`resources/{base,dark}/element/color.json` 各 38 项，键集合由 `tests/check-consistency.mjs` 断言一致）；**2026-10-20 审计进一步修掉两处写死色**（`OptionSelect` 的白色菜单底、手电筒开灯态图标色），真机深色下的下拉菜单/对话框/按钮对比度仍待验收 | PLR-AL00 与 API 26 模拟器，截图见 `docs/screenshots/emulator/darkmode-*.jpeg`；动态光感与真机材质等级仍需验收 |
 | 倒计时时长时间选择器与材质 | 模拟器复验通过：时长卡片点开系统时间选择器（时/分/秒三列、24 小时制），确定后卡片立即更新、取消保持原值；`00:00:00` 被拒并提示，`00:01:00` 添加后正常递减；名称输入框与列表行均为单层 | API 26 模拟器，截图见 `docs/screenshots/emulator/timers-duration-time-picker.jpeg`、`timers-zero-duration-rejected.jpeg`；对话框材质观感仍需真机 |
 | 工具搜索（过滤、空态、清空） | 模拟器复验通过：输入 `qr` 仅剩「二维码」；输入 `zzz` 显示中英空结果提示且网格为空；清空后 14 张卡片恢复 | API 26 模拟器 @240 dpi，截图见 `tools-search-box-zh.jpeg`、`tools-search-qr-zh.jpeg`、`tools-search-empty-zh.jpeg`；平板/折叠屏布局与超大字体待验 |

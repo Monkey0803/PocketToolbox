@@ -282,7 +282,7 @@ export struct LoanPage {
             icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.textSecondary,
             a11yText: appText('action.copySummary', this.english), onTap: () => this.onCopy(this.summary())
           })
-        }.width('100%')
+        }.width('100%').justifyContent(this.actionAlign)
         // 还款计划表：默认收起（360 期一次铺开会很长），展开后最多显示前 SCHEDULE_VIEW_MAX 期。
         Row({ space: 8 }) {
           Text(appText('loan.repayment-schedule', this.english)).fontSize(15).layoutWeight(1)
