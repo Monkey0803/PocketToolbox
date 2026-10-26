@@ -81,6 +81,9 @@ function toolSpecs(): Map<string, ToolSpec> {
   specs.set('worldclock', new ToolSpec($r('sys.symbol.worldclock'), ToolPalette.tintAmber));
   // 图片工具：`picture`（已核 `type: symbol`）。
   specs.set('imagetools', new ToolSpec($r('sys.symbol.picture'), ToolPalette.tintTeal));
+  // URL 编解码：`link`（已核 SDK `id_defined.json` 里 `type: symbol`；`globe`/`chain_link` 一类名字
+  // 在本机图标表里没有，写错会直接编不过）。底色复用 tintSky，与「文本与编码」那几枚区分开。
+  specs.set('url', new ToolSpec($r('sys.symbol.link'), ToolPalette.tintSky));
   return specs;
 }
 

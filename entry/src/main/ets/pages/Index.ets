@@ -79,6 +79,7 @@ import { MoneyWordsPage } from '../component/MoneyWordsPage';
 import { IdCheckPage } from '../component/IdCheckPage';
 import { WorldClockPage } from '../component/WorldClockPage';
 import { ImageToolsPage } from '../component/ImageToolsPage';
+import { UrlCodecPage } from '../component/UrlCodecPage';
 import { StartupIntentValue, consumeStartupIntent, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
   normalizeLanguagePreference } from '../model/LanguagePreference';
@@ -2447,6 +2448,14 @@ struct Index {
                 data: this.data,
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
+            }
+            else if (name === 'url') {
+              // URL 编解码：文本只在本机内存里转换，输入不落盘；复制编码/解码结果时按既有 `text`
+              // 类别记一条历史（与文本工具里那两项 URL 编解码同一口径，点条目回填进文本工具）。
+              UrlCodecPage({ english: this.english, immersiveSupported: this.immersiveSupported,
+                materialLevel: this.materialLevel,
+                onCopy: (value: string): void => { this.copy(value); },
+                onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
             }
             else if (name === 'history') {
               HistoryPage({ english: this.english, immersiveSupported: this.immersiveSupported,

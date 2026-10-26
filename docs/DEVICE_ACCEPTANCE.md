@@ -8,15 +8,25 @@
 - 说明：内容区的卡片按约定就是**退化的普通底色**（ArkUI 组件级材质只在标题栏与底部页签渲染），卡片不是玻璃质感属于预期，不要记为缺陷。
 - 说明：随包的节假日日历现在是**真实数据**（2022–2026，构建期由 `tools/fetch-holidays.mjs` 从 NateScarlet/holiday-cn 生成，见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)），应用不申请网络权限，也没有「更新」按钮；工作日界面应显示「已排除周末与法定节假日，并计入调休上班日」与数据日期。核对工作日时请按当年国务院公告确认预期值。
 
+## 2026-10-26 新增一项：URL 编解码（模拟器已跑一轮，真机未验收）
+
+新增第 31 个工具卡片 **URL 编解码**（`url`，分类「文本与编码」，工具数 30 → 31）。**模拟器已按下面的条目跑过一轮**（实例：折叠屏展开态，窗口 2210 × 2416 px，hdc `127.0.0.1:5555`）；真机尚未验收。逐条步骤见 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的「URL 编解码」一节。
+
+- **模拟器已验（2026-10-26，截图 `docs/screenshots/emulator/url-codec-*.jpeg`）**：① 空态（结果卡显示用法说明、✕ 呈禁用浅色）与有内容后 ✕ 变主题色实心；② **组件方式编码结果与 Node 的 `encodeURIComponent` 逐字符一致**——`https://example.com/s?q=%E4%BD%A0%E5%A5%BD&page=2&debug&empty=&a=%zz` → `https%3A%2F%2Fexample.com%2Fs%3Fq%3D%25E4%25BD%25A0%25E5%25A5%25BD%26page%3D2%26debug%26empty%3D%26a%3D%25zz`（页面自报「输入 68 字符 · 编码后 108 字符」，与 Node 计算一致）；③ 解码行解出 `你好`，同一串里 `a=%zz` 非法时**只有解码那一行**显示「内容不是该编码的合法格式」、**编码结果照常显示**、该行复制按钮禁用；④ 查询参数拆表 5 条（`q` = `你好`、`page` = `2`、`debug`（无值）、`empty`（空值）、`a` = `%zz` 标红）+ 底部「标红的片段有解不开的转义，已按原样显示」；⑤ **方式切换**：组件 → 表单后解码行变成 `a b=c d&x=+`（`+` 还原成空格、`%2B` 仍是 `+`），且**参数行同步刷新**为 `a b` / `c d`；⑥ 整串网址：保留 `:/?&=`、空格 → `%20`（与组件口径的差别肉眼可见）；⑦ 自定义：在「保留字符」里输入 `& : %` → 页面显示「实际保留：`&:`」（空白与 `%` 被丢弃、引号本就在基础集合里不影响），编码结果里 `:` 与 `&` 原样、`%` 仍编码成 `%25`；⑧ 复制编码结果 → toast「已复制」→ **历史页出现「文本结果 / `'a%20b'`」条目**（`onRecord('text', …)` 链路通）；⑨ 英文界面（设置页切 English）整页文案为英文（`URL codec` / `Text or URL` / `Mode` / `Component` / `Result` / 无参数空态）；⑩ `emu.mjs smoke --only url` 通过，随后**全量 `emu.mjs smoke` 31/31 通过**（新增卡片没有影响其它工具页）。
+- **模拟器查出并已修的缺陷（1 个，值得记住）**：切「方式」后**查询参数行不刷新**——组件 → 表单时解码行已经是 `a b=c d`，参数行仍显示上一个方式的 `a+b` / `c+d`。原因：`ForEach` 的 key 只用了原始片段（`index|raw`），key 不变时 ArkUI **不会重跑条目构建函数**，那几行就停在上一次解码出来的文本上（与「`@Builder` 按值传参不随状态刷新」同源，只是藏在 key 里）。修法：key 带上**渲染出来的内容**（`index|raw|name|value|ok`，与 `TimersPage` 计次列表同一套写法）。修复后同一场景参数行为 `a b` / `c d`。
+- **仍未验（如实）**：本实例是**展开态（约 736 vp 宽）**，**折叠态窄窗**排版没跑；深色模式、超过 `URL_QUERY_MAX_PARAMS`（50）个参数的截断提示、超过 `URL_INPUT_MAX`（10 万字符）的拒绝提示、用输入法输入中文/emoji 到「保留字符」框、真机上超长网址的渲染流畅度，都待设备核对。
+- **纯逻辑已验证**：四种方式的保留字符集合、`+` 与空格在编码/解码两侧的对应关系、查询串取法、查询参数拆表（含解不开的片段原样保留）、整段复制文本、输入上限守卫，全部由 `tests/run-unit-tests.mjs` 覆盖；前三种方式还与 Node 的 `encodeURIComponent` / `encodeURI` / `URLSearchParams` 逐值对照（不是自证）。
+- **本轮不新增权限、不新增联网动作、不新增持久化键**：输入只在本机内存里转换；复制结果按既有 `text` 类别记一条本机历史。
+
 ## 2026-10-23 新增六项（未验收）
 
-本轮新增 **图片工具 / 金额大写 / 身份证校验 / 世界时钟** 四个工具卡片，以及计时页第 3 种方式**番茄钟**、随机页第 4 种方式**转盘抽奖**（工具数 26 → 30）。**模拟器与真机都没有跑过本轮的任何新页面**；`tests/emulator/emu.mjs` 已加 4 条只查结构性文案的用例（`money` / `idcheck` / `worldclock` / `imagetools`）但**尚未执行**。逐条步骤见 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的「2026-10-23 新增六项」一节（P1–P6）。
+本轮新增 **图片工具 / 金额大写 / 身份证校验 / 世界时钟** 四个工具卡片，以及计时页第 3 种方式**番茄钟**、随机页第 4 种方式**转盘抽奖**（工具数 26 → 30）。**模拟器已跑过本轮 4 个新工具页的结构性 smoke**（2026-10-26，`node tests/emulator/emu.mjs smoke` **31/31 通过**，其中 `money` / `idcheck` / `worldclock` / `imagetools` 四条用例只断言标题与关键文案都渲染出来，**不等于功能验收**；番茄钟与转盘是页内方式，smoke 只覆盖页面默认视图，**没有点到这两个方式**）；**真机仍未验收**。逐条步骤见 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的「2026-10-23 新增六项」一节（P1–P6）。
 
 - **纯逻辑已验证**：尺寸与只缩不放、像素预算、文件名/体积文案、金额大写的零/整/万/亿规则、身份证校验位与 15→18 升位、世界时钟的日夜/日差/上限/坏数据、番茄钟状态机与落盘解析、转盘角度与扇区的互逆映射，全部由 `tests/run-unit-tests.mjs` 覆盖（六个断言块）。
 - **只能在设备上确认的**：图片编码成像与写相册、WebP 是否本机可编、转盘动画与窄窗/深色观感、世界时钟跨夏令时与「设备不支持该时区」分支、番茄钟后台提醒与阶段自动推进、身份证/银行卡输入过滤与键盘面。
 - **顺带修掉一处既有缺陷（未验收）**：清除本机数据时，**倒计时的本地提醒此前从未被取消**（只有纪念日的 id 走页面回传快照），会出现「数据清了通知还在响」。现在 `Index.clearAllLocalData()` 在 `clearAll()` 之前读 `timers` 与 `pomodoro_state` 收集 reminderId 并逐个取消；请按 `PHONE_ACCEPTANCE_CHECKLIST.md` 的 P5 最后一条核对。
 - **构建环境**：30 个工具后 `tools/build-hap.mjs` 的堆上限改为「hvigor 512 MB / 派生工具 ≤ 256 MB」，否则分别会撞到 `Zone Allocation failed` 与签名工具的 `00308018 / Tools execution failed`。
-- **番茄钟收口（2026-10-23，同为未验收）**：① 模型文案 `pomodoroNoteText()` 与 README / 商店文案补上「应用在前台时才自动进入下一阶段；后台由系统本地通知提醒，回到应用后接着进行（不补跑中间过去的阶段）」——依据是**代码事实**（全工程没有 `backgroundTaskManager`/`workScheduler`/ContinuousTask，阶段推进靠页面 `tick()`），**尚未在真机上验证后台行为**，实测若出现机型差异按实测改文案；② `tests/emulator/check-align.mjs` 的 `--views` 新增一项「计时 → 番茄钟」（三行「标签 + 输入框 + 滚轮」的垂直中心与左右边界进可重复门禁），**该用例尚未执行**（模拟器上跑 `node tests/emulator/check-align.mjs --only timers --views`）。
+- **番茄钟收口（2026-10-23，同为未验收）**：① 模型文案 `pomodoroNoteText()` 与 README / 商店文案补上「应用在前台时才自动进入下一阶段；后台由系统本地通知提醒，回到应用后接着进行（不补跑中间过去的阶段）」——依据是**代码事实**（全工程没有 `backgroundTaskManager`/`workScheduler`/ContinuousTask，阶段推进靠页面 `tick()`），**尚未在真机上验证后台行为**，实测若出现机型差异按实测改文案；② `tests/emulator/check-align.mjs` 的 `--views` 新增一项「计时 → 番茄钟」（三行「标签 + 输入框 + 滚轮」的垂直中心与左右边界进可重复门禁），**该用例已于 2026-10-26 在模拟器执行通过**（`node tests/emulator/check-align.mjs --only timers --views`：`timers` 与 `timers/pomodoro` 两屏均通过，容差 26 px）。
 
 ## 2026-10-23 主题色（构建与静态门禁已过，模拟器已逐条验收）
 

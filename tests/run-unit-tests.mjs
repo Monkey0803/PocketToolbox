@@ -52,6 +52,8 @@ const holidayIcs = await loadEts('../entry/src/main/ets/model/HolidayIcs.ets');
 const toolMeta = await loadEts('../entry/src/main/ets/model/ToolMeta.ets');
 const qrContent = await loadEts('../entry/src/main/ets/model/QrContent.ets');
 const encodingTools = await loadEts('../entry/src/main/ets/model/EncodingTools.ets');
+// URL 编解码（2026-10-26，第 31 个工具）：方式登记表 + 保留字符口径 + 查询参数拆表。
+const urlCodec = await loadEts('../entry/src/main/ets/model/UrlCodec.ets');
 const hashTools = await loadEts('../entry/src/main/ets/model/HashTools.ets');
 const historyKinds = await loadEts('../entry/src/main/ets/model/HistoryKinds.ets');
 const timeZones = await loadEts('../entry/src/main/ets/model/TimeZoneTools.ets');
@@ -2572,11 +2574,12 @@ assert.equal(dates.workingDaysBetweenWithHolidays('2025-02-29', '2026-10-01', tr
 
 // --- 工具元数据：单一数据源（收藏白名单与工具搜索都由它派生）---
 // 2026-10-23：26 → 30（新增「金额大写」「身份证校验」「世界时钟」「图片工具」四项）。
-assert.equal(toolMeta.TOOL_META.length, 30);
-assert.equal(toolMeta.TOOL_IDS.length, 30);
-assert.equal(new Set(toolMeta.TOOL_IDS).size, 30);
+// 2026-10-26：30 → 31（新增第 31 个「URL 编解码」，分类「文本与编码」）。
+assert.equal(toolMeta.TOOL_META.length, 31);
+assert.equal(toolMeta.TOOL_IDS.length, 31);
+assert.equal(new Set(toolMeta.TOOL_IDS).size, 31);
 assert.equal(toolMeta.TOOL_IDS[0], 'qr');
-assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'imagetools');
+assert.equal(toolMeta.TOOL_IDS[toolMeta.TOOL_IDS.length - 1], 'url');
 assert.ok(toolMeta.TOOL_IDS.includes('timestamp'), 'timestamp must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('loan'), 'loan must be a known tool id');
 assert.ok(toolMeta.TOOL_IDS.includes('color'), 'color must be a known tool id');
@@ -2617,7 +2620,7 @@ assert.deepEqual(toolMeta.allowedFavorites(['qr', 'qr']), ['qr']);
 assert.deepEqual(toolMeta.allowedFavorites([]), []);
 assert.deepEqual(toolMeta.allowedFavorites(['history']), []);
 assert.deepEqual(toolMeta.allowedFavorites(undefined), []);
-assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 30);
+assert.equal(toolMeta.allowedFavorites(toolMeta.TOOL_IDS).length, 31);
 assert.deepEqual(toolMeta.allowedFavorites(toolMeta.TOOL_IDS), toolMeta.TOOL_IDS);
 
 // 工具搜索：空查询返回全部；中英双语与 id 都能命中；无命中返回空
@@ -2715,7 +2718,7 @@ assert.equal(toolMeta.categoryById('nope'), undefined);
 // 分区：每个分类的成员与顺序都钉住（顺序即 TOOL_IDS 顺序，不按分类重排登记表）
 assert.deepEqual(toolMeta.toolIdsInCategory('scan'), ['qr', 'barcode', 'documents', 'idphoto', 'imagetools']);
 assert.deepEqual(toolMeta.toolIdsInCategory('calc'), ['calculator', 'tax', 'loan', 'health', 'science', 'money']);
-assert.deepEqual(toolMeta.toolIdsInCategory('text'), ['text', 'password', 'base', 'diff']);
+assert.deepEqual(toolMeta.toolIdsInCategory('text'), ['text', 'password', 'base', 'diff', 'url']);
 assert.deepEqual(toolMeta.toolIdsInCategory('time'), ['timers', 'dates', 'timestamp', 'anniversary']);
 assert.deepEqual(toolMeta.toolIdsInCategory('life'), ['units', 'random', 'color', 'kinship', 'idcheck']);
 assert.deepEqual(toolMeta.toolIdsInCategory('system'), ['torch', 'level', 'compass', 'net', 'netinfo', 'worldclock']);
@@ -2731,7 +2734,7 @@ for (const category of toolMeta.TOOL_CATEGORIES) {
   }
   for (const id of ids) { groupedIds.push(id); }
 }
-assert.equal(groupedIds.length, 30);
+assert.equal(groupedIds.length, 31);
 assert.deepEqual(groupedIds.slice().sort(), toolMeta.TOOL_IDS.slice().sort());
 // categoryOfTool：已知工具 → 声明分类；未知 id → 显式兜底桶（绝不返回空串，否则工具会静默消失）
 for (const meta of toolMeta.TOOL_META) {
@@ -2775,6 +2778,22 @@ assert.deepEqual(toolMeta.matchTools('时间'), ['timestamp', 'worldclock', 'tim
 assert.deepEqual(toolMeta.matchTools('设备'), ['torch', 'level', 'compass', 'net', 'netinfo', 'worldclock']);
 // 「扫码」：二维码/条形码按关键词命中，「文档扫描」「证件照」「图片工具」由分类名「扫码与图像」以最低档补在末尾
 assert.deepEqual(toolMeta.matchTools('扫码'), ['qr', 'barcode', 'documents', 'idphoto', 'imagetools']);
+// URL 编解码（2026-10-26 第 31 个工具）：标题、关键词与拼音首字母都能命中；分类落在「文本与编码」
+assert.equal(toolMeta.toolMetaById('url').titleZh, 'URL 编解码');
+assert.equal(toolMeta.toolMetaById('url').titleEn, 'URL codec');
+assert.equal(toolMeta.categoryOfTool('url'), 'text');
+assert.deepEqual(toolMeta.matchTools('url'), ['url']);
+assert.deepEqual(toolMeta.matchTools('URL 编解码'), ['url']);
+assert.deepEqual(toolMeta.matchTools('urlencode'), ['url']);
+assert.deepEqual(toolMeta.matchTools('urldecode'), ['url']);
+assert.deepEqual(toolMeta.matchTools('百分号'), ['url']);
+assert.deepEqual(toolMeta.matchTools('查询参数'), ['url']);
+assert.deepEqual(toolMeta.matchTools('urlbm'), ['url']);
+// 关键词里刻意不含泛词「编码」：搜「编码」时文本工具按关键词精确命中排第一，URL 编解码靠关键词
+// `url编码` 的子串命中（以及分类名「文本与编码」的最低档）也能被搜到——不写死整条结果，
+// 因为它同时含分类档补进来的其它「文本与编码」类工具。
+assert.equal(toolMeta.matchTools('编码')[0], 'text', '文本工具按关键词精确命中排第一');
+assert.ok(toolMeta.matchTools('编码').includes('url'), 'URL 编解码要能被「编码」搜到');
 // 精确命中仍排在子串命中之前（`hex` 是两个工具的关键词精确命中，顺序仍按 TOOL_IDS）
 assert.deepEqual(toolMeta.matchTools('hex'), ['color', 'base']);
 
@@ -3052,6 +3071,95 @@ assert.equal(Buffer.from('YWJjZA', 'base64').toString('utf8'), 'abcd', '（Node 
 assert.equal(hashTools.md5('中文😀'), hashTools.md5(encodingTools.utf8Bytes('中文😀')));
 assert.equal(hashTools.sha256(''), hashTools.sha256([]));
 assert.ok(encodingTools.codecErrorText('unknown', true).length > 0);
+
+// --- URL 编解码（2026-10-26，第 31 个工具 `url`）：四种方式 + `+` 与空格 + 查询参数拆表 ---
+assert.equal(urlCodec.URL_MODES.length, 4);
+assert.equal(urlCodec.DEFAULT_URL_MODE, 'component');
+assert.equal(urlCodec.URL_QUERY_MAX_PARAMS, 50);
+assert.equal(urlCodec.urlModeById('full').en, 'Full URL');
+assert.equal(urlCodec.urlModeById('form').zh, '表单');
+assert.equal(urlCodec.urlModeById('nope'), undefined);
+assert.equal(urlCodec.urlModeIndex('component'), 0);
+assert.equal(urlCodec.urlModeIndex('form'), 2);
+assert.equal(urlCodec.urlModeIndex('nope'), -1);
+for (const mode of urlCodec.URL_MODES) {
+  assert.ok(mode.id.length > 0 && mode.zh.length > 0 && mode.en.length > 0 && mode.hintZh.length > 0 &&
+    mode.hintEn.length > 0, `incomplete URL mode ${mode.id}`);
+  assert.notEqual(mode.zh, mode.en, `URL mode ${mode.id} needs distinct zh/en names`);
+}
+assert.equal(urlCodec.urlInputTooLong('abc'), false);
+assert.equal(urlCodec.urlInputTooLong('x'.repeat(urlCodec.URL_INPUT_MAX)), false);
+assert.equal(urlCodec.urlInputTooLong('x'.repeat(urlCodec.URL_INPUT_MAX + 1)), true);
+assert.equal(urlCodec.urlInputTooLong(undefined), false);
+// ① 组件口径必须与 Node 的 `encodeURIComponent` 逐字符一致（与 `EncodingTools.urlEncode` 同一条参照）
+for (const text of ['', 'abc', 'a b', '中文', '😀', 'a/b?c=d&e=f', "!*'()", '~', '-._', 'a+b', '%20', '?#[]@',
+  '$,;:', 'line\nbreak', 'tab\there']) {
+  assert.equal(urlCodec.urlEncodeWith(text, 'component', ''), encodeURIComponent(text),
+    `组件口径应与 encodeURIComponent 一致：${JSON.stringify(text)}`);
+  // ② 整串口径必须与 Node 的 `encodeURI` 一致（保留 `;/?:@&=+$,#`）
+  assert.equal(urlCodec.urlEncodeWith(text, 'full', ''), encodeURI(text),
+    `整串口径应与 encodeURI 一致：${JSON.stringify(text)}`);
+  // ③ 未知方式按组件口径兜底（与 `DEFAULT_URL_MODE` 同一行为，不留空实现）
+  assert.equal(urlCodec.urlEncodeWith(text, 'nope', ''), encodeURIComponent(text));
+}
+// ④ 表单口径与 Node 的 `URLSearchParams` 序列化器逐值对照（空格→`+`、`~`/`!`/`'`/`(`/`)` 都编码、`*` 不编码）
+for (const text of ['', 'abc', 'a b', '中文', '😀', "!*'()", '~', '-._', '%20', 'a+b', '&', '=', '@', ';',
+  'line\nbreak']) {
+  const nodeSerialized = new URLSearchParams([['k', text]]).toString().slice(2);
+  assert.equal(urlCodec.urlEncodeWith(text, 'form', ''), nodeSerialized,
+    `表单口径应与 URLSearchParams 一致：${JSON.stringify(text)}`);
+}
+assert.equal(urlCodec.urlEncodeWith('a b', 'component', ''), 'a%20b', '组件口径空格用 %20');
+assert.equal(urlCodec.urlEncodeWith('a b', 'form', ''), 'a+b', '只有表单口径把空格写成 +');
+// ⑤ 自定义保留字符：`%` 与空白永远不保留、基础集合里已有的不重复、去重且保持输入顺序
+assert.equal(urlCodec.normalizeCustomKeep('/ : % &'), '/:&');
+assert.equal(urlCodec.normalizeCustomKeep('::/'), ':/');
+assert.equal(urlCodec.normalizeCustomKeep(undefined), '');
+assert.equal(urlCodec.normalizeCustomKeep('abc'), '');
+assert.ok(urlCodec.urlSafeCharacters('custom', ':').includes(':'));
+assert.ok(!urlCodec.urlSafeCharacters('custom', ':').includes('%'));
+assert.equal(urlCodec.urlSafeCharacters('nope', ''), urlCodec.urlSafeCharacters('component', ''));
+assert.equal(urlCodec.urlEncodeWith('a:b', 'component', ''), 'a%3Ab');
+assert.equal(urlCodec.urlEncodeWith('a:b%', 'custom', ':'), 'a:b%25', '自定义只留下填写的字符，`%` 仍要编码');
+// ⑥ 解码：只有表单口径把 `+` 当空格；`%2B` 在哪种口径下都解成 `+`
+assert.equal(urlCodec.urlDecodeWith('%E4%B8%AD%E6%96%87', 'component').text, '中文');
+assert.equal(urlCodec.urlDecodeWith('a+b', 'component').text, 'a+b');
+assert.equal(urlCodec.urlDecodeWith('a+b', 'full').text, 'a+b');
+assert.equal(urlCodec.urlDecodeWith('a+b', 'custom').text, 'a+b');
+assert.equal(urlCodec.urlDecodeWith('a+b', 'form').text, 'a b');
+assert.equal(urlCodec.urlDecodeWith('a%2Bb', 'form').text, 'a+b');
+assert.equal(urlCodec.urlDecodeWith('', 'component').error, 'empty');
+assert.equal(urlCodec.urlDecodeWith('%2', 'component').error, 'format');
+assert.equal(urlCodec.urlDecodeWith('%zz', 'form').error, 'format');
+// ⑦ 查询串的取法：先切 `#fragment`，有 `?` 取其后，没有 `?` 时整串网址返回空、裸查询串才解析
+assert.equal(urlCodec.queryPartOf('https://ex.com/a?b=1#c?d=2'), 'b=1');
+assert.equal(urlCodec.queryPartOf('https://ex.com/a?'), '');
+assert.equal(urlCodec.queryPartOf('https://ex.com/a'), '');
+assert.equal(urlCodec.queryPartOf('ex.com/a?b=1'), 'b=1');
+assert.equal(urlCodec.queryPartOf('a=1&b=2'), 'a=1&b=2');
+assert.equal(urlCodec.queryPartOf('?a=1'), 'a=1');
+assert.equal(urlCodec.queryPartOf('a&b'), 'a&b');
+assert.equal(urlCodec.queryPartOf('plain text'), '');
+assert.equal(urlCodec.queryPartOf(undefined), '');
+// ⑧ 查询参数拆表：逐段解码、空段跳过、无 `=` 的记成裸名字、解不开的片段原样保留并标记 ok=false
+const urlParams = urlCodec.urlQueryParams('https://ex.com/s?q=%E4%BD%A0%E5%A5%BD&page=2&debug&empty=&a=%zz&&b=1',
+  'component');
+assert.deepEqual(urlParams.map((param) => param.name), ['q', 'page', 'debug', 'empty', 'a', 'b']);
+assert.deepEqual(urlParams.map((param) => param.value), ['你好', '2', '', '', '%zz', '1']);
+assert.deepEqual(urlParams.map((param) => param.hasValue), [true, true, false, true, true, true]);
+assert.deepEqual(urlParams.map((param) => param.ok), [true, true, true, true, false, true]);
+assert.equal(urlParams[4].raw, 'a=%zz', '解不开的片段原样保留（界面标红，不谎报结果）');
+assert.equal(urlCodec.urlQueryParams('https://ex.com/s?a=1&b=2', 'component').length, 2);
+// 表单口径下参数名与值里的 `+` 都还原成空格
+const formParams = urlCodec.urlQueryParams('a+b=c+d', 'form');
+assert.equal(formParams[0].name, 'a b');
+assert.equal(formParams[0].value, 'c d');
+assert.deepEqual(urlCodec.urlQueryParams('https://ex.com/a', 'component'), []);
+assert.deepEqual(urlCodec.urlQueryParams('', 'component'), []);
+// ⑨ 复制文本：一行一条，无 `=` 的写裸名字；空名字只写值
+const copyParams = urlCodec.urlQueryParams('q=%E4%BD%A0%E5%A5%BD&debug&empty=&=bare', 'component');
+assert.equal(urlCodec.urlQueryCopyText(copyParams), 'q = 你好\ndebug\nempty = \nbare');
+assert.equal(urlCodec.urlQueryCopyText([]), '');
 
 // --- 消息摘要：已知向量 + 与 Node crypto 交叉验证（含填充边界与多块） ---
 assert.equal(hashTools.md5(''), 'D41D8CD98F00B204E9800998ECF8427E');
