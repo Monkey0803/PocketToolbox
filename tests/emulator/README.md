@@ -68,6 +68,7 @@ node tests/emulator/emu.mjs grid 440        # Pura X Max 展开（2584×1828 @44
 | `PuraXMax` | WideFold · Pura X Max | 2584×1828 @440 | 940×665（外屏 1264×1848 → 460×672） |
 | `Huawei_TripleFold` | TripleFold · Mate XT | 3184×2232 @460 | 全展开 1107×776 / 双屏 712×776 / 折叠 351×776 |
 | `Phone376` | Phone · Customize | 1316×2832 @560 | 376×809（Mate 70 Pro 几何，手机回归基线） |
+| `Mate X7` | Foldable · Mate X7 | 展开 2210×2416 / 折叠 1080×2444 @480 | 展开 ≈736×805 / 折叠 ≈360×815（2026-10-26 用于 URL 编解码的窄窗复验；vp 由 px 现算） |
 
 创建命令（`widefold` 在本版 DevEco 里**不支持自定义屏幕**，只能用它默认的 Pura X Max；Pura X 的展开态与方形外屏
 因此改用**等逻辑尺寸**的 phone 实例代替——布局只由窗口尺寸与断点决定，真机形态仍需另行确认）：
@@ -84,7 +85,9 @@ Emulator -create "Phone376"   -deviceType phone     -osVersion "HarmonyOS 7.0.0(
   `DSH_DEVICE=<host:port>` 指给脚本）。
 - 折叠态切换（切换后**不用重启应用**，正好用来验收即时重排）：
   `Emulator -instance Huawei_TripleFold -foldedState single|double|triple`、
-  `Emulator -instance PuraXMax -foldedState close|half-open|open`。
+  `Emulator -instance PuraXMax -foldedState close|half-open|open`、
+  `Emulator -instance "Mate X7" -foldedState close|half-open|open`（2026-10-26 实测：`close` 后窗口 1080×2444 px
+  ≈ 360 vp，就是「折叠态窄窗」那一档；**同一实例来回切换即可**，见 `docs/DEVICE_ACCEPTANCE.md` 的 URL 编解码第二轮）。
 - 冷启动会停在锁屏：先用 `swipe <x> <屏幕高×0.8> <x> <屏幕高×0.3>` 解锁，再 `launch`；解锁滑动若落在内容区
   会把页面滚走，量 `grid` 前用 `launch` 重新进入。
 
