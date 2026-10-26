@@ -53,8 +53,11 @@ export struct WorldClockPage {
   aboutToAppear(): void {
     this.loadCities();
     this.nowMs = Date.now();
-    // 只显示到分钟，30 秒刷一次足够（也避免每秒重算城市行）。
-    this.timerId = setInterval((): void => { this.nowMs = Date.now(); }, 30000);
+    // 顶部参照行显示到**秒**（`worldClockLocalText()` 是 `YYYY-MM-DD HH:mm:ss`），所以必须每秒刷新：
+    // 2026-10-26 模拟器实测原来是 30 秒一刷，秒数会**冻结在同一个值上最多 30 秒**（12:23:29 → 30 秒后
+    // 直接跳 12:23:59），那是「显示了一个不会走的秒」——与「绝不显示假值」的口径冲突。
+    // 每秒只重算 12 行以内的纯字符串（时区偏移已按「城市 + 当前分钟」缓存），与 `TimersPage` 的 250 ms 刷新相比不值一提。
+    this.timerId = setInterval((): void => { this.nowMs = Date.now(); }, 1000);
   }
 
   aboutToDisappear(): void {
