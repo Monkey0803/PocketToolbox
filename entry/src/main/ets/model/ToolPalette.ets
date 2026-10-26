@@ -68,6 +68,11 @@ export class ToolPalette {
   static readonly tintMint: Resource = $r('app.color.tool_tint_mint');
   static readonly tintSky: Resource = $r('app.color.tool_tint_sky');
 
+  // 转盘扇区之间的分隔缝。浅色下是与卡片同色的白缝；深色下扇区底色本身就是深色调（`tool_tint_*` 的
+  // 深色值），沿用白缝会与背景一样深、盘面糊成一团（2026-10-26 真机深色实测），因此深色给一条
+  // **比扇区更亮**的石板色缝，让四/多个扇区一眼能分开。
+  static readonly wheelSeam: Resource = $r('app.color.tool_wheel_seam');
+
   // 屏幕补光的两种光色。**两套 color.json 里故意写成同一个值**：这是光源本身，不是主题色，
   // 深色模式下也要保持同样的白/暖色，因此不要给它们做深色变体。
   static readonly fillLightCool: Resource = $r('app.color.tool_fill_light_cool');

@@ -273,7 +273,7 @@ export struct DocumentsPage {
               onTap: () => this.onExport()
             })
             IconActionButton({
-              icon: $r('sys.symbol.share'), tintColor: ToolPalette.primaryDeep,
+              icon: $r('sys.symbol.share'), tintColor: ToolPalette.success,
               a11yText: appText('docs.share', this.english), usable: !this.documentSaving,
               onTap: () => this.onShare()
             })

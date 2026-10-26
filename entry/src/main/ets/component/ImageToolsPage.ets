@@ -551,7 +551,7 @@ export struct ImageToolsPage {
             onTap: () => this.saveToGallery()
           })
           IconActionButton({
-            icon: $r('sys.symbol.share'), tintColor: ToolPalette.primary,
+            icon: $r('sys.symbol.share'), tintColor: ToolPalette.success,
             a11yText: appText('docs.share', this.english),
             onTap: () => { this.shareResult(); }
           })

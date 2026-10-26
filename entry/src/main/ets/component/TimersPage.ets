@@ -707,13 +707,19 @@ export struct TimersPage {
     if (timer.liveViewId >= 0) {
       return appText('timers.live-view-on-track', this.english);
     }
-    if (this.liveViewReason === 'disabled') {
-      return appText('timers.live-view-is-off', this.english);
+    // **只有真的排上了后台提醒**才说「已改用后台提醒」（`live-view-is-off` / `live-view-entitlement-unavailable`
+    // 两句都写着「已改用后台提醒」）。2026-10-26 真机实测：实况窗因权益/开关失败、后台提醒又因为系统
+    // 「通知未允许」失败时，原来会先命中这里的前两句，于是页面写着「已改用后台提醒」而实际**没有任何提醒**——
+    // 现在两条都不可用时落到下面的应用内计时文案。
+    if (timer.reminderId >= 0) {
+      if (this.liveViewReason === 'disabled') {
+        return appText('timers.live-view-is-off', this.english);
+      }
+      if (this.liveViewReason === 'denied') {
+        return appText('timers.live-view-entitlement-unavailable', this.english);
+      }
+      return appText('timers.background-reminder-set', this.english);
     }
-    if (this.liveViewReason === 'denied') {
-      return appText('timers.live-view-entitlement-unavailable', this.english);
-    }
-    if (timer.reminderId >= 0) { return appText('timers.background-reminder-set', this.english); }
     // 失败原因有明确引导文案时优先给引导（例如「通知未允许」要给出去系统设置的下一步）。
     const guidance: string = reminderGuidanceText(this.reminderError, this.english);
     if (guidance.length > 0) { return guidance; }

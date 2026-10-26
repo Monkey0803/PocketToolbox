@@ -553,7 +553,7 @@ check('主题色：对比度基准面与色板的 tool_surface / tool_background
 //      （强调色）、`success` / `accentPurple`（分享/编辑）或 `warning`。
 // 允许的例外只有两类，且都在源码里写了理由：**禁用/不可用态**用 `textFaint`（TorchPage 的出屏 ✕
 // 用 `neutralDark` 是因为它画在纯白光斑上），以及**键位图标**（`delete_left` 退格键用 `textPrimary`）。
-check('图标色：删除类必须 danger、普通动作图标不得再用中性灰', () => {
+check('图标色：删除类必须 danger、分享类必须 success、普通动作图标不得再用中性灰', () => {
   const sources = [];
   (function walk(dir) {
     for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
@@ -565,6 +565,7 @@ check('图标色：删除类必须 danger、普通动作图标不得再用中性
   })('entry/src/main/ets');
   const offenders = [];
   let deleted = 0;
+  let shared = 0;
   for (const source of sources) {
     const lines = source.text.split(/\r?\n/);
     for (let index = 0; index < lines.length; index++) {
@@ -579,12 +580,20 @@ check('图标色：删除类必须 danger、普通动作图标不得再用中性
           offenders.push(`${source.path}:${index + 1}: 删除图标必须用 ToolPalette.danger`);
         }
       }
+      // 分享/导出固定用 `success`（AGENTS「图标色口径」）。2026-10-26 真机排查发现四处分享图标
+      // 各写各的（accentPurple / primaryDeep / primary），只有身份证照页是对的——这条现在钉住。
+      if (/tintColor:/.test(line) && /sys\.symbol\.share\b/.test(block)) {
+        shared += 1;
+        if (!/tintColor:\s*ToolPalette\.success\b/.test(line)) {
+          offenders.push(`${source.path}:${index + 1}: 分享图标必须用 ToolPalette.success`);
+        }
+      }
     }
   }
   if (offenders.length > 0) {
     throw new Error(`图标色口径不符（${offenders.length} 处）：\n  ${offenders.join('\n  ')}`);
   }
-  return `${deleted} 个删除图标全部 danger，且没有动作图标再用中性灰`;
+  return `${deleted} 个删除图标全部 danger、${shared} 个分享图标全部 success，且没有动作图标再用中性灰`;
 });
 
 for (const line of checks) { console.log(line); }

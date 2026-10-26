@@ -151,6 +151,10 @@
     {
       "name": "tool_fill_light_warm",
       "value": "#FFE6BF"
+    },
+    {
+      "name": "tool_wheel_seam",
+      "value": "#5A6880"
     }
   ]
 }

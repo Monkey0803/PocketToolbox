@@ -644,7 +644,7 @@ export struct QrPage {
             a11yText: appText('qrpage.save-png', this.english), onTap: () => this.saveImage()
           })
           IconActionButton({
-            icon: $r('sys.symbol.share'), tintColor: ToolPalette.accentPurple,
+            icon: $r('sys.symbol.share'), tintColor: ToolPalette.success,
             a11yText: appText('qrpage.share-qr-code', this.english), onTap: () => this.shareImage()
           })
         }.width('100%').justifyContent(this.actionAlign)

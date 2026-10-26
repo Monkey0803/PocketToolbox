@@ -216,7 +216,7 @@ export struct BarcodePage {
             onTap: () => this.saveBarcodeToGallery()
           })
           IconActionButton({
-            icon: $r('sys.symbol.share'), tintColor: ToolPalette.accentPurple,
+            icon: $r('sys.symbol.share'), tintColor: ToolPalette.success,
             a11yText: appText('barcode.share-barcode', this.english), onTap: () => this.shareBarcodeImage()
           })
         }.width('100%').justifyContent(this.actionAlign)

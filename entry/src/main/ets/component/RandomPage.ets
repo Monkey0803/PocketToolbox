@@ -958,7 +958,7 @@ export struct RandomPage {
         ForEach(this.wheelSectorList(), (sector: WheelSector) => {
           Path().commands(wheelSectorPath(140, 140, 132, sector.startDeg, sector.endDeg))
             .fill(this.wheelSectorColor(sector.index))
-            .stroke(ToolPalette.surface).strokeWidth(2)
+            .stroke(ToolPalette.wheelSeam).strokeWidth(2)
         }, (sector: WheelSector): string => 'sec-' + sector.index.toString() + '-' +
           sector.startDeg.toFixed(2) + '-' + sector.endDeg.toFixed(2))
         ForEach(this.wheelSectorList(), (sector: WheelSector) => {

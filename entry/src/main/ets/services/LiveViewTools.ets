@@ -124,7 +124,14 @@ async function buildView(context: common.UIAbilityContext, id: number, sequence:
     layoutType: liveViewManager.LayoutType.LAYOUT_TYPE_PICKUP,
     title: spec.layoutTitle,
     content: '${placeholder.timer}',
-    underlineColor: TIMER_LIVE_VIEW_ACCENT
+    underlineColor: TIMER_LIVE_VIEW_ACCENT,
+    // `descPic` 在 SDK 里是**可选**（`descPic?: string | image.PixelMap`），但 2026-10-26 真机实测
+    // （PLR-AL00 / API 26，系统 7.0.0.111）不传会被系统直接拒掉：
+    // `StartLiveView async work fail: [Error(401) … The type of layoutData.descPic must be string |
+    // image.PixelMap [or the parameter is mandatory].]`——于是实况窗**永远建不起来**，页面只能退化成
+    // 「仅应用内计时」。这里补上随包的 `resources/rawfile/liveview_timer.png`（字符串＝相对 rawfile 的文件名，
+    // 上限 256 字符），与胶囊图标同一张图；传了之后系统走权益校验，能如实落成 `1003500005`。
+    descPic: TIMER_LIVE_VIEW_ICON
   };
   const preset: liveViewManager.CountdownPreset = {
     presetTitle: spec.doneTitle,
