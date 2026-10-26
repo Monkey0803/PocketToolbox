@@ -154,7 +154,43 @@
     },
     {
       "name": "tool_wheel_seam",
-      "value": "#5A6880"
+      "value": "#1A212B"
+    },
+    {
+      "name": "tool_wheel_blue",
+      "value": "#2F5A9E"
+    },
+    {
+      "name": "tool_wheel_rose",
+      "value": "#8A3E3A"
+    },
+    {
+      "name": "tool_wheel_teal",
+      "value": "#1F5F58"
+    },
+    {
+      "name": "tool_wheel_amber",
+      "value": "#6E5219"
+    },
+    {
+      "name": "tool_wheel_green",
+      "value": "#2C6640"
+    },
+    {
+      "name": "tool_wheel_purple",
+      "value": "#5A3F86"
+    },
+    {
+      "name": "tool_wheel_indigo",
+      "value": "#3A3F86"
+    },
+    {
+      "name": "tool_wheel_sky",
+      "value": "#2A5E8A"
+    },
+    {
+      "name": "tool_wheel_mint",
+      "value": "#24594A"
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { clearButtonIcon } from '../model/Materials';
 import { appText } from '../model/AppStrings';
-import { uiMaterial } from '@kit.ArkUI';
+import { uiMaterial, display } from '@kit.ArkUI';
 import { OPERATOR_SLOT_WIDTH, FieldSlot } from './FieldSlot';
 import { IconActionButton } from './IconActionButton';
 import { InputKeyboard, inputTypeOf, inputFilterOf } from './InputKeyboard';
@@ -21,6 +21,17 @@ import { chooseCandidate, shuffleCandidates, groupCandidates, groupCandidatesByS
 import { WHEEL_EXTRA_TURNS, WHEEL_MAX_SECTORS, WheelPoint, WheelSector,
   wheelCountText, wheelItems, wheelLabelPositions, wheelLabelText, wheelNoteText, wheelPickIndex,
   wheelResultText, wheelSectorPath, wheelSectors, wheelTargetRotation } from '../model/WheelTools';
+
+/**
+ * 转盘几何（**设计单位 = vp**）：盘面边长、扇区半径、扇区文字半径、指针离盘心的距离。
+ *
+ * 它们只在 `wheelDisc()` 与 `wheelSectorCommands()` 里用；`Path.commands()` 的单位是 px，所以画路径时
+ * 统一乘 `wheelScale()`（见那里的注释），文字用 `offset`（vp）**不要**再乘。
+ */
+const WHEEL_DISC_SIZE: number = 280;
+const WHEEL_DISC_RADIUS: number = 132;
+const WHEEL_LABEL_RADIUS: number = 78;
+const WHEEL_POINTER_OFFSET: number = -128;
 
 /**
  * 随机选择页（随机整数 / 骰子与硬币 / 名单抽取、排序与分组）。
@@ -942,13 +953,38 @@ export struct RandomPage {
   }
 
   /** 扇区底色循环取色板（颜色统一走 `ToolPalette`，不写颜色字面量）。 */
-  private wheelColors: Resource[] = [ToolPalette.tintBlue, ToolPalette.tintRose, ToolPalette.tintTeal,
-    ToolPalette.tintAmber, ToolPalette.tintGreen, ToolPalette.tintPurple, ToolPalette.tintIndigo,
-    ToolPalette.tintSky, ToolPalette.tintMint];
+  private wheelColors: Resource[] = [ToolPalette.wheelBlue, ToolPalette.wheelRose, ToolPalette.wheelTeal,
+    ToolPalette.wheelAmber, ToolPalette.wheelGreen, ToolPalette.wheelPurple, ToolPalette.wheelIndigo,
+    ToolPalette.wheelSky, ToolPalette.wheelMint];
 
   private wheelSectorColor(index: number): Resource {
     const colors: Resource[] = this.wheelColors;
     return colors[index % colors.length];
+  }
+
+  /** 单个扇区的路径串：设计单位（圆心在盘面正中、半径 `WHEEL_DISC_RADIUS`）乘上 px/vp 换算系数。 */
+  private wheelSectorCommands(sector: WheelSector): string {
+    const scale: number = this.wheelScale();
+    const center: number = (WHEEL_DISC_SIZE / 2) * scale;
+    return wheelSectorPath(center, center, WHEEL_DISC_RADIUS * scale, sector.startDeg, sector.endDeg);
+  }
+
+  /**
+   * 盘面几何的换算系数：**`Path.commands()` 的单位是 px，而扇区文字用的是 vp 偏移**。
+   *
+   * 2026-10-26 实测（模拟器 dump）：盘面 Path 的包围盒只有 `272 × 272 px ≈ 91 vp`，而文字在
+   * `wheelLabelPositions(..., 78)` 给的 **78 vp** 半径上——于是盘面只有设计尺寸的 `1/density`，
+   * 文字全飘在盘外（截图里就是「一个小色块 + 四个孤零零的字」）。把路径几何乘上 density 之后，
+   * 盘面（半径 132 vp）与文字（半径 78 vp）才落在同一个盘上。取不到密度时按 1 处理（宁可画小，
+   * 也不要画出 NaN 路径）。
+   */
+  private wheelScale(): number {
+    try {
+      const density: number = display.getDefaultDisplaySync().densityPixels;
+      return density > 0 ? density : 1;
+    } catch (_) {
+      return 1;
+    }
   }
 
   @Builder private wheelDisc() {
@@ -956,25 +992,29 @@ export struct RandomPage {
       // 盘面（会转）：扇区 + 扇区文字。整盘用 `.rotate()` 转，文字跟着盘面走（真实转盘的观感）。
       Stack({ alignContent: Alignment.Center }) {
         ForEach(this.wheelSectorList(), (sector: WheelSector) => {
-          Path().commands(wheelSectorPath(140, 140, 132, sector.startDeg, sector.endDeg))
+          Path().commands(this.wheelSectorCommands(sector))
+            // **每个 Path 都要给同一套尺寸**：不给尺寸时 ArkUI 按各自的包围盒居中，四个象限会被各自
+            // 平移（甲偏左下、丁偏右下…），盘面就变成「四个错位的扇形 + 边界上戳出来的小耳朵」
+            // （2026-10-26 模拟器实测）。给了同一个 280×280 之后，四个扇区才共用同一个原点。
+            .width(WHEEL_DISC_SIZE).height(WHEEL_DISC_SIZE)
             .fill(this.wheelSectorColor(sector.index))
-            .stroke(ToolPalette.wheelSeam).strokeWidth(2)
+            .stroke(ToolPalette.wheelSeam).strokeWidth(this.wheelScale())
         }, (sector: WheelSector): string => 'sec-' + sector.index.toString() + '-' +
           sector.startDeg.toFixed(2) + '-' + sector.endDeg.toFixed(2))
         ForEach(this.wheelSectorList(), (sector: WheelSector) => {
           Text(wheelLabelText(sector.name)).fontSize(12).fontColor(ToolPalette.textStrong)
             .maxLines(1)
             .offset({
-              x: wheelLabelPositions(this.wheelSectorList(), 78)[sector.index].x,
-              y: wheelLabelPositions(this.wheelSectorList(), 78)[sector.index].y
+              x: wheelLabelPositions(this.wheelSectorList(), WHEEL_LABEL_RADIUS)[sector.index].x,
+              y: wheelLabelPositions(this.wheelSectorList(), WHEEL_LABEL_RADIUS)[sector.index].y
             })
         }, (sector: WheelSector): string => 'lbl-' + sector.index.toString() + '-' + sector.name)
-      }.width(280).height(280).rotate({ angle: this.wheelRotation })
+      }.width(WHEEL_DISC_SIZE).height(WHEEL_DISC_SIZE).rotate({ angle: this.wheelRotation })
       // 指针固定在 12 点（**不跟随盘面转**）：指着谁就是谁。
       SymbolGlyph($r('sys.symbol.arrowtriangle_down_fill')).fontSize(28)
-        .fontColor([ToolPalette.danger]).offset({ y: -128 })
+        .fontColor([ToolPalette.danger]).offset({ y: WHEEL_POINTER_OFFSET })
       Circle().width(16).height(16).fill(ToolPalette.surface).stroke(ToolPalette.textSubtle).strokeWidth(2)
-    }.width(280).height(280)
+    }.width(WHEEL_DISC_SIZE).height(WHEEL_DISC_SIZE)
   }
 
   /**

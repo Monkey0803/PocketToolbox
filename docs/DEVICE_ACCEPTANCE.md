@@ -23,7 +23,7 @@
 
 1. **实况窗 `descPic` 缺失 → 实况窗永远建不起来**（功能缺陷）：`services/LiveViewTools.ets` 的 `PickupLayout` 补上 `descPic: TIMER_LIVE_VIEW_ICON`；真机 hilog 复验 401 消失、落到 `1003500005`。
 2. **计时状态文案会谎报「已改用后台提醒」**（如实性）：实况窗与后台提醒**同时**失败时，`TimersPage.startTimerStatus()` 原来先命中实况窗那两句（正文写着「已改用后台提醒」），而实际没有任何提醒。改成**只有 `reminderId >= 0` 时才说这句**，两条都不可用就落到「仅应用内计时，实况窗与后台提醒均未启用」。
-3. **转盘深色下扇区糊成一团**（观感）：扇区填充用的是卡片底色那套 `tool_tint_*`，深色值是给卡片用的深色调，而分隔缝原来用 `ToolPalette.surface`（深色下与背景同深）→ 盘面变成一团。新增调色板 token `tool_wheel_seam`（浅色 `#FFFFFF`、深色 `#5A6880`）并改用它；真机深色复验：扇区可分辨。**仍属折中**：若要让深色下也像浅色那样是彩色风车，需要给转盘单独一套深色扇区色（9 个新 token），属设计决策，本轮没做。
+3. **转盘深色下扇区糊成一团 + 盘面几何三处不对**（观感/几何）：真机深色下扇区填充用的是卡片底色那套 `tool_tint_*` 的深色值、分隔缝又用 `ToolPalette.surface`（与背景同深）→ 盘面变成一团。顺着查下去发现**盘面几何本身也是错的**（模拟器 dump 实测）：① 扇区填充**复用卡片色板**（深色值近黑）；② `Path.commands()` 的单位是 **px** 而扇区文字 `offset` 是 **vp**，盘面只有设计尺寸的 `1/density`（272 px ≈ 91 vp），文字却在 78 vp 半径上飘着；③ 每个 `Path` **没给尺寸**，ArkUI 按各自包围盒居中，四个象限被各自平移（盘面成了「四个错位扇形 + 边界上戳出来的小耳朵」）。**三处一起修**：转盘改用独立 9 色 `tool_wheel_*`（浅色沿用浅彩、深色深而饱和）+ 缝色 `tool_wheel_seam`（浅色白、深色深色表面）；路径几何统一乘 `display.getDefaultDisplaySync().densityPixels`；每个 `Path` 给同一套 `280×280`。模拟器复验（浅色 + 深色）：**完整四象限盘面、文字落在各自扇区、转动后结果停在指针下**（`wheel-light-fixed-zh.jpeg` / `wheel-dark-fixed-zh.jpeg` / `wheel-dark-spun-zh.jpeg`），`tests/check-consistency.mjs` 第 19 项把扇区色对文字的对比度与「深色不复用卡片底色」钉住。
 4. **分享图标颜色与已写口径不一致**（一致性）：口径是「分享/导出用 `success`」，但只有身份证照页是对的——二维码与条形码用 `accentPurple`、文档扫描用 `primaryDeep`、图片工具用 `primary`。四处统一改为 `success`；**并把这条加进 `tests/check-consistency.mjs` 第 18 项**（现在会数「5 个分享图标全部 success」），真机复验二维码页分享图标已变绿。
 
 ## 2026-10-26 新增一项：URL 编解码（模拟器已跑两轮，真机未验收）

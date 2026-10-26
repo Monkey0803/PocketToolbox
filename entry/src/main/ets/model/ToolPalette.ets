@@ -68,6 +68,21 @@ export class ToolPalette {
   static readonly tintMint: Resource = $r('app.color.tool_tint_mint');
   static readonly tintSky: Resource = $r('app.color.tool_tint_sky');
 
+  // 转盘扇区底色（9 色循环，**不复用卡片底色 `tint*`**）。浅色值与卡片底色同族（浅彩），深色值是
+  // **深而饱和的宝石色**：2026-10-26 真机深色实测，原来直接复用 `tint*` 的深色值（那是给卡片用的
+  // 近黑深色调）会让盘面糊成一团——四个扇区看起来都是同一块暗斑。现在深色扇区保留明显色相，
+  // 同时仍暗到能压住 `textStrong`（近白）的扇区文字：`tests/check-consistency.mjs` 第 19 项逐色
+  // 断言「扇区色对 textStrong ≥ 4.5:1」，色值改错就会红。
+  static readonly wheelBlue: Resource = $r('app.color.tool_wheel_blue');
+  static readonly wheelRose: Resource = $r('app.color.tool_wheel_rose');
+  static readonly wheelTeal: Resource = $r('app.color.tool_wheel_teal');
+  static readonly wheelAmber: Resource = $r('app.color.tool_wheel_amber');
+  static readonly wheelGreen: Resource = $r('app.color.tool_wheel_green');
+  static readonly wheelPurple: Resource = $r('app.color.tool_wheel_purple');
+  static readonly wheelIndigo: Resource = $r('app.color.tool_wheel_indigo');
+  static readonly wheelSky: Resource = $r('app.color.tool_wheel_sky');
+  static readonly wheelMint: Resource = $r('app.color.tool_wheel_mint');
+
   // 转盘扇区之间的分隔缝。浅色下是与卡片同色的白缝；深色下扇区底色本身就是深色调（`tool_tint_*` 的
   // 深色值），沿用白缝会与背景一样深、盘面糊成一团（2026-10-26 真机深色实测），因此深色给一条
   // **比扇区更亮**的石板色缝，让四/多个扇区一眼能分开。

@@ -596,6 +596,61 @@ check('图标色：删除类必须 danger、分享类必须 success、普通动�
   return `${deleted} 个删除图标全部 danger、${shared} 个分享图标全部 success，且没有动作图标再用中性灰`;
 });
 
+// --- 19. 转盘扇区色：两套主题下都要压得住扇区文字，且不能退回卡片底色 ---------------------------
+// 背景（2026-10-26 真机深色实测）：转盘扇区原来直接复用卡片底色 `tool_tint_*`，而它们的**深色值**是
+// 给卡片用的近黑深色调 → 深色下四个扇区看起来是同一块暗斑（「糊成一团」）。修法是给转盘单独一组
+// `tool_wheel_*`：浅色沿用浅彩（浅色观感不变），深色换成**深而饱和的宝石色**。
+// 这条门禁把两件事钉住：
+//   ① 每个扇区色对**同主题的 `tool_text_strong`**（扇区文字用的颜色）对比度 ≥ 4.5:1——深色扇区要是
+//      调得太亮，白字就糊在扇区上；
+//   ② 深色扇区色**不得等于**深色卡片底色（防止有人「简化」成再复用 `tint*`，把糊成一团的问题带回来）。
+check('转盘扇区色：两套主题下对扇区文字 ≥ 4.5:1，且深色不复用卡片底色', () => {
+  const baseColors = readJson('entry/src/main/resources/base/element/color.json').color;
+  const darkColors = readJson('entry/src/main/resources/dark/element/color.json').color;
+  const valueOf = (list, name) => {
+    const found = list.find((entry) => entry.name === name);
+    if (found === undefined) { throw new Error(`色板里没有 ${name}`); }
+    return found.value;
+  };
+  const channel = (byte) => {
+    const c = byte / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const luminance = (hex) => {
+    const value = hex.replace('#', '').slice(-6);
+    return 0.2126 * channel(parseInt(value.slice(0, 2), 16)) +
+      0.7152 * channel(parseInt(value.slice(2, 4), 16)) +
+      0.0722 * channel(parseInt(value.slice(4, 6), 16));
+  };
+  const contrast = (a, b) => {
+    const first = luminance(a);
+    const second = luminance(b);
+    const high = Math.max(first, second);
+    const low = Math.min(first, second);
+    return (high + 0.05) / (low + 0.05);
+  };
+  const families = ['blue', 'rose', 'teal', 'amber', 'green', 'purple', 'indigo', 'sky', 'mint'];
+  const offenders = [];
+  for (const family of families) {
+    const wheel = `tool_wheel_${family}`;
+    const tint = `tool_tint_${family}`;
+    for (const [palette, colors, label] of [['浅色', baseColors, '浅色'], ['深色', darkColors, '深色']]) {
+      const text = valueOf(colors, 'tool_text_strong');
+      const ratio = contrast(valueOf(colors, wheel), text);
+      if (ratio < 4.5) {
+        offenders.push(`${label} ${wheel}=${valueOf(colors, wheel)} 对 ${text} 只有 ${ratio.toFixed(2)}:1`);
+      }
+    }
+    if (valueOf(darkColors, wheel) === valueOf(darkColors, tint)) {
+      offenders.push(`深色 ${wheel} 与卡片底色 ${tint} 同值（会退回「糊成一团」）`);
+    }
+  }
+  if (offenders.length > 0) {
+    throw new Error(`转盘扇区色不合格（${offenders.length} 处）：\n  ${offenders.join('\n  ')}`);
+  }
+  return `${families.length} 组扇区色 × 两套主题全部 ≥ 4.5:1，且深色不复用卡片底色`;
+});
+
 for (const line of checks) { console.log(line); }
 if (failures.length > 0) {
   console.error('');
