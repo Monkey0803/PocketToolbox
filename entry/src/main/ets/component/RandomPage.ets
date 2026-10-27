@@ -32,6 +32,8 @@ const WHEEL_DISC_SIZE: number = 280;
 const WHEEL_DISC_RADIUS: number = 132;
 const WHEEL_LABEL_RADIUS: number = 78;
 const WHEEL_POINTER_OFFSET: number = -128;
+/** `wheelScale()` 的缓存（0 表示还没取过；密度是设备常量，见那里的注释）。 */
+let wheelScaleCache: number = 0;
 
 /**
  * 随机选择页（随机整数 / 骰子与硬币 / 名单抽取、排序与分组）。
@@ -977,14 +979,20 @@ export struct RandomPage {
    * 文字全飘在盘外（截图里就是「一个小色块 + 四个孤零零的字」）。把路径几何乘上 density 之后，
    * 盘面（半径 132 vp）与文字（半径 78 vp）才落在同一个盘上。取不到密度时按 1 处理（宁可画小，
    * 也不要画出 NaN 路径）。
+   *
+   * 密度在一台设备上是常量（折叠/展开只改窗口尺寸、不改 density），所以**缓存一次**：这个函数在
+   * 每个扇区、每帧都会被调用（12 个扇区 × 每帧一次），没必要每次去问系统。缓存值只在第一次取不到时
+   * 才是 1，那属于「系统异常」路径，不值得为它每次重试。
    */
   private wheelScale(): number {
+    if (wheelScaleCache > 0) { return wheelScaleCache; }
     try {
       const density: number = display.getDefaultDisplaySync().densityPixels;
-      return density > 0 ? density : 1;
+      wheelScaleCache = density > 0 ? density : 1;
     } catch (_) {
-      return 1;
+      wheelScaleCache = 1;
     }
+    return wheelScaleCache;
   }
 
   @Builder private wheelDisc() {
