@@ -2,6 +2,8 @@
 
 ## 当前状态
 
+- **实况窗：修掉「非重复倒计时到点后通知栏留死卡片」+ 更正「只能真机验」（2026-10-27，模拟器 Mate X7 · API 26）**：`stopLiveView` 不带 `sequence` 会被系统拒掉（`code=1003500011`），而这条路径原来 `catch (_) {}` 静默吞掉 → **每次非重复倒计时都会在通知栏留下一张「倒计时结束 00:00:00」的卡片**（`keepTime: 0` 无从生效）。修法：结束请求也带 `nextSequence()`，失败码写进 hilog（标签 `PocketToolboxLiveView`）；复验到点后通知栏干净。**同时更正一条旧结论**：Mate X7 镜像**能**跑实况窗（有 syscap、放行本应用、`descPic` rawfile 真被解析成图标），P7 的「通知栏卡片 / 读数系统自减 / 暂停冻结 / 继续 / 到点清理」几条已在模拟器实测通过，证据 `docs/screenshots/emulator/liveview-*.jpeg`。详见 `docs/DEVICE_ACCEPTANCE.md` 的「2026-10-27 模拟器补验」。
+
 - **真机一轮：深色模式 / 图片工具全流程 / 主题色 / 实况窗参数缺陷（2026-10-26，PLR-AL00 · Mate 70 Pro · API 26 · 系统 7.0.0.111；**查出并修掉 4 个缺陷，其中 1 个是功能性的**）**：`hdc install -r` 装机、`emu.mjs smoke` 真机 **31/31**。逐条证据见 `docs/DEVICE_ACCEPTANCE.md` 的「2026-10-26 真机一轮」，清单勾选见 `docs/PHONE_ACCEPTANCE_CHECKLIST.md`。
   - **① 实况窗 `descPic` 缺失（功能缺陷，已修）**：`PickupLayout` 没传 `descPic`，真机 `StartLiveView` 直接报 `[Error(401) … descPic must be string | image.PixelMap [or the parameter is mandatory]]`——SDK 标它可选、系统实际必填，于是**实况窗永远建不起来**（界面只显示「仅应用内计时…」，完全看不出是参数错）。补 `descPic: 'liveview_timer.png'`（复用随包 rawfile）后复验：参数校验通过、走到发布阶段、返回文档里的 `1003500005`（权益未开通）——链路对了，只差 AGC 权益。
   - **② 计时状态文案谎报「已改用后台提醒」（如实性，已修）**：实况窗与后台提醒**同时**失败时，`TimersPage.startTimerStatus()` 原来先命中实况窗那两句（正文含「已改用后台提醒」），而实际没有任何提醒。改成只有 `reminderId >= 0` 才说这句，两条都不可用就落到「仅应用内计时，实况窗与后台提醒均未启用」（真机复验通过）。

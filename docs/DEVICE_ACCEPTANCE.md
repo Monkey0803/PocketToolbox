@@ -8,6 +8,37 @@
 - 说明：内容区的卡片按约定就是**退化的普通底色**（ArkUI 组件级材质只在标题栏与底部页签渲染），卡片不是玻璃质感属于预期，不要记为缺陷。
 - 说明：随包的节假日日历现在是**真实数据**（2022–2026，构建期由 `tools/fetch-holidays.mjs` 从 NateScarlet/holiday-cn 生成，见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)），应用不申请网络权限，也没有「更新」按钮；工作日界面应显示「已排除周末与法定节假日，并计入调休上班日」与数据日期。核对工作日时请按当年国务院公告确认预期值。
 
+## 2026-10-27 模拟器补验：实况窗**在模拟器上就能验**，并又抓到一个真 bug（Mate X7 · API 26）
+
+**先更正一条旧结论**：`docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的 P7 一直写着「只能真机验，模拟器没有状态栏胶囊/通知能力」——**这对 Mate X7 镜像不成立**。这台模拟器有 `SystemCapability.LiveView.LiveViewService`，也放行本应用的实况窗（不需要 AGC 权益），而且**真的**把 `PickupLayout.descPic` 指向的 rawfile 解析成了图标：
+
+```
+I C01203/Ans: Cached new PixelMap for requestKey=ans_live_view___100_20020064_com.xiaohuihu.tools__…, cacheKey=1000000_liveview_timer.png
+I C01203/Ans: Parse picPathKey(PickupLayout.descPic.res) size(1)
+I A01a01/NC: LiveNotificationOtherParser: Set rawfile icon for PickupLayout.descPic, …, res: liveview_timer.png
+I A01a00/SYS_UI: LiveTimerVm: OnTick for LiveViewTimer___100_20020064_com.xiaohuihu.tools__…, intervalTime: 1000, remainingTime: 273000, initialTime: 300000
+```
+
+于是这一轮在模拟器上把 P7 的几条真跑了一遍（截图 `liveview-shade-card-zh.jpeg`、`liveview-cleared-after-end-zh.jpeg`）：
+
+- **通知栏卡片**：固定区「倒计时」+「剩余 02:30」，扩展区「剩余时间 / 02:30」+ 我们那张计时图标 ✓（系统还弹了「是否继续接收此应用的实况窗？」——答「继续接收」）。
+- **读数不依赖应用进程**：连续两次读通知栏，`剩余 01:28 → 01:15`，同时 hilog 里 `LiveTimerVm: OnTick … remainingTime` 每秒推进 ✓。
+- **暂停冻结**：应用内暂停后，通知栏连续两次都是 `剩余 00:49`（与应用内 `00:00:48` 对齐）✓。
+- **继续接着走**：应用内 `00:00:48 → 00:00:43`，通知栏回到 `00:00:34` ✓。
+- **到点结束态**：卡片变成「倒计时结束 / 00:00:00」（我们传的 `doneTitle` + 预设读数）✓。
+
+### 新缺陷（已修）：非重复倒计时到点后，通知栏留下一张「倒计时结束」的死卡片
+
+`stopLiveView` **必须带递增的 `sequence`**——不带就被系统拒掉，而这条路径原来**完全静默**：
+
+```
+E A00001/PocketToolboxLiveView: stopLiveView failed: id=1165666199 code=1003500011 message: The liveView sequence is incorrect.
+```
+
+症状：倒计时到点后（以及重置/删除路径上的部分情形）通知栏一直挂着一张「倒计时结束 00:00:00」的卡片，`keepTime: 0` 根本没机会生效——**每次非重复倒计时都会留下一个**，正是文档里警告过的「死计时」。之前一直没被发现，是因为这条失败被 `catch (_) {}` 吞掉了、而界面侧一切正常（应用内计时按时归零、`liveViewId` 也清成了 `-1`）。
+
+**修法**：`stopTimerLiveView()` 里传 `sequence: nextSequence()`（与 start/update 同一个计数器），并把失败错误码写进 hilog（标签 `PocketToolboxLiveView`），以后再静默失败会有痕迹。**复验**：重装后跑一个 1 分钟倒计时到点——应用内 `00:00:00`、**没有任何 stop 失败日志**、**通知栏干净（一张卡片都没有）** ✓。
+
 ## 2026-10-26 真机一轮：深色模式 / 图片工具全流程 / 主题色 / 实况窗参数缺陷（PLR-AL00 · Mate 70 Pro · API 26 · 系统 7.0.0.111）
 
 真机走了一轮（TCP 调试 `10.155.89.11:45679`），**查出并修掉 4 个缺陷**，其中 1 个是功能性（实况窗永远建不起来）。装机：`hdc install -r`（保留数据）；`emu.mjs smoke` 真机 **31/31**。

@@ -1,7 +1,12 @@
 import { common, Want, WantAgent, wantAgent } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 // 懒加载：设备缺少 SystemCapability.LiveView.LiveViewService 时，模块链接失败不应影响应用启动。
 import lazy { liveViewManager } from '@kit.LiveViewKit';
+
+/** 诊断日志的域与标签（与 `SystemTools` 的提醒日志同一取舍：只记阶段、id 与错误码）。 */
+const LIVE_VIEW_DOMAIN: number = 0x0001;
+const LIVE_VIEW_TAG: string = 'PocketToolboxLiveView';
 
 /**
  * 计时类实况窗（`event: 'TIMER'`）的系统能力封装。
@@ -235,7 +240,12 @@ export async function updateTimerLiveView(context: common.UIAbilityContext, id: 
  * 结束实况窗（重置/删除/编辑计时、非重复倒计时到点、番茄钟暂停或重置时调用）。
  *
  * 只按 id 结束：启动时 `keepTime` 写的是 0，停止后不会在通知栏留下归档卡片，因此不需要附带文案。
- * 实况窗可能已经随系统倒计时结束或已被用户移除，失败一律忽略。
+ * 实况窗可能已经随系统倒计时结束或已被用户移除，失败一律忽略——但**要把错误码写进 hilog**。
+ *
+ * **`sequence` 必须带上且递增（2026-10-26 模拟器实测，真机同理）**：不带 `sequence` 的结束请求会被
+ * 系统拒掉——`stopLiveView failed: id=… code=1003500011 The liveView sequence is incorrect.`，
+ * 而这条路径完全静默，症状是「倒计时到点后通知栏/状态栏一直挂着一张 `倒计时结束 00:00:00` 的卡片」
+ * （`keepTime: 0` 根本没机会生效，因为结束请求压根没成功）。这正是文档里警告过的「死计时」。
  */
 export async function stopTimerLiveView(id: number): Promise<void> {
   if (id < 0 || !liveViewSupported()) { return; }
@@ -243,13 +253,26 @@ export async function stopTimerLiveView(id: number): Promise<void> {
     const view: liveViewManager.LiveView = {
       id: id,
       event: 'TIMER',
+      sequence: nextSequence(),
       liveViewData: {
         // 结束只需 id + 必要的空结构；未传的字段沿用上一次的值（系统约定）。
         primary: {}
       }
     };
     await liveViewManager.stopLiveView(view);
-  } catch (_) {
-    // 已结束/已移除：忽略。
+  } catch (error) {
+    // 已结束/已移除是正常路径；其它错误码要留下痕迹。
+    logLiveViewStopFailure(id, error as Object);
   }
+}
+
+/** 结束实况窗失败的诊断日志（只记 id、错误码与阶段，不记文案）。 */
+function logLiveViewStopFailure(id: number, error: Object): void {
+  const source: Record<string, Object> = error as Record<string, Object>;
+  const code: Object | undefined = source === undefined || source === null ? undefined : source['code'];
+  const message: Object | undefined = source === undefined || source === null ? undefined : source['message'];
+  hilog.error(LIVE_VIEW_DOMAIN, LIVE_VIEW_TAG,
+    'stopLiveView failed: id=%{public}s code=%{public}s message=%{public}s',
+    id.toString(), typeof code === 'number' ? code.toString() : '?',
+    typeof message === 'string' ? message : '');
 }
