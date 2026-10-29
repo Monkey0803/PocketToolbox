@@ -2,6 +2,7 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import {
   PasswordOptions, generatePassword, generatePin, validBatchCount, validPasswordOptions
 } from '../model/PasswordTools';
+import { generatePassphrase } from '../model/Passphrase';
 
 // 安全随机字节的取法只此一份（与原实现一致：首次异步取一整块，随后按需同步补满）；
 // 模型层的生成函数只通过 `nextByte()` 拿到 0–255 的整数。
@@ -69,6 +70,38 @@ export async function createPins(length: number, count: number): Promise<string[
   const values: string[] = [];
   for (let index: number = 0; index < count; index++) {
     const value: string | undefined = generatePin(length, nextByte);
+    if (value === undefined) { return []; }
+    values.push(value);
+  }
+  return values;
+}
+
+/**
+ * 生成口令短语（2026-10-29 新增）。
+ *
+ * **安全随机源与密码/PIN 完全同一条路**：同一个 `byteSource()`（`cryptoFramework.Random`
+ * 的 0–255 字节流）。口令短语的安全性完全取决于「词表大小 × 词数」，绝不能退化成 `Math.random`
+ * ——那是可预测的伪随机，对密码类工具等于没有安全性。
+ *
+ * 返回空串表示无法生成（词表不可用 / 词数非法 / 随机源异常）——不抛异常，与既有口径一致。
+ */
+export async function createPassphrase(words: string[], count: number, separatorId: string): Promise<string> {
+  if (words.length === 0) { return ''; }
+  const random: cryptoFramework.Random = cryptoFramework.createRandom();
+  const nextByte: () => number = await byteSource(random);
+  const value: string | undefined = generatePassphrase(words, count, separatorId, nextByte);
+  return value === undefined ? '' : value;
+}
+
+/** 一次生成多条口令短语；`[]` 表示整批失败（与 `createPasswords()` 同口径）。 */
+export async function createPassphrases(words: string[], count: number, separatorId: string,
+  batch: number): Promise<string[]> {
+  if (!validBatchCount(batch) || words.length === 0) { return []; }
+  const random: cryptoFramework.Random = cryptoFramework.createRandom();
+  const nextByte: () => number = await byteSource(random);
+  const values: string[] = [];
+  for (let index: number = 0; index < batch; index++) {
+    const value: string | undefined = generatePassphrase(words, count, separatorId, nextByte);
     if (value === undefined) { return []; }
     values.push(value);
   }

@@ -14,6 +14,8 @@ import { PRIVACY_POLICY_URL, isUsablePolicyUrl, privacyCopyHintText, privacyEntr
   privacyOpenFailedText, privacyPendingText } from '../model/AboutInfo';
 // 离线隐私政策全文（2026-10-27）：正文由 `docs/PRIVACY.md` 生成，随包一份，用户离线也读得到。
 import { PrivacyBlock, privacyBlockCount, privacyBlocks } from '../model/PrivacyText';
+import { ThirdPartyNotice, THIRD_PARTY_NOTICES, noticeNoteText, noticeTitleText, noticesHeadingText,
+  noticesNoteText } from '../model/ThirdPartyNotices';
 import { historyClearConfirmText } from '../model/HistoryKinds';
 import { HolidayTable, parseHolidayIcs } from '../model/HolidayIcs';
 import { netErrorText } from '../model/NetworkTools';
@@ -186,6 +188,8 @@ export struct SettingsPage {
   @Local updateChecking: boolean = false;
   // 离线隐私政策全文是否展开（默认收起：设置页不该一进来就铺开一整页政策正文）。
   @Local privacyExpanded: boolean = false;
+  // 第三方软件与数据许可是否展开（同上：默认收起，但入口必须可见——署名义务要求它可读到）。
+  @Local noticesExpanded: boolean = false;
   // 节气/农历节日数据包：当前表的字段（日期取沙箱信封的抓取日期或随包生成日期）与更新中标志。
   @Local solarTable: SolarTermTable = new SolarTermTable();
   @Local solarUpdating: boolean = false;
@@ -772,9 +776,62 @@ export struct SettingsPage {
               this.privacyBlockLine(block, index)
             }, (block: PrivacyBlock, index: number) => `${index}|${block.kind}|${block.text.slice(0, 24)}`)
           }
+          // 第三方软件与数据许可（2026-10-29）：CC-BY 4.0 要求署名「在再分发物中」，
+          // 因此把登记表 `model/ThirdPartyNotices.ets` 的每一条都在应用内显示出来；
+          // 完整许可全文仍在仓库的 THIRD_PARTY_NOTICES.md（门禁盯着两边一致）。
+          Row({ space: 12 }) {
+            Text(noticesHeadingText(this.english)).fontSize(15)
+              .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+            SymbolGlyph(this.noticesExpanded ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+              .fontSize(20).fontColor([ToolPalette.textMuted])
+          }
+          .width('100%').height(44)
+          .accessibilityText(noticesHeadingText(this.english) + this.tr('，展开或收起', ', expand or collapse'))
+          .onClick(() => { this.noticesExpanded = !this.noticesExpanded; })
+          if (this.noticesExpanded) {
+            Text(noticesNoteText(this.english)).fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
+            ForEach(THIRD_PARTY_NOTICES, (notice: ThirdPartyNotice) => {
+              this.noticeLine(notice.id)
+            }, (notice: ThirdPartyNotice) => notice.id)
+          }
         }.padding(16).width('100%')
       }
     }.width('100%')
+  }
+
+  /**
+   * 一条第三方许可：名称 + 许可 + 一句话用途 + 来源地址。
+   *
+   * 只收**常量 id**，内容在体内从登记表现取——`@Builder` 按值传参会不刷新（AGENTS 的既有教训），
+   * 而许可条目随语言变化（中英名称/说明不同），正属于「必须在体内读状态」的情形。
+   */
+  @Builder private noticeLine(id: string) {
+    Column({ space: 4 }) {
+      Text(this.noticeTitle(id)).fontSize(14).fontColor(ToolPalette.textPrimary).width('100%')
+      Text(this.noticeNote(id)).fontSize(12).fontColor(ToolPalette.textSecondary).width('100%')
+      Text(this.noticeUrl(id)).fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
+        .copyOption(CopyOptions.LocalDevice)
+    }.width('100%').margin({ top: 6 })
+  }
+
+  /** 名称 + 许可（如 `EFF large wordlist · CC-BY 4.0`）。 */
+  private noticeTitle(id: string): string {
+    const notice: ThirdPartyNotice | undefined =
+      THIRD_PARTY_NOTICES.find((item: ThirdPartyNotice): boolean => item.id === id);
+    return notice === undefined ? '' : noticeTitleText(notice, this.english);
+  }
+
+  private noticeNote(id: string): string {
+    const notice: ThirdPartyNotice | undefined =
+      THIRD_PARTY_NOTICES.find((item: ThirdPartyNotice): boolean => item.id === id);
+    return notice === undefined ? '' : noticeNoteText(notice, this.english);
+  }
+
+  private noticeUrl(id: string): string {
+    const notice: ThirdPartyNotice | undefined =
+      THIRD_PARTY_NOTICES.find((item: ThirdPartyNotice): boolean => item.id === id);
+    // 地址不翻译、原样给出（可复制粘贴到浏览器核对）。
+    return notice === undefined ? '' : notice.url;
   }
 
   /**

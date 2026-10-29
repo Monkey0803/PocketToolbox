@@ -19,7 +19,17 @@ import {
   auditInputTooLong, auditFindings, auditFindingText, auditFindingWarning, auditSummaryText,
   auditCleanText, auditLimitText
 } from '../model/PasswordAudit';
-import { createPassword, createPin, createPasswords, createPins } from '../services/PasswordGenerator';
+import { createPassword, createPin, createPasswords, createPins, createPassphrase,
+  createPassphrases } from '../services/PasswordGenerator';
+import { common } from '@kit.AbilityKit';
+import { WordListOutcome, loadWordList } from '../services/BundledTables';
+import { wordListErrorText } from '../model/WordList';
+import {
+  PASSPHRASE_WORD_COUNTS, DEFAULT_PASSPHRASE_WORDS, DEFAULT_PASSPHRASE_SEPARATOR, PASSPHRASE_SEPARATORS,
+  PassphraseSeparator, passphraseCountIndex, passphraseCountLabel,
+  passphraseStrengthText, passphraseNoteText, passphraseErrorText, separatorIndex, separatorLabel,
+  validPassphraseCount
+} from '../model/Passphrase';
 
 /**
  * 密码生成页。
@@ -67,6 +77,36 @@ export struct PasswordPage {
   @Local passwordVisible: boolean = false;
   @Local passwordBusy: boolean = false;
   private passwordRequest: number = 0;
+  /**
+   * 口令短语（第 4 种类型）：词数、分隔符与随包词表。
+   *
+   * 词表是**异步**载入的（约 107 KiB 文本，`services/BundledTables.ets` 按进程缓存）：
+   * 载入中与失败都不允许生成，界面分别给「正在准备词表」与 `wordListErrorText()` 的如实提示——
+   * 绝不退化成 `Math.random` 或自己造词。
+   */
+  @Local passphraseWords: number = DEFAULT_PASSPHRASE_WORDS;
+  @Local passphraseSeparator: string = DEFAULT_PASSPHRASE_SEPARATOR;
+  @Local wordList: string[] = [];
+  /** 词表状态：`loading` | `ok` | 具体错误码（见 `model/WordList.ets`）。 */
+  @Local wordListState: string = 'loading';
+
+  aboutToAppear(): void {
+    this.loadWords();
+  }
+
+  /** 载入随包词表（失败只记录状态，不抛异常、不阻塞页面其它功能）。 */
+  private loadWords(): void {
+    const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    loadWordList(context)
+      .then((outcome: WordListOutcome): void => {
+        this.wordList = outcome.words;
+        this.wordListState = outcome.ok ? 'ok' : outcome.error;
+      })
+      .catch((): void => {
+        this.wordList = [];
+        this.wordListState = 'empty';
+      });
+  }
 
   aboutToDisappear(): void {
     this.invalidatePassword();
@@ -130,11 +170,110 @@ export struct PasswordPage {
     return parsed === undefined ? Number.NaN : parsed;
   }
 
-  /** 结果卡下方那行强度文案：密码用字符集熵，PIN 用固定数字集熵。 */
+  /** 结果卡下方那行强度文案：密码用字符集熵，PIN 用固定数字集熵，口令短语用「词数 × 每词熵」。 */
   private strengthLabel(): string {
-    const bits: number = this.passwordMode === 'pin' ? pinEntropyBits(this.pinLengthValue()) :
-      entropyBits(this.passwordOptions());
+    if (this.passwordMode === 'pin') {
+      const pinBits: number = pinEntropyBits(this.pinLengthValue());
+      return strengthText(strengthLevel(pinBits), pinBits, this.english);
+    }
+    if (this.passwordMode === 'passphrase') {
+      return passphraseStrengthText(this.passphraseWords, this.english);
+    }
+    const bits: number = entropyBits(this.passwordOptions());
     return strengthText(strengthLevel(bits), bits, this.english);
+  }
+
+  // ---------- 口令短语（第 4 种类型） ----------
+
+  /** 词数下拉的选项：来自 `model/Passphrase.ets` 的登记表（不在页面里另写 3–8）。 */
+  private passphraseWordsOptions(): SelectOption[] {
+    return PASSPHRASE_WORD_COUNTS.map((count: number): SelectOption => {
+      const option: SelectOption = { value: passphraseCountLabel(count, this.english) };
+      return option;
+    });
+  }
+
+  private passphraseWordsLabel(): string {
+    return passphraseCountIndex(this.passphraseWords) < 0 ? '' :
+      passphraseCountLabel(this.passphraseWords, this.english);
+  }
+
+  private passphraseSeparatorOptions(): SelectOption[] {
+    return PASSPHRASE_SEPARATORS.map((entry: PassphraseSeparator): SelectOption => {
+      const option: SelectOption = { value: separatorLabel(entry.id, this.english) };
+      return option;
+    });
+  }
+
+  private passphraseSeparatorLabel(): string {
+    return separatorIndex(this.passphraseSeparator) < 0 ? '' :
+      separatorLabel(this.passphraseSeparator, this.english);
+  }
+
+  /** 词表状态提示：可用时返回空串（不占一行）。
+   *
+   * 「正在准备」与「读不到」必须分开说：前者等一下就好，后者等多久都没用——
+   * 合成一句会让用户以为是自己操作不对。
+   */
+  private wordListNotice(): string {
+    if (this.wordListState === 'ok') { return ''; }
+    if (this.wordListState === 'loading') {
+      return this.tr('正在准备随包词表…', 'Preparing the bundled word list…');
+    }
+    return wordListErrorText(this.wordListState, this.english);
+  }
+
+  /** 复制按钮的无障碍名：按当前类型取（口令短语 / PIN / 密码），读屏才不会一律念「复制密码」。 */
+  private copyLabel(): string {
+    if (this.passwordMode === 'passphrase') { return appText('password.copy-passphrase', this.english); }
+    if (this.passwordMode === 'pin') { return appText('password.copy-pin', this.english); }
+    return appText('password.copy-password', this.english);
+  }
+
+  /** 生成按钮的无障碍名（同上，三种类型分开）。 */
+  private generateLabel(): string {
+    if (this.passwordMode === 'passphrase') { return appText('password.generate-passphrase', this.english); }
+    if (this.passwordMode === 'pin') { return appText('password.generate-pin', this.english); }
+    return appText('password.generate-password', this.english);
+  }
+
+  /**
+   * 口令短语面板：词数 + 分隔符 + 词表状态 + 口径说明。
+   *
+   * 两个「多个选项里选一项」都用统一的 `OptionSelect`（与「类型」「生成数量」同一套）；
+   * 分隔符选项只是排版差异，**不增加熵**，这一点由 `passphraseNoteText()` 如实说明。
+   */
+  @Builder private passphrasePanel() {
+    Column({ space: 14 }) {
+      OptionSelect({
+        label: appText('password.passphrase-words', this.english),
+        options: this.passphraseWordsOptions(),
+        selectedIndex: passphraseCountIndex(this.passphraseWords),
+        selectedText: this.passphraseWordsLabel(),
+        a11yText: appText('password.choose-passphrase-words', this.english),
+        onSelected: (index: number): void => {
+          const count: number | undefined = PASSPHRASE_WORD_COUNTS[index];
+          if (count !== undefined) { this.passphraseWords = count; }
+          this.invalidatePassword();
+        }
+      })
+      OptionSelect({
+        label: appText('password.separator', this.english),
+        options: this.passphraseSeparatorOptions(),
+        selectedIndex: separatorIndex(this.passphraseSeparator),
+        selectedText: this.passphraseSeparatorLabel(),
+        a11yText: appText('password.choose-separator', this.english),
+        onSelected: (index: number): void => {
+          const entry: PassphraseSeparator | undefined = PASSPHRASE_SEPARATORS[index];
+          if (entry !== undefined) { this.passphraseSeparator = entry.id; }
+          this.invalidatePassword();
+        }
+      })
+      if (this.wordListNotice().length > 0) {
+        Text(this.wordListNotice()).fontSize(12).fontColor(ToolPalette.warning).width('100%')
+      }
+      Text(passphraseNoteText(this.english)).fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
+    }.width('100%')
   }
 
   /** 批量数量的下拉文案（带变量 → 留在页面 inline，不进 `AppStrings`）。 */
@@ -179,6 +318,7 @@ export struct PasswordPage {
   private async makePassword(): Promise<void> {
     if (this.passwordBusy || this.passwordMode === 'analyze') { return; }
     const pin: boolean = this.passwordMode === 'pin';
+    const phrase: boolean = this.passwordMode === 'passphrase';
     let pinLength: number = 0;
     if (pin) {
       pinLength = this.pinLengthValue();
@@ -186,6 +326,26 @@ export struct PasswordPage {
         this.passwordValue = '';
         this.passwordList = [];
         this.onStatus(appText('password.choose-a-pin-length', this.english));
+        return;
+      }
+    } else if (phrase) {
+      // 词表没准备好就**不生成**：既不退回 `Math.random`，也不自己造词。
+      if (this.wordListState === 'loading') {
+        this.passwordValue = '';
+        this.passwordList = [];
+        this.onStatus(this.tr('词表正在准备，请稍候', 'The word list is still loading; please wait'));
+        return;
+      }
+      if (this.wordListState !== 'ok' || this.wordList.length === 0) {
+        this.passwordValue = '';
+        this.passwordList = [];
+        this.onStatus(wordListErrorText(this.wordListState, this.english));
+        return;
+      }
+      if (!validPassphraseCount(this.passphraseWords)) {
+        this.passwordValue = '';
+        this.passwordList = [];
+        this.onStatus(passphraseErrorText('count', this.english));
         return;
       }
     } else {
@@ -206,7 +366,8 @@ export struct PasswordPage {
       if (count > 1) {
         // 批量：服务层一次性取多条；`[]` 表示整批失败（不出现「一半成功」）。
         const values: string[] = pin ? await createPins(pinLength, count) :
-          await createPasswords(this.passwordOptions(), count);
+          phrase ? await createPassphrases(this.wordList, this.passphraseWords, this.passphraseSeparator, count) :
+            await createPasswords(this.passwordOptions(), count);
         if (request !== this.passwordRequest) { return; }
         if (values.length !== count) {
           this.passwordValue = '';
@@ -217,11 +378,15 @@ export struct PasswordPage {
         this.passwordValue = '';
         this.passwordList = values;
         this.passwordVisible = false;
-        this.onStatus(this.tr('已生成 ' + count + ' 条密码', 'Generated ' + count + ' passwords'));
+        this.onStatus(phrase
+          ? this.tr('已生成 ' + count + ' 条口令短语', 'Generated ' + count + ' passphrases')
+          : this.tr('已生成 ' + count + ' 条密码', 'Generated ' + count + ' passwords'));
         return;
       }
       // 服务层把「无法生成」转成空串（模型层不再抛异常），这里据空串给明确原因。
-      const value: string = pin ? await createPin(pinLength) : await createPassword(this.passwordOptions());
+      const value: string = pin ? await createPin(pinLength) :
+        phrase ? await createPassphrase(this.wordList, this.passphraseWords, this.passphraseSeparator) :
+          await createPassword(this.passwordOptions());
       if (request !== this.passwordRequest) { return; }
       if (value.length === 0) {
         this.passwordValue = '';
@@ -232,7 +397,9 @@ export struct PasswordPage {
       this.passwordList = [];
       this.passwordValue = value;
       this.passwordVisible = false;
-      this.onStatus(pin ? appText('password.pin-generated', this.english) : appText('password.password-generated', this.english));
+      this.onStatus(phrase ? appText('password.passphrase-generated', this.english) :
+        pin ? appText('password.pin-generated', this.english) :
+          appText('password.password-generated', this.english));
     } catch (_) {
       if (request !== this.passwordRequest) { return; }
       this.passwordValue = '';
@@ -476,8 +643,7 @@ export struct PasswordPage {
         })
         IconActionButton({
           icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
-          a11yText: this.passwordMode === 'pin' ? appText('password.copy-pin', this.english) :
-            appText('password.copy-password', this.english), onTap: () => this.onCopy(this.passwordValue)
+          a11yText: this.copyLabel(), onTap: () => this.onCopy(this.passwordValue)
         })
       }.width('100%').justifyContent(this.actionAlign)
     }.width('100%')
@@ -526,8 +692,7 @@ export struct PasswordPage {
         .wordBreak(WordBreak.BREAK_ALL)
       IconActionButton({
         icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep, boxSize: 44, iconSize: 22,
-        a11yText: this.passwordMode === 'pin' ? appText('password.copy-pin', this.english) :
-          appText('password.copy-password', this.english),
+        a11yText: this.copyLabel(),
         onTap: () => this.onCopy(this.batchRowValue(index))
       })
     }.width('100%').alignItems(VerticalAlign.Top)
@@ -550,6 +715,8 @@ export struct PasswordPage {
       })
       if (this.passwordMode === 'pin') {
         this.pinPanel()
+      } else if (this.passwordMode === 'passphrase') {
+        this.passphrasePanel()
       } else if (this.passwordMode === 'analyze') {
         this.analyzePanel()
       } else {
@@ -572,8 +739,7 @@ export struct PasswordPage {
         Row({ space: 8 }) {
           IconActionButton({
             icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.primary, usable: !this.passwordBusy,
-            a11yText: this.passwordMode === 'pin' ? appText('password.generate-pin', this.english) :
-              appText('password.generate-password', this.english),
+            a11yText: this.generateLabel(),
             onTap: () => this.makePassword()
           })
         }.width('100%').justifyContent(this.actionAlign)

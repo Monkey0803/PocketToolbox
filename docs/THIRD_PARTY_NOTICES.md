@@ -75,6 +75,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## 口令短语词表（EFF large wordlist）
+
+- 用途：`entry/src/main/resources/rawfile/eff_large_wordlist.txt`，供「密码生成 → 口令短语」随机取词（每词约 12.925 bit，强度只取决于词数）。
+- 来源：<https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt>（7776 词，五位骰子编号表，编号空间 11111–66666）；构建期由 `node tools/build-wordlist.mjs` 下载并校验后随包分发**词表数据**。
+- 许可：**CC-BY 4.0**（EFF 网站原创材料按 Creative Commons Attribution 4.0 International 分发，可商用、可再分发，**必须署名**）。署名：**© Electronic Frontier Foundation**，许可链接 <https://creativecommons.org/licenses/by/4.0/>。应用内「设置 → 关于 → 第三方软件与数据许可」逐条列出同一句。
+- 改动说明：本仓库只做格式转换（保留骰子编号、加文件头注释记录来源与抓取日期），**未改动任何词条内容**。
+- 生成期的校验（不通过即报错退出，绝不静默降级成自制词表）：有效行数恰好 7776；骰子编号恰好覆盖完整空间、无重复；词不重复；**没有任何词是另一个词的前缀**（EFF 的说明口径）。
+- 为什么不自己编词表：口令短语的安全性完全取决于「词表大小 × 词数」，自制词表的熵无法核对。
+
+## 繁简字形对照表（OpenCC，构建期转换）
+
+- 用途：`entry/src/main/resources/rawfile/opencc_variant.txt`，供「文本工具 → 繁简」做通用规范字形的简↔繁转换（词组优先）。
+- 来源：<https://github.com/BYVoid/OpenCC> 的 `data/dictionary/` 下四张表（`STCharacters`、`STPhrases`、`TSCharacters`、`TSPhrases`）；构建期由 `node tools/build-variant-table.mjs` 下载并转换成本工程的数据文件。
+- 许可：**Apache-2.0**（<https://github.com/BYVoid/OpenCC/blob/master/LICENSE>）。按 Apache-2.0 要求保留版权与许可声明，并**标注改动**。
+- 改动说明：只取字表数据，**只保留每行的第一个候选值**（OpenCC 自身默认策略），并把四张表转成本文件的 `[section]` 格式；**未改动词条内容**，也未引入 OpenCC 的 C++ 代码或任何运行时依赖。
+- 口径：只做通用规范字形，**不做地区用词转换**（软件↔軟體）、不做分词、不联网查词。
+- 生成期的兜底判据（不成立即报错退出）：`头发 → 頭髮`（词组优先，光靠单字表会得到「頭發」）、`发 → 發`、`一目瞭然 → 一目了然`、`發 → 发`。
+
 ## 域名/IP 注册信息查询（RDAP 引导服务）
 
 - 用途：工具的「网络查询」方式（IP 归属地与域名 WHOIS），登记在 `model/NetPolicy.ets` 的 `RDAP_BASE_URL`（当前为 `https://rdap.org/`）。

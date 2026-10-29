@@ -1,15 +1,21 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { appText } from '../model/AppStrings';
 import { IconActionButton } from './IconActionButton';
 import { MaterialSurface } from './MaterialSurface';
 import { OptionSelect } from './OptionSelect';
 import { ToolPalette } from '../model/ToolPalette';
 import { TextStats, TEXT_INPUT_MAX, textInputTooLong, textStats, trimLines, collapseSpaces, removeBlankLines,
-  joinLines, uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase } from '../model/TextTools';
+  joinLines, uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase,
+  toCamelCase, toPascalCase, toSnakeCase, toKebabCase, toScreamingSnakeCase } from '../model/TextTools';
 import { CodecResult, base64Encode, base64Decode, urlEncode, urlDecode, codecErrorText } from '../model/EncodingTools';
 import { JsonScanResult, jsonErrorText, jsonFormat, jsonMinify, jsonValidate } from '../model/JsonTools';
 import { md5, sha1, sha256 } from '../model/HashTools';
 import { MORSE_TEXT_MAX, MorseDecodeResult, morseEncodeText, morseDecodeText } from '../model/TorchSignal';
+import { VariantTable, emptyVariantTable } from '../model/VariantTable';
+import { VariantResult, convertVariant, variantDirectionLabel, variantErrorText,
+  variantNoteText } from '../model/ChineseVariant';
+import { loadVariantTable } from '../services/BundledTables';
 
 /**
  * 文本统计与整理页。
@@ -47,12 +53,34 @@ export struct TextPage {
    * （2026-10-21 实测：输入变化也会顺带复位，但「输入为空被拒绝」这条路径没有任何状态变化，必须主动复位）。
    */
   @Local menuResetTick: number = 0;
+  /**
+   * 繁简字形对照表（随包数据，约 1 MiB）：进入页面时异步载入一次，
+   * 之后按进程缓存复用（见 `services/BundledTables.ets`）。
+   *
+   * 表不可用时**不假装能转换**：点「繁简」会给出如实提示（`variantTableErrorText()`）。
+   */
+  @Local variantTable: VariantTable = emptyVariantTable();
+  /**
+   * 结果卡下方那行补充说明（目前只有「繁简」用：口径是通用规范字形、不做地区用词）。
+   *
+   * 为什么要一行**常驻**说明而不是 toast：这是数据口径披露，用户可能过几秒才看结果，
+   * 一闪而过的提示等于没写（与 `IdPhotoPage` 的「已保留原底色」同一取舍）。
+   */
+  @Local textNote: string = '';
 
   aboutToAppear(): void {
     if (this.initialValue.length > 0) {
       this.updateTextInput(this.initialValue, true);
       this.onInitialConsumed();
     }
+    this.loadVariantData();
+  }
+
+  /** 载入随包字表（异步、失败不抛异常，仅让表保持不可用状态）。 */
+  private loadVariantData(): void {
+    loadVariantTable(this.getUIContext().getHostContext() as common.UIAbilityContext)
+      .then((table: VariantTable): void => { this.variantTable = table; })
+      .catch((): void => { this.variantTable = emptyVariantTable(); });
   }
 
   private tr(zh: string, en: string): string { return this.english ? en : zh; }
@@ -60,7 +88,11 @@ export struct TextPage {
   private updateTextInput(value: string, clearOutput: boolean): void {
     const stats: TextStats = textStats(value);
     this.textInput = value;
-    if (clearOutput) { this.textOutput = ''; }
+    if (clearOutput) {
+      this.setTextOutput('');
+      // 补充说明跟着结果一起清：留着会出现「换了一段文字、说明还是上一个动作的」这种错配。
+      this.textNote = '';
+    }
     this.textCharacters = stats.characters;
     this.textNonSpace = stats.nonSpaceCharacters;
     this.textLines = stats.lines;
@@ -108,6 +140,8 @@ export struct TextPage {
     if (id === 'case') { return appText('text.case', this.english); }
     // `JSON` 是中英通用的写法，直接写常量（不必进登记表；72 vp 的标签列放得下 4 个字符）。
     if (id === 'json') { return 'JSON'; }
+    if (id === 'variant') { return appText('text.variant', this.english); }
+    if (id === 'naming') { return appText('text.naming', this.english); }
     return appText('text.encode', this.english);
   }
 
@@ -150,6 +184,23 @@ export struct TextPage {
         this.textMenuItem('转大写', 'Uppercase', (value: string): string => value.toUpperCase()),
         this.textMenuItem('转小写', 'Lowercase', (value: string): string => value.toLowerCase()),
         this.textMenuItem('首字母大写', 'Title Case', titleCase)
+      ];
+    }
+    if (id === 'variant') {
+      // 方向同样按「选一个动作执行」处理（不保留选中态）：与其它分组同一套交互。
+      // 方向名来自 `model/ChineseVariant.ets` 的登记表（不在这里另抄一份中英文）。
+      return [
+        this.variantMenuItem('s2t'),
+        this.variantMenuItem('t2s')
+      ];
+    }
+    if (id === 'naming') {
+      return [
+        this.namingMenuItem('驼峰式', 'camelCase', toCamelCase),
+        this.namingMenuItem('大驼峰式', 'PascalCase', toPascalCase),
+        this.namingMenuItem('下划线式', 'snake_case', toSnakeCase),
+        this.namingMenuItem('短横线式', 'kebab-case', toKebabCase),
+        this.namingMenuItem('常量式', 'SCREAMING_SNAKE', toScreamingSnakeCase)
       ];
     }
     return [
@@ -237,16 +288,16 @@ export struct TextPage {
     if (this.rejectIfTooLong()) { return; }
     const result: JsonScanResult = run(this.textInput);
     if (!result.ok) {
-      this.textOutput = this.jsonPositionText(result);
+      this.setTextOutput(this.jsonPositionText(result));
       return;
     }
     if (mode === 'validate') {
       const valid: string = this.tr('JSON 合法，没有语法错误', 'Valid JSON — no syntax errors');
-      this.textOutput = valid;
+      this.setTextOutput(valid);
       this.onStatus(valid);
       return;
     }
-    this.textOutput = result.text;
+    this.setTextOutput(result.text);
   }
 
   /** 出错位置 + 原因（原因来自纯逻辑 `jsonErrorText()`，位置只在这里拼一次）。 */
@@ -254,6 +305,60 @@ export struct TextPage {
     const reason: string = jsonErrorText(result.error, this.english);
     return this.tr('第 ' + result.line + ' 行第 ' + result.column + ' 列：' + reason,
       'Line ' + result.line + ', column ' + result.column + ': ' + reason);
+  }
+
+  /** 繁简转换的动作项（只收常量方向 id；选项文案在体内现取，`@Builder` 那条纪律的延伸）。 */
+  private variantMenuItem(direction: string): MenuElement {
+    return {
+      value: variantDirectionLabel(direction, this.english),
+      enabled: this.textInput.length > 0,
+      action: (): void => { this.runVariant(direction); }
+    };
+  }
+
+  /**
+   * 繁简转换。三条口径：
+   * - 表不可用（随包数据读不到/不完整）时**不做任何转换**并如实说明，
+   *   绝不把「原文照抄」当作转换成功显示出来；
+   * - 结果写进结果卡，同时把**口径说明**留在结果卡下方（通用规范字形、不做地区用词、不查询网络）；
+   * - 结果为空（输入里没有可转换内容）时给一次性提示。
+   */
+  private runVariant(direction: string): void {
+    if (this.textInput.length === 0) { return; }
+    if (this.rejectIfTooLong()) { return; }
+    if (!this.variantTable.loaded) {
+      this.onStatus(variantErrorText(this.variantTable.error, this.english));
+      return;
+    }
+    const result: VariantResult = convertVariant(this.textInput, direction, this.variantTable);
+    if (!result.ok) {
+      this.onStatus(variantErrorText(result.error, this.english));
+      return;
+    }
+    this.setTextOutput(result.text);
+    this.textNote = variantNoteText(this.english);
+  }
+
+  /** 命名风格的动作项。 */
+  private namingMenuItem(zh: string, en: string, apply: (value: string) => string): MenuElement {
+    return {
+      value: this.tr(zh, en),
+      enabled: this.textInput.length > 0,
+      action: (): void => { this.runNamingStyle(apply); }
+    };
+  }
+
+  /** 命名风格：结果为空（输入只有分隔符/空白）时给一次性提示，不写一张空结果卡。 */
+  private runNamingStyle(apply: (value: string) => string): void {
+    if (this.textInput.length === 0) { return; }
+    if (this.rejectIfTooLong()) { return; }
+    const converted: string = apply(this.textInput);
+    if (converted.length === 0) {
+      this.onStatus(this.tr('输入里没有可转换的字母或数字', 'No letters or digits to convert'));
+      return;
+    }
+    this.setTextOutput(converted);
+    this.textNote = '';
   }
 
   /** 需要一个自有提示（而不只是 `string -> string`）的菜单项，例如摩尔斯加解码时的「已忽略」提示。 */
@@ -278,7 +383,7 @@ export struct TextPage {
       this.onStatus(appText('text.nothing-to-encode-morse', this.english));
       return;
     }
-    this.textOutput = encoded;
+    this.setTextOutput(encoded);
   }
 
   /** 摩尔斯解码：无法识别的记号丢弃并计数提示，其余照常写结果卡。 */
@@ -289,7 +394,7 @@ export struct TextPage {
       this.onStatus(appText('text.no-morse-tokens-to', this.english));
       return;
     }
-    this.textOutput = result.text;
+    this.setTextOutput(result.text);
     if (result.truncated) {
       this.onStatus(this.tr('输入过长，只解码前 ' + MORSE_TEXT_MAX + ' 个字符',
         'Input truncated to the first ' + MORSE_TEXT_MAX + ' characters'));
@@ -314,10 +419,21 @@ export struct TextPage {
     return true;
   }
 
+  /**
+   * 写结果卡并清掉上一次的补充说明。
+   *
+   * 说明行是**跟随某一次动作**的（目前只有「繁简」会设置它），因此任何其它动作写结果时都必须清掉，
+   * 否则会出现「换了动作、说明还是上一个动作的」错配。
+   */
+  private setTextOutput(value: string): void {
+    this.textOutput = value;
+    this.textNote = '';
+  }
+
   private runAction(apply: (value: string) => string): void {
     if (this.textInput.length === 0) { return; }
     if (this.rejectIfTooLong()) { return; }
-    this.textOutput = apply(this.textInput);
+    this.setTextOutput(apply(this.textInput));
   }
 
   private runCodec(decode: (value: string) => CodecResult): void {
@@ -328,7 +444,7 @@ export struct TextPage {
       this.onStatus(codecErrorText(result.error, this.english));
       return;
     }
-    this.textOutput = result.text;
+    this.setTextOutput(result.text);
   }
 
   build() {
@@ -371,6 +487,8 @@ export struct TextPage {
       this.menuEntry('case')
       this.menuEntry('codec')
       this.menuEntry('json')
+      this.menuEntry('variant')
+      this.menuEntry('naming')
 
       Text(appText('text.result', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({
@@ -379,6 +497,10 @@ export struct TextPage {
       }) {
         Text(this.textOutput || appText('text.choose-an-action-to', this.english))
           .fontSize(16).copyOption(CopyOptions.LocalDevice).padding(16).width('100%')
+      }
+      // 数据类动作的口径说明（目前只有繁简转换）：**常驻**显示，不靠一闪而过的 toast。
+      if (this.textNote.length > 0) {
+        Text(this.textNote).fontSize(12).fontColor(ToolPalette.textMuted).width('100%')
       }
       Row({ space: 8 }) {
         IconActionButton({

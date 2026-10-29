@@ -216,6 +216,9 @@ export class PasswordMode {
 
 export const PASSWORD_MODES: PasswordMode[] = [
   new PasswordMode('password', '密码', 'Password'),
+  // 口令短语（2026-10-29）：与密码同属「生成」，但熵来自「词数 × 每词 12.925 bit」，
+  // 因此作为同一张登记表里的第 4 种类型，而不是新开一个工具卡片。
+  new PasswordMode('passphrase', '口令短语', 'Passphrase'),
   new PasswordMode('pin', 'PIN 码', 'PIN'),
   new PasswordMode('analyze', '强度检查', 'Strength check')
 ];

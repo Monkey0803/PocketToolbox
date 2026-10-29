@@ -177,3 +177,103 @@ export function titleCase(value: string): string {
   });
   return result;
 }
+
+// ---------- 命名风格转换（2026-10-29 新增，文本工具第 7 组动作） ----------
+
+/**
+ * 字符是否为「分隔符」。
+ *
+ * **按码点判断而不是字符串比较**（AGENTS：ArkTS 静态检查没有字符串关系运算的稳定先例），
+ * 且口径是「**ASCII 标点一律当分隔符**」——只排除 ASCII 里那几段标点与空白，
+ * 其余码点（中文、重音字母、emoji…）都当**词内字符保留**。
+ *
+ * 为什么不写成「不是字母数字就当分隔符」：那会把 `café` 拆成 `caf`（`é` 被吃掉）、
+ * 把中文整段丢掉——是**静默删字**，比转换结果难看严重得多。
+ */
+function isNamingSeparator(code: number): boolean {
+  if (code <= 0x20) { return true; }
+  if (code === 0x7f) { return true; }
+  if (code >= 0x21 && code <= 0x2f) { return true; }
+  if (code >= 0x3a && code <= 0x40) { return true; }
+  if (code >= 0x5b && code <= 0x60) { return true; }
+  if (code >= 0x7b && code <= 0x7e) { return true; }
+  return false;
+}
+
+/**
+ * 把标识符切成词：先按分隔符切，再在**驼峰边界**处切。
+ *
+ * 驼峰边界两条：① 小写/数字后接大写（`userName` → `user`|`Name`）；
+ * ② 连续大写后接「大写+小写」（`HTTPServer` → `HTTP`|`Server`，而不是 `HTTPServer` 整块）。
+ * 分词结果一律**转小写**（ASCII 部分），非 ASCII 词内字符原样保留。
+ */
+function namingWords(value: string): string[] {
+  const characters: string[] = Array.from(value);
+  const words: string[] = [];
+  let current: string = '';
+  let previousUpper: boolean = false;
+  const flush = (): void => {
+    if (current.length > 0) {
+      words.push(current.toLowerCase());
+      current = '';
+    }
+  };
+  for (let index: number = 0; index < characters.length; index++) {
+    const character: string = characters[index];
+    const code: number = character.charCodeAt(0);
+    if (isNamingSeparator(code)) {
+      flush();
+      previousUpper = false;
+      continue;
+    }
+    const upper: boolean = code >= 65 && code <= 90;
+    if (current.length > 0) {
+      let boundary: boolean = false;
+      if (upper && !previousUpper) {
+        boundary = true;
+      } else if (upper && previousUpper && index + 1 < characters.length) {
+        const next: number = characters[index + 1].charCodeAt(0);
+        boundary = next >= 97 && next <= 122;
+      }
+      if (boundary) { flush(); }
+    }
+    current += character;
+    previousUpper = upper;
+  }
+  flush();
+  return words;
+}
+
+/** 词首字母大写（只对 ASCII 小写字母生效，其余字符原样保留）。 */
+function capitalizeWord(word: string): string {
+  if (word.length === 0) { return word; }
+  const first: number = word.charCodeAt(0);
+  if (first < 97 || first > 122) { return word; }
+  return word.charAt(0).toUpperCase() + word.substring(1);
+}
+
+/** 驼峰式：`userName`（首个词小写，其后每个词首字母大写）。 */
+export function toCamelCase(value: string): string {
+  return namingWords(value).map((word: string, index: number): string =>
+    index === 0 ? word : capitalizeWord(word)).join('');
+}
+
+/** 大驼峰/帕斯卡式：`UserName`。 */
+export function toPascalCase(value: string): string {
+  return namingWords(value).map((word: string): string => capitalizeWord(word)).join('');
+}
+
+/** 下划线式：`user_name`。 */
+export function toSnakeCase(value: string): string {
+  return namingWords(value).join('_');
+}
+
+/** 短横线式：`user-name`。 */
+export function toKebabCase(value: string): string {
+  return namingWords(value).join('-');
+}
+
+/** 常量式：`USER_NAME`。 */
+export function toScreamingSnakeCase(value: string): string {
+  return namingWords(value).map((word: string): string => word.toUpperCase()).join('_');
+}
