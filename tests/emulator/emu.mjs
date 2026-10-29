@@ -25,7 +25,7 @@
  * 它不需要任何点击坐标，因此在任何窗口尺寸/形态下都跑得动，适合改完外壳或工具登记表后先跑一遍。
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -234,7 +234,7 @@ const SMOKE_CASES = [
   { id: 'torch', title: '手电筒', expect: ['模式'] },
   { id: 'dates', title: '日期计算', expect: ['方式'] },
   { id: 'timestamp', title: '时间戳', expect: ['解释方式'] },
-  { id: 'text', title: '文本工具', expect: ['整理'] },
+  { id: 'text', title: '文本工具', expect: ['整理', '编码摘要', 'JSON'] },
   { id: 'random', title: '随机选择', expect: ['方式'] },
   // 密码页除「类型」外还要能看到生成数量下拉（2026-10-22：批量生成 + 易混字符开关 + 强度检查）
   { id: 'password', title: '密码生成', expect: ['类型', '生成数量', '排除易混字符'] },
@@ -326,6 +326,917 @@ function smoke(only, withShots) {
   console.log(`smoke 通过：${cases.length}/${cases.length} 个工具页都渲染出标题与关键文案。`);
 }
 
+// --- 交互路径回归（2026-10-27 新增，`flows` 命令） -------------------------------
+//
+// 背景：`smoke` 只验「控件出现」，而本工程真正出过的事故几乎都在**交互之后**——切换方式后参数表不刷新
+// （`ForEach` key 坑）、格式化结果没落到结果卡、上次选择没记住。这一组用例把「点一下 → 读结果」变成断言。
+//
+// 三条纪律：
+// - 每例自己 `openTool()`（唤醒 + 强停 + 意图直达），用例之间不共享状态；
+// - 断言只读**界面文本**（`dumpLayout` 的 text 属性），不依赖坐标稳定 —— 除了「点哪里」这一件事；
+// - 下拉一律走 `pickOption()`（点开 → 点那一项 → 回读），因为系统 `Select` 的菜单项在布局树里
+//   会出现两份（整行 + 行内文字），点行中心才可靠（2026-10-22 实测经验，见 check-align.mjs）。
+
+/** 打开某个工具页并返回布局树（与 smoke 同一套唤醒/强停/意图直达）。 */
+function openTool(id) {
+  t(['shell', 'power-shell', 'wakeup']);
+  t(['shell', 'aa', 'force-stop', BUNDLE]);
+  sleep(800);
+  t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY, '--ps', 'tool', id]);
+  sleep(2600);
+  return dump();
+}
+
+function allTexts(tree) {
+  return walk(tree ?? dump(), []).map((node) => String(node.attributes?.text ?? ''));
+}
+
+/**
+ * 上滑若干次，并把**每一屏**的可见文字并起来。
+ *
+ * 为什么需要它：大字体（1.75×）下页面变长，结果卡常被挤到可视区之外，而 `dumpLayout` **只导出可见节点**
+ * ——2026-10-27 实测：`json` 用例在 1.75× 下「找不到第 1 行」，上滑一次就看到了（**是断言看不到，
+ * 不是缺陷**）。凡是要断言「结果卡里的文字」，都先用它把多屏文字收集起来。
+ */
+function textsAfterSwipeUp(times) {
+  const seen = new Set(allTexts());
+  for (let index = 0; index < times; index++) {
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '900', '800']);
+    sleep(900);
+    for (const text of allTexts()) { seen.add(text); }
+  }
+  return [...seen];
+}
+
+/**
+ * 点完文件后**连续 dump 约 3 秒**，把期间出现过的文字都收进来。
+ *
+ * 为什么必须这样：导入失败的提示是**2 秒的 toast**（`Index.showToast` → `getPromptAction().showToast`），
+ * 而且它在**设置页顶部**之外的位置、又只活 2 秒——单次 dump 几乎必然错过（2026-10-27 实测：
+ * 单次 dump 三次都判「没看到提示」，改成 300 ms 轮询后一次就抓到「文件不是有效的 JSON」）。
+ */
+function textsAfterPickFor(millis) {
+  const seen = new Set();
+  const rounds = Math.max(1, Math.round(millis / 300));
+  for (let index = 0; index < rounds; index++) {
+    for (const text of allTexts()) { seen.add(text); }
+    sleep(300);
+  }
+  return [...seen];
+}
+
+/**
+ * **往回**滚（手指下滑）若干次，把上方多屏文字也收进来——与 `textsAfterSwipeUp` 对称。
+ * 2026-10-27 实测需要它：设置页的状态提示行在**顶部**，而验数据动作时已经滚到页面下方，
+ * `dumpLayout` 只导出可见节点，不收上方文字就会误判成「没有提示」。
+ */
+function textsAfterSwipeDown(times) {
+  const seen = new Set(allTexts());
+  for (let index = 0; index < times; index++) {
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '900', '1300', '1900', '800']);
+    sleep(800);
+    for (const text of allTexts()) { seen.add(text); }
+  }
+  return [...seen];
+}
+
+/** 下滑若干次回到页面顶部（上滑断言之后复位，免得下一步找不到输入框）。 */
+function scrollBackToTop(times) {
+  for (let index = 0; index < times; index++) {
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '900', '1300', '1900', '800']);
+    sleep(800);
+  }
+}
+
+function controlsOf(tree, type) {
+  return nodesWithBounds(tree).filter((item) => item.node.attributes?.type === type);
+}
+
+/** 点开一个已定位的 `Select` 触发器，再点目标项；找不到目标项时最多重试 3 次。 */
+function pickOption(trigger, to) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    click(trigger.cx, trigger.cy);
+    sleep(900);
+    const opened = dump();
+    if (opened === undefined) { sleep(600); continue; }
+    const options = nodesWithBounds(opened)
+      .filter((item) => String(item.node.attributes?.text ?? '') === to)
+      .sort((a, b) => (b.bounds.x2 - b.bounds.x1) - (a.bounds.x2 - a.bounds.x1));
+    if (options.length === 0) { sleep(600); continue; }
+    click(options[0].bounds.cx, options[0].bounds.cy);
+    sleep(1000);
+    return true;
+  }
+  return false;
+}
+
+/** 往某个 `TextArea`/`TextInput` 里写值（先点进去、退格清空、再输入、最后关掉软键盘）。 */
+function setControl(control, value) {
+  setText(control.bounds.cx, control.bounds.cy, value);
+  sleep(600);
+  // 软键盘会把窗口压缩到只剩上半屏，后面的下拉就点不到了 —— 输入完先按返回键收起键盘。
+  // （2026-10-27 实测：不收起键盘时布局树里只剩 1 个 Select，其余 4 个都在可视区之外。）
+  key(2);
+  sleep(700);
+}
+
+/**
+ * 文本工具的 JSON 动作：格式化要给结果、**字面量要原样保留**、校验坏输入要给行列号与原因、输入不被改写。
+ *
+ * **为什么用例里只用纯标量（`1.5e10` / `tru`），不出现 `{...}`/`[...]`**：模拟器的
+ * `uitest uiInput text` 会改写要输入的字符——2026-10-27 实测：`{"a":1}` 落成 `{a:1}}`（双引号被丢掉）、
+ * `[1,2,3]` 落成 `[1,2,3]]`（多一个 `]`）；而 `123` / `1.5e10` / `tru` **逐字不变**。
+ * 数组与对象的格式化/嵌套/重复键由**单测**覆盖（`JsonTools` 断言块），这里只验「页面接线」与
+ * 「令牌级不改写字面量」这条承诺。
+ */
+function flowJson() {
+  const problems = [];
+  const tree = openTool('text');
+  const area = controlsOf(tree, 'TextArea')[0];
+  if (area === undefined) { return ['text/json：找不到输入框']; }
+
+  // ① 格式化：`1.5e10` 必须原样出现在结果里（既证明动作生效，又证明字面量没被展开成 15000000000）
+  setControl(area, '1.5e10');
+  if (!allTexts().some((text) => text.includes('文本工具'))) {
+    return ['text/json：输入后页面被弹出了（返回键把详情页关掉了？）'];
+  }
+  const menu = controlsOf(dump(), 'Select').slice(-1)[0];
+  if (menu === undefined) { return ['text/json：找不到 JSON 下拉']; }
+  if (!pickOption(menu.bounds, '格式化')) { return ['text/json：选不到「格式化」']; }
+  // 大字体下结果卡可能在可视区外，因此上滑收集多屏文字再断言，断言完复位到顶部。
+  const formatted = textsAfterSwipeUp(1);
+  if (!formatted.some((text) => text.includes('1.5e10'))) {
+    problems.push('格式化后结果卡没有原样保留 `1.5e10`（不能展开成 15000000000）');
+  }
+  scrollBackToTop(1);
+
+  // ② 校验合法：应给一次「合法」结论
+  const area2 = controlsOf(dump(), 'TextArea')[0];
+  if (area2 === undefined) { return problems.concat(['text/json：第二次找不到输入框']); }
+  setControl(area2, '1.5e10');
+  const menu2 = controlsOf(dump(), 'Select').slice(-1)[0];
+  if (menu2 === undefined) { return problems.concat(['text/json：第二次找不到 JSON 下拉']); }
+  if (!pickOption(menu2.bounds, '校验')) { problems.push('选不到「校验」'); }
+  if (!textsAfterSwipeUp(1).some((text) => text.includes('合法'))) {
+    problems.push('校验合法输入后没有给出「合法」结论');
+  }
+  scrollBackToTop(1);
+
+  // ③ 校验坏输入（`tru`）：必须给**行号 + 原因**，且**输入框内容不变**
+  const area3 = controlsOf(dump(), 'TextArea')[0];
+  if (area3 === undefined) { return problems.concat(['text/json：第三次找不到输入框']); }
+  setControl(area3, 'tru');
+  const menu3 = controlsOf(dump(), 'Select').slice(-1)[0];
+  if (menu3 === undefined) { return problems.concat(['text/json：第三次找不到 JSON 下拉']); }
+  if (!pickOption(menu3.bounds, '校验')) { problems.push('选不到「校验」'); }
+  // 输入框内容要在**上滑之前**读（上滑后它就不在可见区里了）。
+  const kept = controlsOf(dump(), 'TextArea')[0];
+  const keptText = kept === undefined ? '' : String(kept.node.attributes?.text ?? '');
+  const checked = textsAfterSwipeUp(2);
+  if (!checked.some((text) => text.includes('第 1 行'))) {
+    problems.push('校验坏输入没有给出行号（找不到「第 1 行」）');
+  }
+  if (!checked.some((text) => text.includes('只接受'))) {
+    problems.push('校验坏输入没有给出原因（找不到「只接受」）');
+  }
+  if (keptText !== 'tru') {
+    problems.push(`校验把输入框内容改掉了（实测 ${JSON.stringify(keptText)}）`);
+  }
+  scrollBackToTop(2);
+  return problems;
+}
+
+/**
+ * URL 编解码：切到「表单」方式后，**查询参数表必须跟着刷新**。
+ * 这是本工程记录过的 `ForEach` key 坑（key 里没带渲染内容 → 条目构建函数不重跑）的回归守卫。
+ */
+function flowUrlMode() {
+  const problems = [];
+  const tree = openTool('url');
+  const area = controlsOf(tree, 'TextArea')[0];
+  if (area === undefined) { return ['url：找不到输入框']; }
+  setControl(area, 'a+b=c+d&x=%2B');
+  // 方式下拉：标签是「方式」，触发器在它右侧；取从上往下第一个 Select（页面顺序即如此）。
+  const mode = controlsOf(dump(), 'Select')[0];
+  if (mode === undefined) { return ['url：找不到「方式」下拉']; }
+  if (!pickOption(mode.bounds, '表单')) { return ['url：选不到「表单」方式']; }
+  const texts = allTexts();
+  if (!texts.some((text) => text.includes('a b'))) {
+    problems.push('切到表单方式后查询参数名没有跟着刷新（找不到 `a b`）');
+  }
+  if (!texts.some((text) => text.includes('c d'))) {
+    problems.push('切到表单方式后查询参数值没有跟着刷新（找不到 `c d`）');
+  }
+  // `%2B` 在任何方式下都应解成 `+`
+  if (!texts.some((text) => text.includes('+'))) {
+    problems.push('`%2B` 没有被解码成 `+`');
+  }
+  return problems;
+}
+
+/** 单位换算：改类别与精度后重启，**上次选择必须还在**（落盘键 `units_state` 的往返）。 */
+function flowUnitsMemory() {
+  const problems = [];
+  openTool('units');
+  const selects = controlsOf(dump(), 'Select');
+  // 单位换算页有四个下拉：类别 / 从单位 / 到单位 / 精度。**不要按固定下标取精度**
+  // （2026-10-27 实测：按下标取到的是「从单位」，于是永远选不到精度项）——按当前文案里的
+  // 「位有效数字」定位精度那一行。
+  const precisionTrigger = () => controlsOf(dump(), 'Select')
+    .find((item) => String(item.node.attributes?.text ?? '').includes('位有效数字'));
+  if (selects.length < 4) { return ['units：下拉数量不足（应为 类别/从/到/精度 四个）']; }
+  if (!pickOption(selects[0].bounds, '压力')) { return ['units：选不到「压力」类别']; }
+  const precision = precisionTrigger();
+  if (precision === undefined) { return ['units：找不到「精度」下拉']; }
+  if (!pickOption(precision.bounds, '6 位有效数字')) { return ['units：选不到 6 位精度']; }
+  // 重新进入该页（不清数据），确认选择被记住。
+  openTool('units');
+  const after = controlsOf(dump(), 'Select');
+  const categoryText = String(after[0]?.node.attributes?.text ?? '');
+  const precisionText = String(precisionTrigger()?.node.attributes?.text ?? '');
+  if (!categoryText.includes('压力')) {
+    problems.push(`重启后类别没记住（实测 ${JSON.stringify(categoryText)}）`);
+  }
+  if (!precisionText.includes('6 位有效数字')) {
+    problems.push(`重启后精度没记住（实测 ${JSON.stringify(precisionText)}）`);
+  }
+  return problems;
+}
+
+/**
+ * 按 `OptionSelect` 左侧的**标签文案**定位右侧那个 `Select`。
+ *
+ * 工具页有两个 `OptionSelect`（「每行显示」与「分类」），按下标取会在改版后取错行——
+ * 2026-10-27 实测就取成了「每行显示」，于是永远找不到分类项。这里按标签的纵向重叠定位。
+ */
+function selectNearLabel(label) {
+  const labelNode = nodesWithBounds().find((item) => String(item.node.attributes?.text ?? '') === label);
+  if (labelNode === undefined) { return undefined; }
+  const labelCenter = (labelNode.bounds.y1 + labelNode.bounds.y2) / 2;
+  // 注意比较的是**中心距**而不是左上角：`Select` 比左侧标签高，实测标签 [821,872] 对应的 Select 是 [784,909]，
+  // 用 `y1 ± 30` 会判不中（2026-10-27 踩到）。
+  const candidates = controlsOf(dump(), 'Select')
+    .map((item) => ({ item, distance: Math.abs((item.bounds.y1 + item.bounds.y2) / 2 - labelCenter) }))
+    .filter((entry) => entry.distance < 120)
+    .sort((a, b) => a.distance - b.distance);
+  return candidates.length > 0 ? candidates[0].item : undefined;
+}
+
+/**
+ * 工具页：搜索是**扁平结果**（命中列表 + 无命中空态），分类筛选要**落盘记到下次进入**。
+ * 两条都是「界面上看起来对、但状态/持久化可能不对」的地方。
+ */
+function flowSearchAndCategory() {
+  const problems = [];
+  /** 走正常启动（不带 --ps），落在默认的「工具」页签。 */
+  const openApp = () => {
+    t(['shell', 'power-shell', 'wakeup']);
+    t(['shell', 'aa', 'force-stop', BUNDLE]);
+    sleep(800);
+    t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+    sleep(2600);
+    return dump();
+  };
+  let tree = openApp();
+  const search = controlsOf(tree, 'Search')[0];
+  if (search === undefined) { return ['tools：找不到搜索框']; }
+  setText(search.bounds.cx, search.bounds.cy, 'qr');
+  sleep(900);
+  key(2); // 收起键盘，避免结果区被压缩
+  sleep(600);
+  const hit = allTexts();
+  if (!hit.some((text) => text.includes('二维码'))) {
+    problems.push('搜索 `qr` 没有命中「二维码」');
+  }
+  if (hit.some((text) => text === '条形码')) {
+    problems.push('搜索 `qr` 时仍然列出了「条形码」（应只给命中结果）');
+  }
+  // 搜一个不存在的词：应给空态而不是空白
+  const search2 = controlsOf(dump(), 'Search')[0];
+  if (search2 === undefined) { return problems.concat(['tools：第二次找不到搜索框']); }
+  setText(search2.bounds.cx, search2.bounds.cy, 'zzzz');
+  sleep(900);
+  key(2);
+  sleep(600);
+  if (!allTexts().some((text) => text.includes('没有') || text.includes('未找到') || text.includes('No '))) {
+    problems.push('搜索无命中时没有给出空态文案');
+  }
+  // 清空搜索 → 选分类「时间与日期」→ 重启后应仍停在该分类
+  const search3 = controlsOf(dump(), 'Search')[0];
+  if (search3 === undefined) { return problems.concat(['tools：第三次找不到搜索框']); }
+  setText(search3.bounds.cx, search3.bounds.cy, '');
+  sleep(900);
+  key(2);
+  sleep(800);
+  const category = selectNearLabel('分类');
+  if (category === undefined) { return problems.concat(['tools：找不到「分类」下拉']); }
+  if (!pickOption(category.bounds, '时间与日期')) { return problems.concat(['tools：选不到「时间与日期」分类']); }
+  const filtered = allTexts();
+  if (!filtered.some((text) => text.includes('时间与日期'))) {
+    problems.push('选了「时间与日期」分类后看不到该分类');
+  }
+  if (filtered.some((text) => text.includes('扫码与图像'))) {
+    problems.push('选了「时间与日期」分类后仍渲染了「扫码与图像」分段');
+  }
+  openApp();
+  const after = selectNearLabel('分类');
+  const text = String(after?.node.attributes?.text ?? '');
+  if (!text.includes('时间与日期')) {
+    problems.push(`重启后分类筛选没记住（实测 ${JSON.stringify(text)}）`);
+  }
+  // 收尾：把筛选复位回「全部分类」，别把模拟器留在「只看时间类」的状态（后续手工核对会莫名少卡片）。
+  const reset = selectNearLabel('分类');
+  if (reset !== undefined) { pickOption(reset.bounds, '全部分类'); }
+  return problems;
+}
+
+/**
+ * 设置页：**离线隐私政策全文**必须真的能展开并读到正文。
+ *
+ * 为什么值得一条用例：商店要求在**应用内**能找到隐私政策，而公网地址今天还是空的占位/未托管；
+ * 正文随包（由 `docs/PRIVACY.md` 生成）就是这条合规面的兜底，所以「展开后看得到正文」必须可重复验证。
+ * 设置页很长，这里向上滑动去找入口（最多 14 次），找到后点开并断言正文首段与说明行。
+ */
+function flowPrivacyOffline() {
+  const problems = [];
+  const openApp = () => {
+    t(['shell', 'power-shell', 'wakeup']);
+    t(['shell', 'aa', 'force-stop', BUNDLE]);
+    sleep(800);
+    t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+    sleep(2600);
+    return dump();
+  };
+  let tree = openApp();
+  const tab = find('设置', tree)[0];
+  if (tab === undefined) { return ['settings：找不到「设置」页签']; }
+  click(tab.bounds.cx, tab.bounds.cy);
+  sleep(2000);
+  let entry;
+  for (let attempt = 0; attempt < 14; attempt++) {
+    entry = find('隐私政策全文')[0];
+    if (entry !== undefined) { break; }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '500', '800']);
+    sleep(900);
+  }
+  if (entry === undefined) {
+    return ['settings：向上滑 14 次仍没找到「隐私政策全文」入口'];
+  }
+  click(entry.bounds.cx, entry.bounds.cy);
+  sleep(1500);
+  const texts = allTexts();
+  if (!texts.some((text) => text.includes('离线全文'))) {
+    problems.push('展开后没有出现「离线全文…段」的说明行');
+  }
+  if (!texts.some((text) => text.includes('不要求注册账号') || text.includes('requires no account'))) {
+    problems.push('展开后看不到政策正文首段（正文块没有渲染出来）');
+  }
+  return problems;
+}
+
+/**
+ * 收藏路径：**加星标 → 收藏页出现 → 长按卡片 → 取消收藏 → 消失**。
+ *
+ * 为什么值得一条用例：星标按钮是**纯图标**（布局树里没有文字），而且历史上有过「点星标却进了工具页」
+ * 的手势竞争风险（星标必须是可跳转区域的兄弟节点）。这里用几何定位星标（标题正上方、同一列的那个方形
+ * `Button`），再用**收藏页是否列出该工具**作断言——比读图标状态可靠。
+ */
+function flowFavorite() {
+  const problems = [];
+  const TOOL = '二维码';
+  const openApp = () => {
+    t(['shell', 'power-shell', 'wakeup']);
+    t(['shell', 'aa', 'force-stop', BUNDLE]);
+    sleep(800);
+    t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+    sleep(2600);
+    return dump();
+  };
+  /** 某张卡片右上角的星标：标题文字正上方、横向落在标题那一列里的方形按钮。 */
+  const starOf = (title) => {
+    const titleNode = find(title)[0];
+    if (titleNode === undefined) { return undefined; }
+    const box = titleNode.bounds;
+    const candidates = controlsOf(dump(), 'Button')
+      .filter((item) => item.bounds.y2 <= box.y1 + 4 && item.bounds.y1 >= box.y1 - 200)
+      .filter((item) => item.bounds.cx >= box.x1 - 40 && item.bounds.cx <= box.x2 + 40)
+      .sort((a, b) => b.bounds.y2 - a.bounds.y2);
+    return candidates[0];
+  };
+  openApp();
+  const star = starOf(TOOL);
+  if (star === undefined) { return ['fav：找不到「' + TOOL + '」卡片上的星标按钮']; }
+  click(star.bounds.cx, star.bounds.cy);
+  sleep(1200);
+  // 切到「收藏」页签（页签文字在底部，取最靠下的那个「收藏」）。
+  const tabs = find('收藏').sort((a, b) => b.bounds.cy - a.bounds.cy);
+  if (tabs.length === 0) { return ['fav：找不到「收藏」页签']; }
+  click(tabs[0].bounds.cx, tabs[0].bounds.cy);
+  sleep(1600);
+  if (!allTexts().some((text) => text.includes(TOOL))) {
+    problems.push('加星标后收藏页里没有列出「' + TOOL + '」');
+    return problems;
+  }
+  // 长按卡片 →「置顶」与「取消收藏」都应出现。
+  const card = find(TOOL)[0];
+  if (card === undefined) { return problems.concat(['fav：收藏页里找不到可长按的卡片']); }
+  t(['shell', 'uitest', 'uiInput', 'longClick', String(card.bounds.cx), String(card.bounds.cy)]);
+  sleep(1300);
+  const menu = allTexts();
+  if (!menu.some((text) => text.includes('置顶'))) {
+    problems.push('长按卡片没有出现「置顶」菜单项');
+  }
+  const remove = find('取消收藏')[0];
+  if (remove === undefined) {
+    return problems.concat(['fav：长按菜单里没有「取消收藏」']);
+  }
+  click(remove.bounds.cx, remove.bounds.cy);
+  sleep(1400);
+  const after = allTexts();
+  if (after.some((text) => text === TOOL || text.includes(TOOL))) {
+    // 卡片在「取消收藏」后仍在列表里就是没生效（也可能是菜单没关掉，故再等一拍复核）。
+    sleep(1200);
+    if (allTexts().some((text) => text.includes(TOOL))) {
+      problems.push('点「取消收藏」后收藏页仍然列出「' + TOOL + '」');
+    }
+  }
+  return problems;
+}
+
+/**
+ * 导入本机数据（**非破坏性**）：自己造一份合法备份 → 推送进设备的「下载」目录 → 走完应用内导入。
+ *
+ * 为什么选「导入」而不是完整往返（导出 → 清除 → 导入）：**清除不可逆**，一旦半路失败就可能
+ * 「数据清了、文件没导回来」。导入是**合并语义**（只覆盖文件里出现过的键），因此这条用例
+ * 既能验到备份信封的解析、校验、落盘与界面刷新，又不会毁掉设备上的数据。
+ *
+ * 备份信封的格式来自 `model/DataExport.buildBackupJson()`：
+ * `{"app":"pocket-toolbox","schema":1,"exportedAt":<ms>,"data":{"<键>":"<原始字符串>"}}`；
+ * `favorite_tools` 的原始字符串就是 id 的 JSON 数组。这里只放**一个键**，让断言可以要求
+ * 「结果恰好是这三项」——若导入变成追加而不是覆盖，多出来的项会当场露馅。
+ *
+ * 系统文件选择器的路径（2026-10-27 实测，**这一段是不可跳过的**）：
+ * `浏览` → `下载与接收` → `下载管理器` → 点文件名；`最近` 页签里看不到 hdc 推过去的文件。
+ */
+function flowImportBackup() {
+  const problems = [];
+  const FAVORITES = ['units', 'timers', 'dates'];
+  const local = join(OUT, 'ZZ-import-test.json');
+  const remote = '/storage/media/100/local/files/Docs/Download/ZZ-import-test.json';
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(local, JSON.stringify({
+    app: 'pocket-toolbox', schema: 1, exportedAt: Date.now(),
+    data: { favorite_tools: JSON.stringify(FAVORITES) }
+  }), 'utf8');
+  const sent = t(['file', 'send', local, remote]);
+  if (!/FileTransfer finish/i.test(sent)) {
+    return [`import：把测试备份推进设备失败（Download 目录可能不可写）：${sent.trim().slice(0, 80)}`];
+  }
+  t(['shell', 'power-shell', 'wakeup']);
+  t(['shell', 'aa', 'force-stop', BUNDLE]);
+  sleep(800);
+  t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+  sleep(2800);
+  const tab = find('设置')[0];
+  if (tab === undefined) { return ['import：找不到「设置」页签']; }
+  click(tab.bounds.cx, tab.bounds.cy);
+  sleep(2200);
+  // 数据动作行（四个纯图标按钮）在隐私披露段落之下，按 x 排序第 4 个是「导入」。
+  let actionRow;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const anchor = find('应用申请')[0];
+    if (anchor !== undefined) {
+      actionRow = controlsOf(dump(), 'Button')
+        .filter((item) => item.bounds.y1 >= anchor.bounds.y2 - 20 && item.bounds.y1 <= anchor.bounds.y2 + 260)
+        .sort((a, b) => (a.bounds.y1 - b.bounds.y1) || (a.bounds.x1 - b.bounds.x1));
+      if (actionRow.length >= 4) { break; }
+    }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '500', '800']);
+    sleep(900);
+  }
+  if (actionRow === undefined || actionRow.length < 4) {
+    return ['import：定位不到设置页的四个数据动作按钮'];
+  }
+  click(actionRow[3].bounds.cx, actionRow[3].bounds.cy);
+  sleep(1800);
+  if (!pickOption(actionRow[3].bounds, '选择文件')) {
+    // 「选择文件」不在下拉里，而是系统确认框的次要按钮：直接按文字点。
+    const choose = find('选择文件')[0];
+    if (choose === undefined) { return ['import：确认框里找不到「选择文件」']; }
+    click(choose.bounds.cx, choose.bounds.cy);
+  }
+  sleep(3200);
+  // 系统文件选择器：浏览 → 下载与接收 → 下载管理器 → 文件
+  for (const step of ['浏览', '下载与接收', '下载管理器']) {
+    const hit = find(step).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+    if (hit === undefined) { return [`import：文件选择器里找不到「${step}」`]; }
+    click(hit.bounds.cx, hit.bounds.cy);
+    sleep(2400);
+  }
+  const file = find('ZZ-import-test').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (file === undefined) {
+    return ['import：下载管理器里看不到测试备份文件（推送路径可能变了）'];
+  }
+  click(file.bounds.cx, file.bounds.cy);
+  sleep(2200);
+  // 应用自己的确认框：「将覆盖 N 项…」→「导入」
+  const confirmText = allTexts().find((text) => text.includes('确认导入'));
+  if (confirmText === undefined) {
+    problems.push('选完文件后没有出现「确认导入」对话框');
+  } else if (!allTexts().some((text) => text.includes('收藏'))) {
+    problems.push('确认框没有说明这次会覆盖「收藏」');
+  }
+  const confirm = find('导入').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (confirm === undefined) { return problems.concat(['import：确认框里找不到「导入」按钮']); }
+  click(confirm.bounds.cx, confirm.bounds.cy);
+  sleep(2600);
+  // 断言：收藏页**恰好**是备份里的三项（多一项就说明是追加而不是覆盖）
+  const favTab = find('收藏').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (favTab === undefined) { return problems.concat(['import：找不到「收藏」页签']); }
+  click(favTab.bounds.cx, favTab.bounds.cy);
+  sleep(2000);
+  const shown = allTexts();
+  const expected = ['单位换算', '计时', '日期计算'];
+  for (const label of expected) {
+    if (!shown.some((text) => text === label || text.includes(label))) {
+      problems.push(`导入后收藏页缺少「${label}」`);
+    }
+  }
+  if (shown.some((text) => text === '二维码')) {
+    problems.push('导入后收藏页出现了备份里没有的「二维码」（说明导入是追加而不是覆盖）');
+  }
+  return problems;
+}
+
+/**
+ * 导入**失败**路径（2026-10-27 新增，非破坏性）：造三种坏文件，验证应用**如实报错**
+ * 且**不改动本机数据**——这是「绝不假装成功」这条纪律最容易破的一环（曾经有过「非法输入静默当成成功」的先例）。
+ *
+ * 三种坏文件与期望文案（`model/DataImport.importErrorText()`）：
+ * - 别的应用的备份 → 「这个文件不是本应用导出的备份」；
+ * - 截断的 JSON → 「文件不是有效的 JSON」；
+ * - `schema` 比本机新 → 「备份来自更新的版本，请先升级应用」。
+ *
+ * 断言三件事：① 出现对应文案；② **没有**出现「确认导入」（失败路径不该走到确认框）；
+ * ③ 收藏页与基线**完全一致**（失败绝不能覆盖本机数据）。
+ */
+function flowImportBadBackup() {
+  const problems = [];
+  const baseline = favoritesSnapshot();
+  const cases = [
+    { name: 'ZZ-bad-app.json', body: JSON.stringify({ app: 'someone-else', schema: 1, data: { favorite_tools: '[]' } }), expect: '不是本应用导出的备份' },
+    { name: 'ZZ-bad-json.json', body: '{"app":"pocket-toolbox", "schema": 1,', expect: '文件不是有效的 JSON' },
+    { name: 'ZZ-bad-schema.json', body: JSON.stringify({ app: 'pocket-toolbox', schema: 99, data: {} }), expect: '备份来自更新的版本' },
+  ];
+  for (const item of cases) {
+    const local = join(OUT, item.name);
+    const remote = '/storage/media/100/local/files/Docs/Download/' + item.name;
+    mkdirSync(OUT, { recursive: true });
+    writeFileSync(local, item.body, 'utf8');
+    const sent = t(['file', 'send', local, remote]);
+    if (!/FileTransfer finish/i.test(sent)) {
+      problems.push(`importbad(${item.name})：推进设备失败：${sent.trim().slice(0, 60)}`);
+      continue;
+    }
+    const walk = importWalkThroughPicker(item.name.replace('.json', ''));
+    if (walk.length > 0) { problems.push(`importbad(${item.name})：${walk[0]}`); continue; }
+    // 状态提示是 2 秒 toast → 连续 dump 收集（见 `textsAfterPickFor` 的注释）。
+    const texts = textsAfterPickFor(3000);
+    if (!texts.some((text) => text.includes(item.expect))) {
+      problems.push(`importbad(${item.name})：没看到期望的提示「${item.expect}」（实际可见：${texts.filter((x) => x.length < 40).slice(0, 8).join(' / ')}）`);
+    }
+    if (texts.some((text) => text.includes('确认导入'))) {
+      problems.push(`importbad(${item.name})：坏文件竟然走到了「确认导入」对话框`);
+    }
+  }
+  const after = favoritesSnapshot();
+  if (after !== baseline) {
+    problems.push(`importbad：失败导入改动了本机数据！基线「${baseline}」→ 现在「${after}」`);
+  }
+  return problems;
+}
+
+/** 收藏页可见工具名（按 x/y 排序拼成基线串）：用来断言「失败不覆盖本机数据」。 */
+function favoritesSnapshot() {
+  t(['shell', 'aa', 'force-stop', BUNDLE]);
+  sleep(700);
+  t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+  sleep(2800);
+  const tab = find('收藏')[0];
+  if (tab === undefined) { return '（找不到收藏页签）'; }
+  click(tab.bounds.cx, tab.bounds.cy);
+  sleep(1800);
+  // 用 smoke 用例里的工具标题（与 `model/ToolMeta.ets` 同源）当基线词表，避免再手写一份名字。
+  const names = SMOKE_CASES.map((item) => item.title).filter((name) => find(name).length > 0);
+  return names.join('|');
+}
+
+/** 把导入流程走到「点中文件」为止；返回问题数组（空数组表示成功点到文件）。 */
+function importWalkThroughPicker(filePrefix) {
+  t(['shell', 'power-shell', 'wakeup']);
+  t(['shell', 'aa', 'force-stop', BUNDLE]);
+  sleep(800);
+  t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+  sleep(2800);
+  const tab = find('设置')[0];
+  if (tab === undefined) { return ['找不到「设置」页签']; }
+  click(tab.bounds.cx, tab.bounds.cy);
+  sleep(2200);
+  let actionRow;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const anchor = find('应用申请')[0];
+    if (anchor !== undefined) {
+      actionRow = controlsOf(dump(), 'Button')
+        .filter((item) => item.bounds.y1 >= anchor.bounds.y2 - 20 && item.bounds.y1 <= anchor.bounds.y2 + 260)
+        .sort((a, b) => (a.bounds.y1 - b.bounds.y1) || (a.bounds.x1 - b.bounds.x1));
+      if (actionRow.length >= 4) { break; }
+    }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '500', '800']);
+    sleep(900);
+  }
+  if (actionRow === undefined || actionRow.length < 4) { return ['定位不到设置页的四个数据动作按钮']; }
+  click(actionRow[3].bounds.cx, actionRow[3].bounds.cy);
+  sleep(1800);
+  if (!pickOption(actionRow[3].bounds, '选择文件')) {
+    const choose = find('选择文件')[0];
+    if (choose === undefined) { return ['确认框里找不到「选择文件」']; }
+    click(choose.bounds.cx, choose.bounds.cy);
+  }
+  sleep(3200);
+  if (find(filePrefix).length === 0) {
+    for (const step of ['浏览', '下载与接收', '下载管理器']) {
+      const hit = find(step).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+      if (hit === undefined) { return [`文件选择器里找不到「${step}」`]; }
+      click(hit.bounds.cx, hit.bounds.cy);
+      sleep(2400);
+    }
+  }
+  const file = find(filePrefix).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (file === undefined) { return ['下载管理器里看不到测试坏文件']; }
+  click(file.bounds.cx, file.bounds.cy);
+  // **只等一小会儿**：失败提示是 2 秒 toast，这里若睡 2 秒以上就会把它睡过去（2026-10-27 实测过一次），
+  // 所以剩下的时间交给调用方用 `textsAfterPickFor()` 连续 dump 去抓。
+  sleep(150);
+  return [];
+}
+
+/**
+ * **清除本机数据 → 导入还原**往返（2026-10-27 新增，**会真的清空设备数据再导回来**）。
+ *
+ * 为什么以前不做：清除**不可逆**，半路失败就可能「数据清了、文件没导回来」。但这一条恰恰是
+ * 用户最可能踩的路径（换机、出错后重来），而且只在模拟器上跑、设备里只有测试数据，风险可接受——
+ * 用例自己**先把已知备份导进去建立基线**，因此即使中途失败，下一次跑也能自愈。
+ *
+ * 三段断言：① 导入后收藏 = 已知三项；② 清除后**收藏为空**（0 项 + 空态文案）；③ 再导入后**恰好**恢复那三项。
+ * 第 ③ 段是这条用例的核心：它同时证明「清除真的清掉了」与「备份真的能把数据带回来」。
+ *
+ * 两个实测细节：① 页签必须**按几何取**（`tabAtBottom()`）——设置页那段数据披露正文里也有「收藏/设置」字样，
+ * 按文字取会点到正文上、人还留在设置页（2026-10-27 就被这个坑骗过一次，读数看起来像「清除没清干净」）；
+ * ② 「清除本机数据」是数据动作行里**第 2 颗**（按 x 排序：清空历史 / 清除本机数据 / 导出 / 导入），确认框按钮是「清除」。
+ */
+function flowClearRestore() {
+  const problems = [];
+  const FAVORITES = ['units', 'timers', 'dates'];
+  const EXPECTED = ['单位换算', '计时', '日期计算'];
+  const local = join(OUT, 'ZZ-roundtrip.json');
+  const remote = '/storage/media/100/local/files/Docs/Download/ZZ-roundtrip.json';
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(local, JSON.stringify({
+    app: 'pocket-toolbox', schema: 1, exportedAt: Date.now(),
+    data: { favorite_tools: JSON.stringify(FAVORITES) }
+  }), 'utf8');
+  const sent = t(['file', 'send', local, remote]);
+  if (!/FileTransfer finish/i.test(sent)) {
+    return [`clearrestore：推进设备失败：${sent.trim().slice(0, 60)}`];
+  }
+  // ① 先导入一次建立已知基线
+  const setup = importWalkThroughPicker('ZZ-roundtrip');
+  if (setup.length > 0) { return [`clearrestore（建立基线）：${setup[0]}`]; }
+  const confirmSetup = find('导入').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (confirmSetup !== undefined) { click(confirmSetup.bounds.cx, confirmSetup.bounds.cy); }
+  sleep(2500);
+  const baseline = favoritesState(EXPECTED);
+  if (baseline.names.length !== EXPECTED.length) {
+    return [`clearrestore：建立基线失败（期望收藏 ${EXPECTED.join('/')}，实际 ${baseline.names.join('/') || '空'}）`];
+  }
+  // ② 清除本机数据
+  const cleared = clearAllLocalData();
+  if (cleared.length > 0) { return cleared.map((item) => `clearrestore：${item}`); }
+  const afterClear = favoritesState(EXPECTED);
+  if (afterClear.names.length !== 0 || !afterClear.empty) {
+    problems.push(`clearrestore：清除后收藏应当为空并有空态文案，实际 ${afterClear.names.join('/') || '（无名字）'}` +
+      `、空态文案=${afterClear.empty}`);
+  }
+  // ③ 再导入还原
+  const restore = importWalkThroughPicker('ZZ-roundtrip');
+  if (restore.length > 0) { return problems.concat([`clearrestore（还原）：${restore[0]}`]); }
+  const confirmRestore = find('导入').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (confirmRestore !== undefined) { click(confirmRestore.bounds.cx, confirmRestore.bounds.cy); }
+  sleep(2500);
+  const afterRestore = favoritesState(EXPECTED);
+  if (afterRestore.names.length !== EXPECTED.length) {
+    problems.push(`clearrestore：还原后收藏应当**恰好**是 ${EXPECTED.join('/')}，实际 ${afterRestore.names.join('/') || '空'}`);
+  }
+  return problems;
+}
+
+/** 底部页签必须按几何取：正文里也有「收藏/设置」字样，按文字取会点到正文上（实测踩过）。 */
+function tabAtBottom(name) {
+  return find(name).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+}
+
+/** 切到某个底部页签并等页面稳定。 */
+function selectTab(name) {
+  const hit = tabAtBottom(name);
+  if (hit === undefined) { return false; }
+  click(hit.bounds.cx, hit.bounds.cy);
+  sleep(2000);
+  return true;
+}
+
+/** 切到收藏页读「有哪些工具名」与「是否显示空态文案」。 */
+function favoritesState(names) {
+  selectTab('收藏');
+  const present = names.filter((name) => find(name).length > 0);
+  return { names: present, empty: allTexts().some((text) => text.includes('还没有收藏')) };
+}
+
+/** 设置页 → 数据动作行第 2 颗（清除本机数据）→ 确认框「清除」。返回问题数组。 */
+function clearAllLocalData() {
+  if (!selectTab('设置')) { return ['找不到「设置」页签']; }
+  let row;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const anchor = find('应用申请')[0];
+    if (anchor !== undefined) {
+      row = controlsOf(dump(), 'Button')
+        .filter((item) => item.bounds.y1 >= anchor.bounds.y2 - 20 && item.bounds.y1 <= anchor.bounds.y2 + 260)
+        .sort((a, b) => (a.bounds.y1 - b.bounds.y1) || (a.bounds.x1 - b.bounds.x1));
+      if (row.length >= 4) { break; }
+    }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '500', '800']);
+    sleep(900);
+  }
+  if (row === undefined || row.length < 4) { return ['定位不到设置页的四个数据动作按钮']; }
+  click(row[1].bounds.cx, row[1].bounds.cy);
+  sleep(1600);
+  const erase = find('清除').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (erase === undefined) { return ['确认框里找不到「清除」按钮']; }
+  click(erase.bounds.cx, erase.bounds.cy);
+  sleep(3000);
+  return [];
+}
+
+/**
+ * **导出 → 清除 → 导入 完整往返**（2026-10-27 新增，**全程用应用自己导出的文件**）。
+ *
+ * 这条是本项目最完整的一次数据链路验证：先在应用里真的**导出一份备份到设备 Download 目录**，
+ * 再**清除本机数据**，然后用**刚才那份导出文件**导回来，最后要求收藏**恰好**恢复。
+ *
+ * 保存器的关键点（2026-10-27 实测，早前判「不可自动化」就是漏了它）：保存器顶部有**三颗纯图标**，
+ * **必须先进入一个目录**（例如点 `Download` 行）再点**最右那颗**（`x≈1746, y≈420`，2210 宽窗口）才会写出文件；
+ * 在根位置（标题「保存至 "我的手机"」）直接点最右那颗会**静默什么都不做**（既不报错也不写文件）。
+ * 另：最左那颗是**取消**（点了会 toast「已取消导出」）。
+ */
+function flowExportRoundTrip() {
+  const problems = [];
+  const EXPECTED = ['单位换算', '计时', '日期计算'];
+  const FAVORITES = ['units', 'timers', 'dates'];
+  const DIR = '/storage/media/100/local/files/Docs/Download/';
+  // `t()` 返回的是 stdout 字符串（不是 spawnSync 对象），这里直接当字符串用。
+  const backupNames = () => t(['shell', 'ls', DIR]).split('\n')
+    .map((line) => line.trim())
+    .filter((name) => name.startsWith('PocketToolbox-backup-') && name.endsWith('.json'));
+  // ① 先用一份已知备份建立基线（收藏 = 三项）
+  const seed = join(OUT, 'ZZ-export-src.json');
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(seed, JSON.stringify({
+    app: 'pocket-toolbox', schema: 1, exportedAt: Date.now(),
+    data: { favorite_tools: JSON.stringify(FAVORITES) }
+  }), 'utf8');
+  const sent = t(['file', 'send', seed, DIR + 'ZZ-export-src.json']);
+  if (!/FileTransfer finish/i.test(sent)) { return [`exportroundtrip：推进基线备份失败`]; }
+  const seedWalk = importWalkThroughPicker('ZZ-export-src');
+  if (seedWalk.length > 0) { return [`exportroundtrip（基线）：${seedWalk[0]}`]; }
+  const seedConfirm = find('导入').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (seedConfirm !== undefined) { click(seedConfirm.bounds.cx, seedConfirm.bounds.cy); }
+  sleep(2500);
+  if (favoritesState(EXPECTED).names.length !== EXPECTED.length) {
+    return ['exportroundtrip：基线建立失败（收藏不是那三项）'];
+  }
+  // ② 导出：设置 → 数据动作行第 3 颗（导出）→ 确认框右侧 → 保存器：进 Download → 点最右图标
+  const before = backupNames();
+  if (!selectTab('设置')) { return ['exportroundtrip：找不到「设置」页签']; }
+  let row;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const anchorNode = find('应用申请')[0];
+    if (anchorNode !== undefined) {
+      row = controlsOf(dump(), 'Button')
+        .filter((item) => item.bounds.y1 >= anchorNode.bounds.y2 - 20 && item.bounds.y1 <= anchorNode.bounds.y2 + 260)
+        .sort((a, b) => (a.bounds.y1 - b.bounds.y1) || (a.bounds.x1 - b.bounds.x1));
+      if (row.length >= 4) { break; }
+    }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '500', '800']);
+    sleep(900);
+  }
+  if (row === undefined || row.length < 4) { return ['exportroundtrip：定位不到四个数据动作按钮']; }
+  click(row[2].bounds.cx, row[2].bounds.cy);
+  sleep(1800);
+  const dialogButtons = controlsOf(dump(), 'Button')
+    .filter((item) => item.bounds.y1 > 1200 && item.bounds.y2 < 1600)
+    .sort((a, b) => a.bounds.x1 - b.bounds.x1);
+  if (dialogButtons.length < 2) { return ['exportroundtrip：导出确认框里只有不到两颗按钮']; }
+  click(dialogButtons[1].bounds.cx, dialogButtons[1].bounds.cy);
+  sleep(4000);
+  const folder = find('Download').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (folder === undefined) { return ['exportroundtrip：保存器里找不到 Download 行']; }
+  click(folder.bounds.cx, folder.bounds.cy);
+  sleep(2500);
+  click(1746, 420);   // 最右那颗 = 保存（必须先选目录，见函数头注释）
+  sleep(2500);
+  const fresh = backupNames().filter((name) => !before.includes(name));
+  if (fresh.length === 0) {
+    return [`exportroundtrip：导出后 Download 里没有出现新的备份文件（现有：${backupNames().join('/') || '无'}）`];
+  }
+  const exported = fresh[fresh.length - 1];
+  // ③ 把导出的文件拉回来核对信封（这是「真的写对了」的硬证据）
+  const pulled = join(OUT, 'ZZ-exported-pulled.json');
+  const recv = t(['file', 'recv', DIR + exported, pulled]);
+  if (!/FileTransfer finish/i.test(recv)) { problems.push(`exportroundtrip：拉取导出文件失败`); }
+  else {
+    try {
+      const env = JSON.parse(readFileSync(pulled, 'utf8'));
+      if (env.app !== 'pocket-toolbox') { problems.push(`exportroundtrip：导出信封的 app 不是 pocket-toolbox`); }
+      if (typeof env.schema !== 'number') { problems.push(`exportroundtrip：导出信封缺少数字 schema`); }
+      if (String(env.data?.favorite_tools ?? '').indexOf('units') < 0) {
+        problems.push(`exportroundtrip：导出内容里没有基线收藏`);
+      }
+      if (/password|idcheck/i.test(JSON.stringify(env.data ?? {}))) {
+        problems.push(`exportroundtrip：导出内容里出现了不该落盘的键`);
+      }
+    } catch (error) {
+      problems.push(`exportroundtrip：导出文件不是合法 JSON（${String(error).slice(0, 60)}）`);
+    }
+  }
+  // ④ 清除本机数据 → 收藏必须为空
+  const clearProblems = clearAllLocalData();
+  if (clearProblems.length > 0) { return problems.concat(clearProblems); }
+  const afterClear = favoritesState(EXPECTED);
+  if (afterClear.names.length !== 0 || !afterClear.empty) {
+    problems.push(`exportroundtrip：清除后收藏应当为空并有空态文案，实际 ${afterClear.names.join('/') || '（无）'}`);
+  }
+  // ⑤ 用**刚才导出的那个文件**导回来
+  const restore = importWalkThroughPicker(exported.replace('.json', ''));
+  if (restore.length > 0) { return problems.concat([`exportroundtrip（还原）：${restore[0]}`]); }
+  const restoreConfirm = find('导入').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (restoreConfirm !== undefined) { click(restoreConfirm.bounds.cx, restoreConfirm.bounds.cy); }
+  sleep(2500);
+  const afterRestore = favoritesState(EXPECTED);
+  if (afterRestore.names.length !== EXPECTED.length) {
+    problems.push(`exportroundtrip：导回后收藏应当恰好是 ${EXPECTED.join('/')}，实际 ${afterRestore.names.join('/') || '空'}`);
+  }
+  return problems;
+}
+
+const FLOW_CASES = [
+  { id: 'json', title: '文本工具 JSON 动作（格式化保留字面量 / 校验行列号与原因 / 不改写输入）', run: flowJson },
+  { id: 'url', title: 'URL 编解码切方式后查询参数表跟随刷新', run: flowUrlMode },
+  { id: 'units', title: '单位换算的类别与精度落盘往返', run: flowUnitsMemory },
+  { id: 'tools', title: '工具页搜索命中/空态与分类筛选落盘往返', run: flowSearchAndCategory },
+  { id: 'fav', title: '收藏：加星标 → 收藏页出现 → 长按取消收藏 → 消失', run: flowFavorite },
+  { id: 'import', title: '导入本机数据（造备份 → 系统选择器 → 确认 → 收藏恰好被覆盖）', run: flowImportBackup },
+  { id: 'importbad', title: '导入坏备份（3 种坏文件 → 如实报错且不改动本机数据）', run: flowImportBadBackup },
+  { id: 'clearrestore', title: '清除本机数据 → 导入还原（清空后为空态，再导入恰好恢复）', run: flowClearRestore },
+  { id: 'exportroundtrip', title: '导出 → 清除 → 导入 完整往返（用应用自己导出的文件）', run: flowExportRoundTrip },
+  { id: 'privacy', title: '设置页离线隐私政策全文可展开并显示正文', run: flowPrivacyOffline }
+];
+
+function flows(only) {
+  const cases = only ? FLOW_CASES.filter((item) => item.id === only) : FLOW_CASES;
+  if (cases.length === 0) { throw new Error(`flows：没有 id 为 ${only} 的用例`); }
+  const failures = [];
+  for (const item of cases) {
+    let problems = [];
+    try {
+      problems = item.run() ?? [];
+    } catch (error) {
+      problems = [`执行抛错：${error.message}`];
+    }
+    if (problems.length === 0) {
+      console.log(`✅ ${item.id} → ${item.title}`);
+    } else {
+      console.log(`❌ ${item.id} → ${item.title}`);
+      for (const problem of problems) { failures.push(`${item.id}：${problem}`); }
+    }
+    shot(`flow-${item.id}`);
+  }
+  console.log('');
+  if (failures.length > 0) {
+    console.error(`交互路径回归失败（${failures.length} 处）：\n  ` + failures.join('\n  '));
+    process.exit(1);
+  }
+  console.log(`交互路径回归通过：${cases.length}/${cases.length} 条。`);
+}
+
 const [cmd, ...args] = process.argv.slice(2);
 switch (cmd) {
   case 'launch': {
@@ -396,10 +1307,15 @@ switch (cmd) {
     smoke(onlyIndex >= 0 ? args[onlyIndex + 1] : '', args.includes('--shots'));
     break;
   }
+  case 'flows': {
+    const onlyIndex = args.indexOf('--only');
+    flows(onlyIndex >= 0 ? args[onlyIndex + 1] : '');
+    break;
+  }
   default: {
     console.log('用法见 tests/emulator/README.md；常用：launch | title | texts | find <文本> | click <文本> | ' +
       'tap <x> <y> | input <x> <y> <文本> | swipe <x1> <y1> <x2> <y2> | key <code> | shot <名字> | grid [density] | ' +
-      'smoke [--only <工具id>] [--shots]');
+      'smoke [--only <工具id>] [--shots] | flows [--only <用例id>]');
     process.exit(cmd ? 1 : 0);
   }
 }
