@@ -45,6 +45,8 @@ export struct UnitsPage {
   @Param english: boolean = false;
   @Param immersiveSupported: boolean = false;
   @Param materialLevel: uiMaterial.MaterialLevel = uiMaterial.MaterialLevel.SMOOTH;
+  // 智感握姿：结果卡内的「复制 / 用作输入」动作行靠向正在操作的手；取不到握姿时保持原样（贴左）。
+  @Param actionAlign: FlexAlign = FlexAlign.Start;
   @Param data: LocalData | undefined = undefined;
   @Event onCopy: (value: string) => void = () => {};
   // 复制换算结果时同时记入本机历史（`kind = 'units'`），由父组件持久化。
@@ -194,6 +196,46 @@ export struct UnitsPage {
     this.onRecord('units', this.unitInput.trim() + ' ' + this.unitName(this.fromUnit) + ' = ' + text +
       ' ' + this.unitName(this.toUnit));
     this.onCopy(text);
+  }
+
+  /**
+   * 结果能不能「用作输入」。
+   *
+   * 判据不是「结果非空」，而是**这份文本确实能被输入框解析**（`parseUnitInput()`）：
+   * 例如线性类别在极大/极小量级下会给出 `1.234e+30` 这样的指数写法，而输入解析只认十进制——
+   * 直接写回去会立刻变成「请输入数字」的报错。这种时候按钮就该置灰，而不是制造一次假失败。
+   */
+  private resultUsableAsInput(): boolean {
+    const text: string = this.result();
+    return text.length > 0 && parseUnitInput(text) !== undefined;
+  }
+
+  /**
+   * 把换算结果写回输入框（不改变单位选择），用于连续换算：`100 km → mi`，再把 mi 的数换成 ft。
+   *
+   * **不记历史、不复制**：这是「继续加工」，与「复制结果」是两种意图（文本工具的同一个按钮同口径）。
+   */
+  private useResultAsInput(): void {
+    if (!this.resultUsableAsInput()) { return; }
+    this.unitInput = this.result();
+  }
+
+  /** 结果卡里的动作按钮组：复制 + 用作输入（抽出来是为了能随握姿换边，见结果卡里的条件放置）。 */
+  @Builder private resultActions() {
+    Row({ space: 8 }) {
+      IconActionButton({
+        icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
+        a11yText: appText('action.copyResult', this.english),
+        usable: this.numericInput() !== undefined && this.result().length > 0,
+        onTap: () => this.copyResult()
+      })
+      IconActionButton({
+        icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.primaryDeep,
+        a11yText: appText('text.use-result-as-input', this.english),
+        usable: this.resultUsableAsInput(),
+        onTap: () => this.useResultAsInput()
+      })
+    }
   }
 
   private categoryName(): string {
@@ -388,6 +430,11 @@ export struct UnitsPage {
         lightEffect: true
       }) {
         Row({ space: 12 }) {
+          // 智感握姿：左手操作时把动作按钮组放到左侧（宽屏/关掉开关时 `actionAlign` 保持 Start 的默认版式，
+          // 与原版式一致）；文本块始终 `layoutWeight(1)`，因此换边不会挤掉结果。
+          if (this.actionAlign === FlexAlign.Start) {
+            this.resultActions()
+          }
           Column({ space: 2 }) {
             Text(appText('field.result', this.english)).fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
             Row({ space: 6 }) {
@@ -398,12 +445,9 @@ export struct UnitsPage {
               Text(this.resultNote()).fontSize(13).fontColor(ToolPalette.warningText).width('100%')
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primary,
-            a11yText: appText('action.copyResult', this.english),
-            usable: this.numericInput() !== undefined && this.result().length > 0,
-            onTap: () => this.copyResult()
-          })
+          if (this.actionAlign !== FlexAlign.Start) {
+            this.resultActions()
+          }
         }.width('100%').padding(16)
       }
       OptionSelect({

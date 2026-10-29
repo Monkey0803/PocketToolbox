@@ -8,11 +8,11 @@ import { OptionSelect } from './OptionSelect';
 import { WheelPickerButton } from './WheelPickerButton';
 import { ToolPalette } from '../model/ToolPalette';
 import { optionIndex } from '../model/NumberOptions';
-import { formatMoney } from '../model/QuickCalculators';
+import { formatMoney, formatPercent } from '../model/QuickCalculators';
 import { LoanMethod, LoanMethodEntry, LoanResult, LOAN_METHODS, DEFAULT_LOAN_METHOD,
   loanMethodIndex, loanMethodLabel, loanMonths, loanCents, loanRatePercent, calculateLoan,
   loanErrorText, loanSchedule, LoanScheduleRow, MAX_LOAN_MONTHS, loanTermText,
-  loanTermYearOptions, loanExtraMonthOptions } from '../model/LoanMath';
+  loanTermYearOptions, loanExtraMonthOptions, calculateCompound, loanDepositCents } from '../model/LoanMath';
 
 /** 计划表最多渲染多少期（30 年期是 360 期，全渲染会拖慢页面；汇总值不受影响）。 */
 const SCHEDULE_VIEW_MAX: number = 120;
@@ -46,6 +46,11 @@ export struct LoanPage {
   @Local monthPickOptions: string[] = loanExtraMonthOptions('0');
   @Local method: LoanMethod = DEFAULT_LOAN_METHOD;
   @Local result: LoanResult | undefined = undefined;
+  /**
+   * 每月定投（复利/储蓄方式的输入）。留空按 0 处理——「只存一笔、不定投」是最常见的用法，
+   * 强制填 0 只会多一步；但**填了非法值（如 `abc`）就拒绝计算**，不静默当 0。
+   */
+  @Local deposit: string = '';
   // 计划表是否展开（默认收起：360 期铺开太长）。
   @Local scheduleOpen: boolean = false;
   // 计算成功后保留的完整计划表（最多 `MAX_LOAN_MONTHS` 行），展示时再按上限截取。
@@ -105,6 +110,11 @@ export struct LoanPage {
       this.onStatus(loanErrorText('months', this.english));
       return;
     }
+    // 复利/储蓄走自己的计算入口（它没有还款计划，见 `computeCompound()`）。
+    if (this.method === 'compound') {
+      this.computeCompound(principalCents, rate, months);
+      return;
+    }
     const computed: LoanResult = calculateLoan(principalCents, rate, months, this.method);
     if (!computed.ok) {
       this.result = undefined;
@@ -118,10 +128,53 @@ export struct LoanPage {
     this.allScheduleRows = loanSchedule(principalCents, rate, months, this.method);
   }
 
+  /**
+   * 复利/储蓄的输入解析：留空按 0（不定投），填了非法值**拒绝计算**（不静默当 0）。
+   * 返回 `undefined` 表示输入非法。解析走纯逻辑 `loanDepositCents()`（允许 0，口径只有一处）。
+   */
+  private depositCents(): number | undefined {
+    if (this.deposit.trim().length === 0) { return 0; }
+    return loanDepositCents(this.deposit);
+  }
+
+  /**
+   * 复利/储蓄的计算路径（与还款计划分开）。
+   *
+   * 「复利」不是还款方式：`calculateLoan()` 与 `loanSchedule()` 都明确拒绝这个 id，
+   * 页面在这里改调 `calculateCompound()`，并**清掉上一次贷款算出的计划表**——
+   * 否则那张逐期摊还表会留在界面上，看起来像是储蓄的计划表。
+   */
+  private computeCompound(principalCents: number, rate: number, months: number): void {
+    const depositCents: number | undefined = this.depositCents();
+    if (depositCents === undefined) {
+      this.result = undefined;
+      this.onStatus(loanErrorText('deposit', this.english));
+      return;
+    }
+    const growth: LoanResult = calculateCompound(principalCents, rate, months, depositCents);
+    if (!growth.ok) {
+      this.result = undefined;
+      this.scheduleOpen = false;
+      this.allScheduleRows = [];
+      this.onStatus(loanErrorText(growth.error, this.english));
+      return;
+    }
+    this.result = growth;
+    this.allScheduleRows = [];
+    this.scheduleOpen = false;
+  }
+
   /** 结果摘要：复制与历史都只记这一行，避免把整张还款表塞进剪贴板。 */
   private summary(): string {
     const computed: LoanResult | undefined = this.result;
     if (computed === undefined) { return ''; }
+    if (computed.method === 'compound') {
+      return loanMethodLabel(computed.method, this.english) + ' · ' +
+        this.tr('累计投入', 'Invested') + ' ' + formatMoney(computed.totalPrincipalCents) + ' · ' +
+        this.tr('累计利息', 'Interest') + ' ' + formatMoney(computed.totalInterestCents) + ' · ' +
+        this.tr('到期本息合计', 'At maturity') + ' ' + formatMoney(computed.maturityCents) + ' · ' +
+        this.tr('等效年化', 'Effective annual rate') + ' ' + this.effectiveRateText();
+    }
     return loanMethodLabel(computed.method, this.english) + ' · ' +
       appText('loan.monthly', this.english) + ' ' + formatMoney(computed.monthlyPaymentCents) + ' · ' +
       appText('loan.total-interest', this.english) + ' ' + formatMoney(computed.totalInterestCents) + ' · ' +
@@ -182,6 +235,7 @@ export struct LoanPage {
   private fieldText(id: string): string {
     if (id === 'principal') { return this.principal; }
     if (id === 'rate') { return this.annualRate; }
+    if (id === 'deposit') { return this.deposit; }
     if (id === 'years') { return this.years; }
     return this.extraMonths;
   }
@@ -189,6 +243,7 @@ export struct LoanPage {
   private setFieldText(id: string, value: string): void {
     if (id === 'principal') { this.principal = value; }
     else if (id === 'rate') { this.annualRate = value; }
+    else if (id === 'deposit') { this.deposit = value; }
     else if (id === 'years') { this.years = value; }
     else { this.extraMonths = value; }
     // 期限两框互相约束：任一框变化后，另一框的滚轮列都要按新值重算（别让用户选到超上限的组合）。
@@ -210,7 +265,18 @@ export struct LoanPage {
     if (kind === 'decrease') { return formatMoney(computed.monthlyDecreaseCents); }
     if (kind === 'interest') { return formatMoney(computed.firstInterestCents); }
     if (kind === 'totalInterest') { return formatMoney(computed.totalInterestCents); }
+    // 复利/储蓄专有三行（其它方式下这些字段是 0，但不会渲染到）。
+    if (kind === 'invested') { return formatMoney(computed.totalPrincipalCents); }
+    if (kind === 'deposited') { return formatMoney(computed.depositedCents); }
+    if (kind === 'maturity') { return formatMoney(computed.maturityCents); }
     return formatMoney(computed.totalPaymentCents);
+  }
+
+  /** 等效年化（百分数）：百分号与位数交给 `formatPercent()`，页面不自己拼 `%`（一致性门禁第 11 项）。 */
+  private effectiveRateText(): string {
+    const computed: LoanResult | undefined = this.result;
+    if (computed === undefined) { return ''; }
+    return formatPercent(computed.effectiveAnnualRatePercent, false);
   }
 
   @Builder private moneyLine(zh: string, en: string, kind: string, emphasize: boolean) {
@@ -266,39 +332,61 @@ export struct LoanPage {
     Column({ space: 10 }) {
       Text(appText('field.estimate', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       if (this.result !== undefined) {
-        this.moneyLine(this.result.method === 'equalPrincipal' ? '首月月供' : '每月月供',
-          this.result.method === 'equalPrincipal' ? 'First month' : 'Monthly payment', 'monthly', true)
-        if (this.result.method === 'equalPrincipal') {
-          this.moneyLine('末月月供', 'Last month', 'last', false)
-          this.moneyLine('每月递减', 'Monthly decrease', 'decrease', false)
-        }
-        this.moneyLine('首月利息', 'First month interest', 'interest', false)
-        this.moneyLine('总利息', 'Total interest', 'totalInterest', true)
-        this.moneyLine('总还款', 'Total payment', 'totalPayment', true)
-        Text(this.tr('共 ' + this.result.months + ' 期', this.result.months + ' months'))
-          .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
-        Row({ space: 8 }) {
-          IconActionButton({
-            icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
-            a11yText: appText('action.copySummary', this.english), onTap: () => this.onCopy(this.summary())
-          })
-        }.width('100%').justifyContent(this.actionAlign)
-        // 还款计划表：默认收起（360 期一次铺开会很长），展开后最多显示前 SCHEDULE_VIEW_MAX 期。
-        Row({ space: 8 }) {
-          Text(appText('loan.repayment-schedule', this.english)).fontSize(15).layoutWeight(1)
-            .fontColor(ToolPalette.textSecondary)
-          IconActionButton({
-            // 指示箭头：未展开 ▶、展开 ▼（与科学计算器、个税、文本工具菜单入口同一套约定）
-            icon: this.scheduleOpen ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'),
-            tintColor: ToolPalette.primaryDeep,
-            a11yText: this.scheduleOpen ? appText('loan.hide-the-schedule', this.english)
-              : appText('loan.show-the-schedule', this.english),
-            boxSize: 44, iconSize: 22,
-            onTap: () => { this.scheduleOpen = !this.scheduleOpen; }
-          })
-        }.width('100%')
-        if (this.scheduleOpen) {
-          this.scheduleTable()
+        if (this.result.method === 'compound') {
+          // 复利/储蓄的结果口径与贷款**不同**（没有月供、没有计划表），因此整块分开渲染。
+          this.moneyLine('累计投入', 'Total invested', 'invested', false)
+          this.moneyLine('其中的定投', 'Of which deposits', 'deposited', false)
+          this.moneyLine('首月利息', 'First month interest', 'interest', false)
+          this.moneyLine('累计利息', 'Total interest', 'totalInterest', true)
+          this.moneyLine('到期本息合计', 'Value at maturity', 'maturity', true)
+          Row({ space: 12 }) {
+            Text(this.tr('等效年化', 'Effective annual rate')).fontSize(13)
+              .fontColor(ToolPalette.textMuted).layoutWeight(1)
+            Text(this.effectiveRateText()).fontSize(17).fontColor(ToolPalette.textPrimary)
+          }.width('100%')
+          Text(this.tr('共 ' + this.result.months + ' 期', this.result.months + ' months'))
+            .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+          Row({ space: 8 }) {
+            IconActionButton({
+              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
+              a11yText: appText('action.copySummary', this.english), onTap: () => this.onCopy(this.summary())
+            })
+          }.width('100%').justifyContent(this.actionAlign)
+        } else {
+          this.moneyLine(this.result.method === 'equalPrincipal' ? '首月月供' : '每月月供',
+            this.result.method === 'equalPrincipal' ? 'First month' : 'Monthly payment', 'monthly', true)
+          if (this.result.method === 'equalPrincipal') {
+            this.moneyLine('末月月供', 'Last month', 'last', false)
+            this.moneyLine('每月递减', 'Monthly decrease', 'decrease', false)
+          }
+          this.moneyLine('首月利息', 'First month interest', 'interest', false)
+          this.moneyLine('总利息', 'Total interest', 'totalInterest', true)
+          this.moneyLine('总还款', 'Total payment', 'totalPayment', true)
+          Text(this.tr('共 ' + this.result.months + ' 期', this.result.months + ' months'))
+            .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
+          Row({ space: 8 }) {
+            IconActionButton({
+              icon: $r('sys.symbol.text_clipboard'), tintColor: ToolPalette.primaryDeep,
+              a11yText: appText('action.copySummary', this.english), onTap: () => this.onCopy(this.summary())
+            })
+          }.width('100%').justifyContent(this.actionAlign)
+          // 还款计划表：默认收起（360 期一次铺开会很长），展开后最多显示前 SCHEDULE_VIEW_MAX 期。
+          Row({ space: 8 }) {
+            Text(appText('loan.repayment-schedule', this.english)).fontSize(15).layoutWeight(1)
+              .fontColor(ToolPalette.textSecondary)
+            IconActionButton({
+              // 指示箭头：未展开 ▶、展开 ▼（与科学计算器、个税、文本工具菜单入口同一套约定）
+              icon: this.scheduleOpen ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'),
+              tintColor: ToolPalette.primaryDeep,
+              a11yText: this.scheduleOpen ? appText('loan.hide-the-schedule', this.english)
+                : appText('loan.show-the-schedule', this.english),
+              boxSize: 44, iconSize: 22,
+              onTap: () => { this.scheduleOpen = !this.scheduleOpen; }
+            })
+          }.width('100%')
+          if (this.scheduleOpen) {
+            this.scheduleTable()
+          }
         }
       } else {
         Text(appText('loan.fill-in-the-amount', this.english))
@@ -309,10 +397,18 @@ export struct LoanPage {
 
   build() {
     Column({ space: 14 }) {
-      Text(appText('loan.equal-installment-keeps-the', this.english))
+      // 顶部口径说明按方式切换：贷款讲摊还，储蓄讲复利与「不是投资建议」。
+      Text(this.method === 'compound'
+        ? this.tr('按月复利、可选每月定投（月末投入）；结果只是数学估算，不构成投资建议。',
+          'Monthly compounding with an optional end-of-month deposit; a mathematical estimate, not investment advice.')
+        : appText('loan.equal-installment-keeps-the', this.english))
         .fontSize(13).fontColor(ToolPalette.textMuted).width('100%')
       this.inputField('principal', '贷款金额（元）', 'Loan amount', '如 1000000', 'e.g. 1000000', false)
       this.inputField('rate', '年利率（%）', 'Annual rate (%)', '如 4.9', 'e.g. 4.9', false)
+      if (this.method === 'compound') {
+        // 定投只在复利/储蓄下有意义（贷款没有「每月往里存」的意思）。
+        this.inputField('deposit', '每月定投（元，可留空）', 'Monthly deposit (optional)', '如 1000', 'e.g. 1000', false)
+      }
       this.inputField('years', '期限（年）', 'Term (years)', '如 30', 'e.g. 30', true)
       // 两框是**相加**关系，文案必须写清（此前写「不足一年时填这里」，会让人以为填了月就不看年）。
       this.inputField('extraMonths', '期限（月，与年数相加）', 'Term (months, added to years)',
@@ -343,6 +439,7 @@ export struct LoanPage {
           a11yText: appText('action.clearInputs', this.english),
           onTap: () => {
             this.principal = ''; this.annualRate = ''; this.years = ''; this.extraMonths = '';
+            this.deposit = '';
             this.result = undefined;
           }
         })

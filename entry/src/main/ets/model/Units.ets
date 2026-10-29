@@ -158,6 +158,30 @@ export const CATEGORIES: UnitCategory[] = [
     new UnitDef('hz', '赫兹', 'Hertz', 1), new UnitDef('khz', '千赫', 'Kilohertz', 1000),
     new UnitDef('mhz', '兆赫', 'Megahertz', 1000000), new UnitDef('ghz', '吉赫', 'Gigahertz', 1000000000)
   ]),
+  // 照度（2026-10-29 新增）：基准 **勒克斯（lx）**。英制用英尺烛光（1 fc = 1 lm/ft² = 10.763910416709722 lx，
+  // 取 1 ft = 0.3048 m 的精确定义值推导）；phot 是厘米-克-秒制的定义值（1 ph = 10^4 lx）。
+  new UnitCategory('illuminance', '照度', 'Illuminance', [
+    new UnitDef('lx', '勒克斯', 'Lux', 1), new UnitDef('klx', '千勒克斯', 'Kilolux', 1000),
+    new UnitDef('fc', '英尺烛光', 'Foot-candle', 10.763910416709722),
+    new UnitDef('ph', '辐透', 'Phot', 10000)
+  ]),
+  // 剂量当量（2026-10-29 新增）：基准 **希沃特（Sv）**。rem（人体伦琴当量）是定义值 0.01 Sv。
+  // **刻意只收剂量当量这一族**：贝克勒尔（放射性活度）、戈瑞（吸收剂量）是不同量纲，
+  // 混进同一个类别会做出「Bq → Sv」这种物理上没有意义的换算。
+  new UnitCategory('dose', '剂量当量', 'Dose equivalent', [
+    new UnitDef('sv', '希沃特', 'Sievert', 1), new UnitDef('msv', '毫希沃特', 'Millisievert', 0.001),
+    new UnitDef('usv', '微希沃特', 'Microsievert', 0.000001),
+    new UnitDef('rem', '人体伦琴当量', 'Rem', 0.01),
+    new UnitDef('mrem', '毫人体伦琴当量', 'Millirem', 0.00001)
+  ]),
+  // 加速度（2026-10-29 新增）：基准 **米每二次方秒（m/s²）**。标准重力加速度 9.80665 m/s² 是定义值；
+  // gal（伽，1 cm/s² = 0.01 m/s²）常见于重力测量与地震学，与其他类别同一套「名称写明限定」的写法。
+  new UnitCategory('acceleration', '加速度', 'Acceleration', [
+    new UnitDef('mps2', '米每二次方秒', 'Metre per second squared', 1),
+    new UnitDef('g', '标准重力', 'Standard gravity (g)', 9.80665),
+    new UnitDef('gal', '伽', 'Gal', 0.01),
+    new UnitDef('ftps2', '英尺每二次方秒', 'Foot per second squared', 0.3048)
+  ]),
   // 燃油消耗是非线性的（L/100km 与 km/L 互为倒数），因此 `factor` 不参与运算，走 special 分支；
   // 基准量取 L/100km：mpg（美制）= 235.2145833 / (L/100km)。
   new UnitCategory('fuel', '油耗', 'Fuel economy', [

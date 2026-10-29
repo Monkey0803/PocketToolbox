@@ -377,6 +377,29 @@ export struct TimestampPage {
   }
 
   /**
+   * 结果能不能「用作输入」。
+   *
+   * 三条同时成立才算：**单行模式**（批量时不知道该回填哪一行）、解析成功、
+   * 并且「本地时间」这份文本**自己也能被解析回来**（`parseStampInput()`）——
+   * 只判「非空」会把不可解析的文本写回输入框，制造一次假失败。
+   */
+  private canUseResultAsInput(): boolean {
+    if (this.isBatch || !this.result.ok) { return false; }
+    const text: string = this.result.localText;
+    return text.length > 0 && parseStampInput(text, 'auto').ok;
+  }
+
+  /**
+   * 把「本地时间」结果写回输入框（不改变解释方式），用于连续换算：
+   * 例如先看某个时间戳对应的时刻，再把那个时刻换到另一个时区。
+   * **不复制、不记历史**——那是「复制」这条路径的职责（与文本/换算页同一个按钮同口径）。
+   */
+  private useResultAsInput(): void {
+    if (!this.canUseResultAsInput()) { return; }
+    this.input = this.result.localText;
+  }
+
+  /**
    * 一行结果：标题 + 值 + 复制按钮。只收常量 `kind`，文本与标题都在函数体内现取——
    * `@Builder` 按值传参不随状态刷新，所以中英标题必须走 `this.tr(this.lineLabelZh(kind), ...)`。
    */
@@ -537,6 +560,14 @@ export struct TimestampPage {
         IconActionButton({
           icon: $r('sys.symbol.clock'), tintColor: ToolPalette.success,
           a11yText: appText('stamp.use-the-current-timestamp', this.english), onTap: () => this.useNow()
+        })
+        // 「用作输入」放在**动作行**里（而不是逐值结果行尾部）：逐值复制按钮锚在各自的值行上、属于值行排版，
+        // 而这一枚是页面级动作，应该跟着正在操作的手（与文本工具同一个按钮同口径）。
+        IconActionButton({
+          icon: $r('sys.symbol.arrow_2_circlepath'), tintColor: ToolPalette.primaryDeep,
+          a11yText: appText('text.use-result-as-input', this.english),
+          usable: this.canUseResultAsInput(),
+          onTap: () => this.useResultAsInput()
         })
       }.width('100%').justifyContent(this.actionAlign)
       MaterialSurface({

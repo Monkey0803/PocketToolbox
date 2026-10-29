@@ -14,7 +14,7 @@ import { parseIntegerInput } from './Units';
  *   `monthlyPaymentCents` 是**首月**月供，`lastPaymentCents` 是末月月供，`monthlyDecreaseCents` 是每月递减额。
  */
 
-export type LoanMethod = 'equalInstallment' | 'equalPrincipal';
+export type LoanMethod = 'equalInstallment' | 'equalPrincipal' | 'compound';
 
 /** 贷款方式登记表：界面选项行直接用它。 */
 export class LoanMethodEntry {
@@ -31,7 +31,12 @@ export class LoanMethodEntry {
 
 export const LOAN_METHODS: LoanMethodEntry[] = [
   new LoanMethodEntry('equalInstallment', '等额本息', 'Equal installment'),
-  new LoanMethodEntry('equalPrincipal', '等额本金', 'Equal principal')
+  new LoanMethodEntry('equalPrincipal', '等额本金', 'Equal principal'),
+  // 复利 / 储蓄（2026-10-29）：它不是「还款方式」，而是同一张卡里的第二类计算——
+  // 放进来是因为「本金 + 年利率 + 期限」这三个输入完全一样，再开一张卡片只会多一份重复表单。
+  // 页面按 id 分支渲染（`loanSchedule()` 与 `calculateLoan()` 都**明确拒绝**这个 id，
+  // 不允许它静默套用等额本息的摊还逻辑）。
+  new LoanMethodEntry('compound', '复利/储蓄', 'Compound growth')
 ];
 
 export const DEFAULT_LOAN_METHOD: LoanMethod = 'equalInstallment';
@@ -90,9 +95,20 @@ export function loanExtraMonthOptions(years: string): string[] {
 const MAX_PRINCIPAL_CENTS: number = 100000000000;
 const MAX_RATE_PERCENT: number = 100;
 
+/**
+ * 复利/储蓄的结果上限（分，= 10 万亿元）。
+ *
+ * 为什么必须有：贷款本金逐月减少，不会发散；而复利是**指数增长**——
+ * 600 期 × 100% 年利率下 `(1+0.0833)^600` 约 1e21，早已越过 `Number.MAX_SAFE_INTEGER`，
+ * 再算下去只会得到一串精度已经丢失的数字（而且界面照常显示，看不出错）。
+ * 因此越过这个上限就**如实报错**（`overflow`），不做「差不多能看」的假结果。
+ */
+const MAX_COMPOUND_CENTS: number = 1000000000000000;
+
 export class LoanResult {
   ok: boolean = false;
-  // 失败原因码：'principal' | 'rate' | 'months'；界面用 loanErrorText 转成双语提示。
+  // 失败原因码：'principal' | 'rate' | 'months' | 'deposit' | 'overflow' | 'method'；
+  // 界面用 loanErrorText 转成双语提示。
   error: string = '';
   method: LoanMethod = DEFAULT_LOAN_METHOD;
   months: number = 0;
@@ -108,6 +124,15 @@ export class LoanResult {
   totalPrincipalCents: number = 0;
   totalInterestCents: number = 0;
   totalPaymentCents: number = 0;
+  // 复利/储蓄专有（其它方式保持 0）：
+  /** 每月定投金额。 */
+  depositCents: number = 0;
+  /** 累计投入的定投总额（不含期初本金）。 */
+  depositedCents: number = 0;
+  /** 到期本息合计。 */
+  maturityCents: number = 0;
+  /** 等效年化收益率（百分数，按月复利折算：`(1+i)^12 - 1`）。 */
+  effectiveAnnualRatePercent: number = 0;
 }
 
 /**
@@ -169,6 +194,21 @@ export function loanRatePercent(raw: string): number | undefined {
   return Number.isFinite(rate) && rate >= 0 && rate <= MAX_RATE_PERCENT ? rate : undefined;
 }
 
+/**
+ * 每月定投金额（元 → 分）：与 `loanCents()` 同款校验，唯一区别是**允许 0**（＝不定投）。
+ *
+ * 为什么单独一个函数：`loanCents()` 把 `<= 0` 一律当非法（本金必须大于 0），
+ * 直接复用它会把「定投 0」误判成输入错误；而页面若自己再写一遍正则，
+ * 就会有两份「什么算合法金额」的口径（AGENTS：数字解析只放纯逻辑）。
+ */
+export function loanDepositCents(raw: string): number | undefined {
+  const value: string = raw.trim();
+  if (value.length === 0 || !/^\d+(\.\d{1,2})?$/.test(value)) { return undefined; }
+  const cents: number = Math.round(Number(value) * 100);
+  if (!Number.isSafeInteger(cents) || cents < 0 || cents > MAX_PRINCIPAL_CENTS) { return undefined; }
+  return cents;
+}
+
 /** 等额本息的闭式月供（分，未四舍五入）；利率为 0 时退化为等额本金。 */
 export function equalInstallmentPayment(principalCents: number, monthlyRate: number,
   months: number): number {
@@ -227,6 +267,9 @@ export function loanSchedule(principalCents: number, annualRatePercent: number, 
   // 此前 `method` 走到末尾的等额本息分支，于是 id 改名/新增方式漏分支时会**静默按等额本息算**，
   // 结果卡与计划表都看不出异常——与「条码未知码制不得兜底」同一口径。
   if (loanMethodIndex(method) < 0) { return []; }
+  // 复利/储蓄没有还款计划（它是储蓄增长，不是摊还）：这里必须**显式拒绝**，
+  // 否则它会掉进下面的等额本息分支、给出一张看起来正常的还款表（同一类静默兜底）。
+  if (method === 'compound') { return []; }
   const monthlyRate: number = annualRatePercent / 100 / 12;
   const rows: LoanScheduleRow[] = [];
   let remaining: number = principalCents;
@@ -269,6 +312,11 @@ export function calculateLoan(principalCents: number, annualRatePercent: number,
   // 未知还款方式同样必须报错——否则会静默按等额本息算出一份「看起来正常」的结果（第 48 轮自查修复）。
   if (loanMethodIndex(method) < 0) {
     result.error = 'method';
+    return result;
+  }
+  // 复利/储蓄不是还款方式：它有自己的入口 `calculateCompound()`，这里必须明确拒绝。
+  if (method === 'compound') {
+    result.error = 'compound';
     return result;
   }
 
@@ -315,5 +363,75 @@ export function loanErrorText(error: string, english: boolean): string {
     // 未知还款方式（登记表里没有的 id）：此前没有这一支，会**误报成期限错误**（第 48 轮自查修复）
     return english ? 'Pick a repayment method from the list' : '请选择还款方式（等额本息或等额本金）';
   }
+  if (error === 'compound') {
+    return english ? 'Compound growth is calculated by its own entry, not as a repayment plan'
+      : '复利/储蓄请用对应的方式计算，它不是还款计划';
+  }
+  if (error === 'deposit') {
+    return english ? 'Enter a monthly deposit of 0 or more' : '请输入不小于 0 的每月定投金额';
+  }
+  if (error === 'overflow') {
+    // 利率与期限的组合会让结果越过可精确表示的范围：如实拒绝，不显示已经丢精度的数字。
+    return english ? 'This rate and term grow beyond the calculable range; shorten the term or lower the rate'
+      : '该利率与期限的组合超出可计算范围，请缩短期限或降低利率';
+  }
   return english ? 'Enter a term of 1–600 months (up to 50 years)' : '请输入 1–600 期的期限（最多 50 年）';
+}
+
+/**
+ * 复利 / 储蓄：按月复利、可每月定投（**月末**投入，即普通年金）。
+ *
+ * 口径（与贷款摊还同一套纪律，便于单测逐值断言）：
+ * - 逐月计算、**每月利息四舍五入到分**（与 `loanSchedule()` 一致），因此结果与「一次性套公式」
+ *   会有分位差异——这里选逐月，是为了显示口径可核对、且不会出现半分的月利息；
+ * - 定投在本月利息**之后**投入（月末定投），所以第一个月的定投不产生当月利息；
+ * - `totalPrincipalCents` = 期初本金 + 累计定投（**投入总额**），`totalInterestCents` = 累计利息，
+ *   `totalPaymentCents` = `maturityCents` = 到期本息合计；
+ * - `effectiveAnnualRatePercent` 是**等效年化**（`(1+月利率)^12 - 1`），用于和「年化收益率」的常见说法对齐。
+ *
+ * 本函数只做**数学**：不判断这算不算划算、不预测市场，页面也照此表述（同「本机估算」口径）。
+ */
+export function calculateCompound(principalCents: number, annualRatePercent: number, months: number,
+  depositCents: number): LoanResult {
+  const result: LoanResult = new LoanResult();
+  result.method = 'compound';
+  const invalid: string = loanParamsValid(principalCents, annualRatePercent, months);
+  if (invalid.length > 0) {
+    result.error = invalid;
+    return result;
+  }
+  if (!Number.isSafeInteger(depositCents) || depositCents < 0 || depositCents > MAX_PRINCIPAL_CENTS) {
+    result.error = 'deposit';
+    return result;
+  }
+  const monthlyRate: number = annualRatePercent / 100 / 12;
+  result.months = months;
+  result.monthlyRate = monthlyRate;
+
+  let value: number = principalCents;
+  let interestTotal: number = 0;
+  let firstInterest: number = 0;
+  for (let index: number = 0; index < months; index++) {
+    const interest: number = Math.round(value * monthlyRate);
+    if (index === 0) { firstInterest = interest; }
+    interestTotal += interest;
+    value = value + interest + depositCents;
+    if (!Number.isSafeInteger(value) || value > MAX_COMPOUND_CENTS) {
+      result.error = 'overflow';
+      return result;
+    }
+  }
+  const deposited: number = depositCents * months;
+  result.ok = true;
+  result.error = '';
+  result.depositCents = depositCents;
+  result.depositedCents = deposited;
+  result.monthlyPaymentCents = depositCents;
+  result.firstInterestCents = firstInterest;
+  result.totalPrincipalCents = principalCents + deposited;
+  result.totalInterestCents = interestTotal;
+  result.maturityCents = value;
+  result.totalPaymentCents = value;
+  result.effectiveAnnualRatePercent = (Math.pow(1 + monthlyRate, 12) - 1) * 100;
+  return result;
 }

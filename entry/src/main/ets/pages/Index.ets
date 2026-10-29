@@ -2257,6 +2257,7 @@ struct Index {
             else if (name === 'units') {
               UnitsPage({ english: this.english, immersiveSupported: this.immersiveSupported,
                 materialLevel: this.materialLevel, data: this.data,
+                actionAlign: this.actionAlignment(FlexAlign.Start),
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; },
                 onRecord: (kind: string, content: string): void => { this.addHistoryItem(kind, content); } })
