@@ -10,7 +10,7 @@
 - **代码侧：全部完成**（P0 文档纠偏、P1.2 外部占位收口、P2 零权限能力、P3 工程质量与无障碍、P4.1/P4.2 工具深挖、P5.1 意图闸门、P6 门禁与文档联动，以及 2026-10-29 的 P4.3 口令短语、P4.4 繁简转换、贷款复利、三类新单位、结果用作输入、命名风格与第三方许可登记）。
 - **门禁：全绿**——`node tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL` + 一致性 **37 项** + 单测全绿 + 逐函数覆盖 + HMSymbol 校验。
 - **P5.2 意图框架：声明已铺设（31 条），只差真机判「系统入口能不能拉起」**——`Index.ets` 里的声明段由 `tools/gen-intent-declarations.mjs` 从 `TOOL_META` 生成（一致性第 37 项逐字节比对），编译产物 `insight_intent.json` 实测 **31 条齐全**、`module.json` 里 `hasInsightIntent: true`；**回滚与判定规则见清单 R16 与 [`INTENT_FRAMEWORK.md`](INTENT_FRAMEWORK.md) §4/§8.1**。
-- **模拟器**：**本轮没有可用设备**（`hdc list targets` 为空），因此 `emu.mjs smoke` 的 `smoke` **31/31** 与 `flows` **10/10** 是**上一轮的回执**；本轮新增的界面（口令短语 / 繁简 / 命名风格 / 复利 / 三类单位 / 用作输入 / 第三方许可）**尚未在模拟器或真机上跑过**，已写成 R14/R15。
+- **模拟器（2026-10-29 本轮重新拉起 Mate X7 实例，全绿）**：`emu.mjs smoke` **31/31**、`check-align --views` **35 屏**、`emu.mjs flows` **13/13**（含**新加的三条**：口令短语 / 繁简 / 命名风格）；另外在 **1.75× 大字体探针**下复跑 `smoke` **31/31**、`check-align` **35 屏**、三条新用例 **3/3**（探针已还原，卡片高度回到基准 400 px）。**仍未在设备上跑过的**：复利/储蓄面板、照度/剂量当量/加速度下拉、结果「用作输入」、第三方许可展开与屏幕朗读——已在 **R14/R15** 里逐条列出。
 - **包体（2026-10-29 实测，同一份源码）**：debug HAP **9,814,179 字节（9.36 MiB，含原样存储的 `ets/sourceMaps.map` 2.25 MiB）**；release HAP **5,615,498 字节（5.36 MiB，无 source map）**。**发布时必须用 `node tools/build-hap.mjs --release`**（「外置 source map」的三条配置路子都做过 clean 重建实测：config 属性只会在别处**另存一份**、包里那份仍在，命令行 `-p` 完全不生效，**只有 release 模式真的去掉它**；细节见 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)）。
 - **屏幕朗读走查清单**：[`A11Y_WALKTHROUGH.md`](A11Y_WALKTHROUGH.md)（由源码生成、门禁盯着，35 个文件 / 255 个交互节点），真机照它念一遍即可。
 
@@ -18,8 +18,7 @@
 
 | # | 需要你做的 | 具体到「一句话」或「一个地址」 | 拿到之后我做什么 |
 |---|---|---|---|
-| **1** | **真机跑 R1–R16** | 拿一台鸿蒙 NEXT 真机，照 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的 R 段走一遍（**R12/R13/R15 只要几分钟**，最贵的 R7 需要 AGC 权益） | 按编号定位修复：属缺陷当场修 + 补门禁；属能力边界改文案并如实写进文档 |
-| **2** | **三个地址**（可选但建议） | ① 隐私政策静态页的托管地址（`docs/site/privacy-policy.html` 已生成好，44 KB 自包含，直接丢静态空间即可）② `UPDATE_MANIFEST_URL` ③ `SOLAR_PACK_URL`（格式与托管步骤见 [`DATA_PACKS.md`](DATA_PACKS.md)） | 填进 `model/AboutInfo.ets` / `model/NetPolicy.ets` → 跑一致性（第 21 项会校验 HTTPS）→ 真机复看「检查更新 / 节气更新」链路。**注意**：隐私政策**已不依赖**这个地址（正文随包离线可读，见 [`PRIVACY.md`](PRIVACY.md) 结尾），填了只是「方便分享的在线版本」 |
+| **1** | **真机跑 R1–R16** | 拿一台鸿蒙 NEXT 真机，照 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的 R 段走一遍（**R12/R13/R15 只要几分钟**，最贵的 R7 需要 AGC 权益） | 按编号定位修复：属缺陷当场修 + 补门禁；属能力边界改文案并如实写进文档 || **2** | **三个地址**（可选但建议） | ① 隐私政策静态页的托管地址（`docs/site/privacy-policy.html` 已生成好，44 KB 自包含，直接丢静态空间即可）② `UPDATE_MANIFEST_URL` ③ `SOLAR_PACK_URL`（格式与托管步骤见 [`DATA_PACKS.md`](DATA_PACKS.md)） | 填进 `model/AboutInfo.ets` / `model/NetPolicy.ets` → 跑一致性（第 21 项会校验 HTTPS）→ 真机复看「检查更新 / 节气更新」链路。**注意**：隐私政策**已不依赖**这个地址（正文随包离线可读，见 [`PRIVACY.md`](PRIVACY.md) 结尾），填了只是「方便分享的在线版本」 |
 | **3** | **AGC 实况窗权益**（若要走 R7） | 在 AGC 给本应用开通实况窗权益 | R7 的胶囊/锁屏才能闭环；未开通时应用已如实提示（`1003500005` 权益未开通），**不是缺陷** |
 | **4** | **年度汇算扣除口径复核** | 按当期政策确认七项专项附加扣除上限与说明文字 | 复核后改 `ANNUAL_TAX_RULES_REVIEWED` 并重跑单测（政策敏感项，发布前必须做） |
 
