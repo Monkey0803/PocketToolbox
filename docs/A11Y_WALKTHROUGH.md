@@ -437,6 +437,6 @@
 
 | 行 | 类型 | 节点 | 无障碍名（源码原文） |
 | --- | --- | --- | --- |
-| 2039 | 下拉选择 | `OptionSelect` | `appText('tools.categoryA11y'` |
-| 2059 | 下拉选择 | `OptionSelect` | `appText('grid.perRowA11y'` |
-| 2127 | 图标按钮 | `IconActionButton` | `this.favoritesSorting ? appText('sort.finishA11y'` |
+| 2203 | 下拉选择 | `OptionSelect` | `appText('tools.categoryA11y'` |
+| 2223 | 下拉选择 | `OptionSelect` | `appText('grid.perRowA11y'` |
+| 2291 | 图标按钮 | `IconActionButton` | `this.favoritesSorting ? appText('sort.finishA11y'` |

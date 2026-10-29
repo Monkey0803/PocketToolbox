@@ -16,6 +16,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { privacyPageProblems, renderPrivacyHtml, renderPrivacyTextModule } from '../tools/privacy-page.mjs';
 import { renderA11yChecklist, A11Y_CHECKLIST_PATH } from '../tools/build-a11y-checklist.mjs';
+import { INTENT_BLOCK_END, INTENT_NAME_PREFIX, currentIntentDeclarations, renderIntentDeclarations,
+  toolEntries } from '../tools/gen-intent-declarations.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -1383,6 +1385,56 @@ check('无障碍：屏幕朗读走查清单与源码一致（重新生成逐字�
   if (rows === 0) { throw new Error('走查清单里一个节点都没有（扫描器坏了？）'); }
   const files = (expected.match(/^## /gm) ?? []).length;
   return `${files} 个文件、${rows} 个交互节点已列入走查清单`;
+});
+
+// --- 37. P5.2 意图声明：与 TOOL_META 同源、每条都有路由、不接收参数 -----------------
+// 背景：31 条 `@InsightIntentPage` 是**生成出来的**（`tools/gen-intent-declarations.mjs`），
+// 手写会漏、会漂，而且声明多了/少了都只会在真机上表现为「某个工具搜不到」。
+// 判据：① 声明段必须等于重新渲染的结果（逐字节）；② 声明顺序与 `intentName` 必须由 TOOL_META 派生；
+// ③ 每条 `navDestinationName` 都要有对应路由分支（否则点进去是空白/停在首页）；
+// ④ 顶部 import 必须在（少了直接编译失败）；⑤ 声明里不得出现参数映射/链接/联网相关字段。
+check('意图框架：声明段与 TOOL_META 同源、每条都有路由分支、且不接收参数', () => {
+  const index = read('entry/src/main/ets/pages/Index.ets').replace(/\r\n/g, '\n');
+  const expected = renderIntentDeclarations();
+  const current = currentIntentDeclarations().replace(/\r\n/g, '\n');
+  if (current !== expected) {
+    throw new Error('Index.ets 里的意图声明段与 TOOL_META 不一致：' +
+      '请运行 node tools/gen-intent-declarations.mjs 重新生成');
+  }
+  const entries = toolEntries();
+  const declaredNames = [...current.matchAll(/intentName: '([^']+)'/g)].map((item) => item[1]);
+  if (declaredNames.length !== entries.length) {
+    throw new Error(`声明条数 ${declaredNames.length} 与工具数 ${entries.length} 不一致`);
+  }
+  if (new Set(declaredNames).size !== declaredNames.length) {
+    throw new Error('intentName 有重复（编译器会直接报 10110012 Duplicate intentName）');
+  }
+  for (let index2 = 0; index2 < entries.length; index2++) {
+    if (declaredNames[index2] !== INTENT_NAME_PREFIX + entries[index2].id) {
+      throw new Error(`第 ${index2 + 1} 条意图名与 TOOL_META 顺序不符：` +
+        `${declaredNames[index2]} ≠ ${INTENT_NAME_PREFIX + entries[index2].id}`);
+    }
+  }
+  const destinations = [...current.matchAll(/navDestinationName: '([^']+)'/g)].map((item) => item[1]);
+  const missingRoutes = destinations.filter((id) => !index.includes(`name === '${id}'`));
+  if (missingRoutes.length > 0) {
+    throw new Error(`这些意图没有对应路由分支（真机上会停在首页）：${missingRoutes.join('、')}`);
+  }
+  if (!index.includes("import { InsightIntentPage } from '@kit.AbilityKit';")) {
+    throw new Error('Index.ets 缺少顶部 import { InsightIntentPage } from \'@kit.AbilityKit\'（缺了编译失败）');
+  }
+  // 声明段必须紧贴 struct：装饰器只对紧随其后的 struct 生效。
+  const after = index.slice(index.indexOf(INTENT_BLOCK_END) + INTENT_BLOCK_END.length).trimStart();
+  if (!after.startsWith('@Entry')) {
+    throw new Error('意图声明段必须紧贴 @Entry 的 struct（装饰器只作用于紧随其后的 struct）');
+  }
+  // 硬口径：意图只负责「跳到一个工具页」，不接收参数、不带链接、不引入任何联网动作。
+  for (const banned of ['paramMappings', 'paramCategory', 'uri:', 'schema:', 'getSid']) {
+    if (current.includes(banned)) {
+      throw new Error(`声明段里出现了不该有的字段「${banned}」：意图只负责跳页，不接收参数、不引入联网`);
+    }
+  }
+  return `${declaredNames.length} 条意图与 TOOL_META 同源、每条都有路由分支`;
 });
 
 for (const line of checks) { console.log(line); }

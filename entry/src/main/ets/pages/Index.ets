@@ -1,4 +1,7 @@
 import { bundleManager, common } from '@kit.AbilityKit';
+// P5.2 意图声明用的装饰器（`@InsightIntentPage`）：机制、证据与真机验证配方见 `docs/INTENT_FRAMEWORK.md`。
+// 编译器在**编译期**校验并把声明写进 `resources/base/profile/insight_intent.json`，不需要新权限。
+import { InsightIntentPage } from '@kit.AbilityKit';
 import { pasteboard, emitter } from '@kit.BasicServicesKit';
 import { uiMaterial, SymbolGlyphModifier, UIContext, LengthMetrics } from '@kit.ArkUI';
 // UI Design Kit 的 HDS 导航与底部页签，提供标题栏/底部页签的沉浸光感材质。
@@ -120,6 +123,167 @@ const HDS_TITLE_BAR_HEIGHT: number = 56;
  * 扫描控件的配置构造已搬到 `services/SystemTools.buildDocumentScannerConfig()`（系统能力的适配层），
  * 这里只剩「建一次、存起来」的懒加载：设备缺少 DocScan 能力时不创建，避免无谓地加载 VisionKit。
  */
+
+// ---------- P5.2 意图声明（由 tools/gen-intent-declarations.mjs 生成，请勿手改）----------
+// 数据来源：model/ToolMeta.ets 的 TOOL_META（每条工具一条声明，顺序即登记顺序）。
+// intentName = PocketToolboxOpen_<路由 id>（全局唯一）；navDestinationName 即既有路由 id。
+// 不接收/不传递任何用户数据，不引入联网；一致性第 37 项会重新渲染这段并逐字节比对。
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_qr', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '二维码', displayDescription: 'QR code',
+  pagePath: 'ets/pages/Index', navDestinationName: 'qr'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_barcode', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '条形码', displayDescription: 'Barcode',
+  pagePath: 'ets/pages/Index', navDestinationName: 'barcode'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_calculator', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '折扣与均摊', displayDescription: 'Quick calculator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'calculator'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_tax', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '个税计算', displayDescription: 'Income tax',
+  pagePath: 'ets/pages/Index', navDestinationName: 'tax'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_units', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '单位换算', displayDescription: 'Converter',
+  pagePath: 'ets/pages/Index', navDestinationName: 'units'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_timers', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '计时', displayDescription: 'Timers',
+  pagePath: 'ets/pages/Index', navDestinationName: 'timers'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_torch', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '手电筒', displayDescription: 'Flashlight',
+  pagePath: 'ets/pages/Index', navDestinationName: 'torch'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_dates', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '日期计算', displayDescription: 'Date calculator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'dates'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_timestamp', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '时间戳', displayDescription: 'Timestamp',
+  pagePath: 'ets/pages/Index', navDestinationName: 'timestamp'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_text', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '文本工具', displayDescription: 'Text tools',
+  pagePath: 'ets/pages/Index', navDestinationName: 'text'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_random', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '随机选择', displayDescription: 'Random picker',
+  pagePath: 'ets/pages/Index', navDestinationName: 'random'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_password', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '密码生成', displayDescription: 'Password generator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'password'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_loan', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '贷款计算', displayDescription: 'Loan calculator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'loan'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_color', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '颜色工具', displayDescription: 'Colour tools',
+  pagePath: 'ets/pages/Index', navDestinationName: 'color'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_health', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '健康计算', displayDescription: 'Health calculator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'health'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_science', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '科学计算器', displayDescription: 'Scientific calculator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'science'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_documents', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '文档扫描', displayDescription: 'Document scanner',
+  pagePath: 'ets/pages/Index', navDestinationName: 'documents'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_idphoto', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '证件照', displayDescription: 'ID photo',
+  pagePath: 'ets/pages/Index', navDestinationName: 'idphoto'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_level', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '水平仪', displayDescription: 'Spirit level',
+  pagePath: 'ets/pages/Index', navDestinationName: 'level'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_compass', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '指南针', displayDescription: 'Compass',
+  pagePath: 'ets/pages/Index', navDestinationName: 'compass'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_kinship', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '亲戚称呼', displayDescription: 'Kinship calculator',
+  pagePath: 'ets/pages/Index', navDestinationName: 'kinship'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_base', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '进制与位运算', displayDescription: 'Base & bitwise',
+  pagePath: 'ets/pages/Index', navDestinationName: 'base'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_diff', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '文本对比', displayDescription: 'Text diff',
+  pagePath: 'ets/pages/Index', navDestinationName: 'diff'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_anniversary', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '纪念日', displayDescription: 'Anniversaries',
+  pagePath: 'ets/pages/Index', navDestinationName: 'anniversary'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_net', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '网络工具', displayDescription: 'Network tools',
+  pagePath: 'ets/pages/Index', navDestinationName: 'net'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_netinfo', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '网络查询', displayDescription: 'Network lookup',
+  pagePath: 'ets/pages/Index', navDestinationName: 'netinfo'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_money', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '金额大写', displayDescription: 'Amount in words',
+  pagePath: 'ets/pages/Index', navDestinationName: 'money'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_idcheck', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '身份证校验', displayDescription: 'ID & card check',
+  pagePath: 'ets/pages/Index', navDestinationName: 'idcheck'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_worldclock', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '世界时钟', displayDescription: 'World clock',
+  pagePath: 'ets/pages/Index', navDestinationName: 'worldclock'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_imagetools', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: '图片工具', displayDescription: 'Image tools',
+  pagePath: 'ets/pages/Index', navDestinationName: 'imagetools'
+})
+@InsightIntentPage({
+  intentName: 'PocketToolboxOpen_url', domain: 'ToolsDomain', intentVersion: '1.0.0',
+  displayName: 'URL 编解码', displayDescription: 'URL codec',
+  pagePath: 'ets/pages/Index', navDestinationName: 'url'
+})
+// ---------- P5.2 意图声明结束 ----------
 
 @Entry
 @ComponentV2
