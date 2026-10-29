@@ -460,7 +460,10 @@ function flowJson() {
   if (!allTexts().some((text) => text.includes('文本工具'))) {
     return ['text/json：输入后页面被弹出了（返回键把详情页关掉了？）'];
   }
-  const menu = controlsOf(dump(), 'Select').slice(-1)[0];
+  // JSON 下拉：**不能再用「页面最后一个 Select」**——2026-10-29 起文本工具在 JSON 之后又加了
+  // 「繁简」「命名风格」两组，最后一个 Select 已经不是 JSON 了（实测因此选不到「格式化」）。
+  // 改用既有的 `selectNearLabel()`（按标签中心距定位，与工具页搜索/分类同一套）。
+  const menu = selectNearLabel('JSON');
   if (menu === undefined) { return ['text/json：找不到 JSON 下拉']; }
   if (!pickOption(menu.bounds, '格式化')) { return ['text/json：选不到「格式化」']; }
   // 大字体下结果卡可能在可视区外，因此上滑收集多屏文字再断言，断言完复位到顶部。
@@ -474,7 +477,7 @@ function flowJson() {
   const area2 = controlsOf(dump(), 'TextArea')[0];
   if (area2 === undefined) { return problems.concat(['text/json：第二次找不到输入框']); }
   setControl(area2, '1.5e10');
-  const menu2 = controlsOf(dump(), 'Select').slice(-1)[0];
+  const menu2 = selectNearLabel('JSON');
   if (menu2 === undefined) { return problems.concat(['text/json：第二次找不到 JSON 下拉']); }
   if (!pickOption(menu2.bounds, '校验')) { problems.push('选不到「校验」'); }
   if (!textsAfterSwipeUp(1).some((text) => text.includes('合法'))) {
@@ -486,7 +489,7 @@ function flowJson() {
   const area3 = controlsOf(dump(), 'TextArea')[0];
   if (area3 === undefined) { return problems.concat(['text/json：第三次找不到输入框']); }
   setControl(area3, 'tru');
-  const menu3 = controlsOf(dump(), 'Select').slice(-1)[0];
+  const menu3 = selectNearLabel('JSON');
   if (menu3 === undefined) { return problems.concat(['text/json：第三次找不到 JSON 下拉']); }
   if (!pickOption(menu3.bounds, '校验')) { problems.push('选不到「校验」'); }
   // 输入框内容要在**上滑之前**读（上滑后它就不在可见区里了）。
@@ -580,6 +583,58 @@ function selectNearLabel(label) {
     .filter((entry) => entry.distance < 120)
     .sort((a, b) => a.distance - b.distance);
   return candidates.length > 0 ? candidates[0].item : undefined;
+}
+
+/**
+ * 与 `selectNearLabel()` 相同，但**先滚动**直到标签可见。
+ *
+ * 为什么需要：`dumpLayout` 只导出**可见**节点，而 1.75× 大字体下文本页/密码页都变长，
+ * 靠后的选项行会落到可视区之外——2026-10-27 已记录过一次同类误判（「json 用例在大字体下
+ * 报找不到第 1 行」，其实是文字被挤出可视区）。2026-10-29 实测：新加的「繁简」「命名风格」
+ * 两组在 1.75× 下就落在折叠线以下，必须先滚一下再定位。
+ */
+function selectLabelScrolled(label, maxSwipes = 4) {
+  for (let attempt = 0; attempt <= maxSwipes; attempt++) {
+    const control = selectNearLabel(label);
+    if (control !== undefined) { return control; }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '900', '800']);
+    sleep(900);
+  }
+  return undefined;
+}
+
+/**
+ * 结果行的「显示 / 隐藏」按钮：`singleResult()` 里它是动作行**最左边**那颗方形按钮。
+ *
+ * 判断用的是「页面下半部同一行里最靠下的一对方形按钮」——因此默认字号下直接可见，
+ * 1.75× 下先上滑几次把结果卡滚进可视区。返回最左边那颗（= 显示/隐藏，右边那颗是复制）。
+ */
+function resultToggle(maxSwipes = 3) {
+  const pairAt = (items) => {
+    // 找「同一行里成对出现、水平间距 < 200 px」的两颗方形按钮：结果动作行就是这种形状
+    // （显示/隐藏 + 复制），而底部页签那三颗的中心距约 230 px、生成按钮单独一颗。
+    // 这样判断**不依赖屏幕高度或字体缩放**——2026-10-29 实测：1.75× 下结果行落在 y≈2153，
+    // 用「cy < 2150」这种硬阈值会差 3 px 判不到（当时就是这么红的）。
+    for (const item of items) {
+      const partner = items.find((other) => other !== item &&
+        Math.abs(other.bounds.cy - item.bounds.cy) < 24 &&
+        Math.abs(other.bounds.cx - item.bounds.cx) < 200);
+      if (partner !== undefined) {
+        return item.bounds.cx <= partner.bounds.cx ? item : partner;
+      }
+    }
+    return undefined;
+  };
+  for (let attempt = 0; attempt <= maxSwipes; attempt++) {
+    const squares = controlsOf(dump(), 'Button')
+      .filter((item) => (item.bounds.x2 - item.bounds.x1) === (item.bounds.y2 - item.bounds.y1));
+    const lowest = squares.slice().sort((a, b) => b.bounds.cy - a.bounds.cy);
+    const toggle = pairAt(lowest);
+    if (toggle !== undefined) { return toggle; }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '900', '800']);
+    sleep(900);
+  }
+  return undefined;
 }
 
 /**
@@ -826,13 +881,9 @@ function flowImportBackup() {
     click(choose.bounds.cx, choose.bounds.cy);
   }
   sleep(3200);
-  // 系统文件选择器：浏览 → 下载与接收 → 下载管理器 → 文件
-  for (const step of ['浏览', '下载与接收', '下载管理器']) {
-    const hit = find(step).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
-    if (hit === undefined) { return [`import：文件选择器里找不到「${step}」`]; }
-    click(hit.bounds.cx, hit.bounds.cy);
-    sleep(2400);
-  }
+  // 系统文件选择器：走到含测试文件的目录（多策略 + 失败留证，见 `pickerWalkToDownload()`）。
+  const walked = pickerWalkToDownload('ZZ-import-test');
+  if (walked.length > 0) { return ['import：' + walked[0]]; }
   const file = find('ZZ-import-test').sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
   if (file === undefined) {
     return ['import：下载管理器里看不到测试备份文件（推送路径可能变了）'];
@@ -963,14 +1014,9 @@ function importWalkThroughPicker(filePrefix) {
     click(choose.bounds.cx, choose.bounds.cy);
   }
   sleep(3200);
-  if (find(filePrefix).length === 0) {
-    for (const step of ['浏览', '下载与接收', '下载管理器']) {
-      const hit = find(step).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
-      if (hit === undefined) { return [`文件选择器里找不到「${step}」`]; }
-      click(hit.bounds.cx, hit.bounds.cy);
-      sleep(2400);
-    }
-  }
+  // 系统文件选择器：走到含测试文件的目录（多策略 + 失败留证，见 `pickerWalkToDownload()`）。
+  const walked = pickerWalkToDownload(filePrefix);
+  if (walked.length > 0) { return walked; }
   const file = find(filePrefix).sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
   if (file === undefined) { return ['下载管理器里看不到测试坏文件']; }
   click(file.bounds.cx, file.bounds.cy);
@@ -978,6 +1024,181 @@ function importWalkThroughPicker(filePrefix) {
   // 所以剩下的时间交给调用方用 `textsAfterPickFor()` 连续 dump 去抓。
   sleep(150);
   return [];
+}
+
+/**
+ * 在系统文件选择器里走到含有测试文件的目录，直到 `find(filePrefix)` 能看见文件。
+ *
+ * 为什么不是「按固定三步点」：这三步（浏览 → 下载与接收 → 下载管理器）**只在
+ * 「选择器已记住上次目录」的那台模拟器上跑通过**——2026-10-29 在一台**全新启动**的模拟器上实测：
+ * 选择器停在「最近」页签、显示「没有文件」，按原写法点完「浏览」之后既没有「下载与接收」也没有
+ * 任何可见变化，用例只报一句「找不到『下载与接收』」，完全看不出是镜像不同、还是前置步骤没做完。
+ *
+ * 因此这里改成**多策略 + 逐次留证**：每次尝试都点「浏览」（若在）、再依次尝试几种目录入口名，
+ * 每次尝试后都检查文件是否已经可见；全部失败时把**每一次尝试当时屏幕上的文字**一并报出来。
+ */
+function pickerWalkToDownload(filePrefix) {
+  const seenPerAttempt = [];
+  const visibleNow = () => [...new Set(allTexts())].filter((text) => text.length > 0 && text.length < 32);
+  /**
+   * **精确匹配**：`find()` 是**子串**匹配，而设置页那段很长的数据披露正文里就有「下载」这类词——
+   * 2026-10-29 实测：用 `find('下载')` 会命中那段正文，点它的中心等于在页面中间乱点
+   * （当时把页面切到了「收藏」页签，诊断信息里看得很清楚）。
+   */
+  const exact = (label) => nodesWithBounds()
+    .filter((item) => String(item.node.attributes?.text ?? '') === label)
+    .sort((a, b) => b.bounds.cy - a.bounds.cy);
+  /** 文件选择器是否已经打开：按它特有的几个文案判断（子串匹配在这里不可靠）。 */
+  const pickerOpen = () => visibleNow().some((text) =>
+    text === '最近' || text === '已选 (0)' || text === '仅可访问所选项目' || text === '完成');
+  if (find(filePrefix).length > 0) { return []; }
+  if (!pickerOpen()) {
+    return [`文件选择器没有打开（当前屏可见文字：${visibleNow().join(' | ') || '（空）'}）`];
+  }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const browse = exact('浏览')[0];
+    if (browse !== undefined) {
+      click(browse.bounds.cx, browse.bounds.cy);
+      sleep(3500);
+    }
+    seenPerAttempt.push('尝试' + (attempt + 1) + '：' + (visibleNow().join(' | ') || '（空）'));
+    if (find(filePrefix).length > 0) { return []; }
+    for (const folder of ['下载与接收', '下载', 'Download', 'Documents']) {
+      const hit = exact(folder)[0];
+      if (hit === undefined) { continue; }
+      click(hit.bounds.cx, hit.bounds.cy);
+      sleep(3000);
+      // 有的镜像还要再点一层「下载管理器」才真正进到目录里。
+      for (const innerName of ['下载管理器', 'Download manager']) {
+        const inner = exact(innerName)[0];
+        if (inner !== undefined) {
+          click(inner.bounds.cx, inner.bounds.cy);
+          sleep(3000);
+        }
+      }
+      if (find(filePrefix).length > 0) { return []; }
+    }
+  }
+  return [`文件选择器里没有走到含测试文件的目录（${seenPerAttempt.join(' || ')}）`];
+}
+
+/**
+ * 口令短语（2026-10-29 新增的第 4 种类型）：面板接线 + 默认 6 词 + 熵/口径说明。
+ *
+ * 为什么值得一条交互用例：这一条链路上「词表没读到」「随机源没接上」「词数没按登记表」三种错都会
+ * 表现成「点了一下没反应/结果怪怪的」，而它们分别对应**随包数据、安全随机源、登记表**三件不同的事。
+ * 断言用正则匹配 `word-word-…`（EFF 词表全是小写字母词），因此不依赖具体抽到哪几个词。
+ */
+function flowPassphrase() {
+  const problems = [];
+  const tree = openTool('password');
+  const type = selectNearLabel('类型');
+  if (type === undefined) { return ['password/passphrase：找不到「类型」下拉']; }
+  if (!pickOption(type.bounds, '口令短语')) { return ['password/passphrase：选不到「口令短语」']; }
+  const panel = allTexts();
+  if (!panel.some((text) => text.includes('词数'))) { problems.push('口令短语面板没有「词数」行'); }
+  if (!panel.some((text) => text.includes('分隔符'))) { problems.push('口令短语面板没有「分隔符」行'); }
+  if (!panel.some((text) => text.includes('只取决于词数'))) {
+    problems.push('没有说明「强度只取决于词数」（分隔符不增加熵）');
+  }
+  // 生成按钮：页面下半部的方形按钮（底部页签的按钮 cy > 2100，排除掉）。
+  const generate = controlsOf(dump(), 'Button')
+    .filter((item) => (item.bounds.x2 - item.bounds.x1) === (item.bounds.y2 - item.bounds.y1))
+    .filter((item) => item.bounds.cy < 2100)
+    .sort((a, b) => b.bounds.cy - a.bounds.cy)[0];
+  if (generate === undefined) { return problems.concat(['password/passphrase：找不到生成按钮']); }
+  click(generate.bounds.cx, generate.bounds.cy);
+  sleep(2200);
+  // 结果默认是**隐藏**的（与密码/PIN 同一口径：先显示圆点），必须点结果行最左边那枚「显示」按钮，
+  // 否则断言只能看到一串 •（2026-10-29 实测踩到：生成其实成功了，是断言看不到明文）。
+  // 定位走 `resultToggle()`：默认字号下直接可见；1.75× 下它会先上滑把结果卡滚进可视区。
+  const eye = resultToggle();
+  if (eye === undefined) { return problems.concat(['password/passphrase：找不到结果显示按钮']); }
+  click(eye.bounds.cx, eye.bounds.cy);
+  sleep(1200);
+  const texts = allTexts();
+  const phrase = texts.find((text) => /^[a-z]+(-[a-z]+){2,7}$/.test(text));
+  if (phrase === undefined) {
+    problems.push('没有生成形如 word-word-word… 的口令短语');
+  } else {
+    const words = phrase.split('-').length;
+    if (words !== 6) { problems.push(`默认词数应为 6（登记表默认值），实测 ${words}`); }
+  }
+  if (!texts.some((text) => text.includes('位熵'))) { problems.push('结果卡下方没有强度/熵那一行'); }
+  return problems;
+}
+
+/**
+ * 繁简转换（2026-10-29 新增的第 6 组动作）：**词组优先**是这条能力的核心承诺。
+ *
+ * 判据刻意写成「必须出现 `頭髮` 且**不得**出现 `頭发`」：数据表里 `发` 的单字首选就是 `發`，
+ * 一旦最长匹配失效（退回逐字转换）结果就会变成 `頭发` —— 那种错在界面上看起来「也转换了」。
+ * 模拟器的 `uitest uiInput text` 实测**能吃中文**（2026-10-29：输入「头发」后 TextArea 文本与
+ * 统计行都正确），因此这里直接输入中文，不需要绕道剪贴板。
+ */
+function flowVariant() {
+  const problems = [];
+  const tree = openTool('text');
+  const area = controlsOf(tree, 'TextArea')[0];
+  if (area === undefined) { return ['text/variant：找不到输入框']; }
+  setControl(area, '头发');
+  const menu = selectLabelScrolled('繁简');
+  if (menu === undefined) { return ['text/variant：找不到「繁简」下拉']; }
+  if (!pickOption(menu.bounds, '简体 → 繁体')) { return ['text/variant：选不到「简体 → 繁体」']; }
+  const converted = textsAfterSwipeUp(1);
+  if (!converted.some((text) => text.includes('頭髮'))) {
+    problems.push('简→繁没有把「头发」整体转成「頭髮」');
+  }
+  if (converted.some((text) => text.includes('頭发'))) {
+    problems.push('结果是逐字转换的「頭发」——词组优先失效');
+  }
+  if (!converted.some((text) => text.includes('地区用词'))) {
+    problems.push('结果卡下方没有常驻的口径说明行（通用规范字形 / 不做地区用词）');
+  }
+  // 反向：繁 → 简 应回到「头发」（输入框内容也要跟着换，因此重新定位）。
+  scrollBackToTop(1);
+  const area2 = controlsOf(dump(), 'TextArea')[0];
+  if (area2 === undefined) { return problems.concat(['text/variant：第二次找不到输入框']); }
+  setControl(area2, '頭髮');
+  const menu2 = selectLabelScrolled('繁简');
+  if (menu2 === undefined) { return problems.concat(['text/variant：第二次找不到「繁简」下拉']); }
+  if (!pickOption(menu2.bounds, '繁体 → 简体')) { problems.push('选不到「繁体 → 简体」'); }
+  if (!textsAfterSwipeUp(1).some((text) => text.includes('头发'))) {
+    problems.push('繁→简没有回到「头发」');
+  }
+  scrollBackToTop(1);
+  return problems;
+}
+
+/**
+ * 命名风格（2026-10-29 新增的第 7 组动作）：五种风格都要能转，且**非 ASCII 字符不能被吃掉**。
+ * 最后一条是刻意加的：早期实现若用「非字母数字即分隔符」的写法，`café` 会被截成 `caf`（静默删字）。
+ */
+function flowNaming() {
+  const problems = [];
+  const tree = openTool('text');
+  const area = controlsOf(tree, 'TextArea')[0];
+  if (area === undefined) { return ['text/naming：找不到输入框']; }
+  setControl(area, 'user_name');
+  const menu = selectLabelScrolled('命名风格');
+  if (menu === undefined) { return ['text/naming：找不到「命名风格」下拉']; }
+  if (!pickOption(menu.bounds, '驼峰式')) { return ['text/naming：选不到「驼峰式」']; }
+  if (!textsAfterSwipeUp(1).some((text) => text === 'userName')) {
+    problems.push('「user_name」驼峰式没有得到 userName');
+  }
+  scrollBackToTop(1);
+  const area2 = controlsOf(dump(), 'TextArea')[0];
+  if (area2 === undefined) { return problems.concat(['text/naming：第二次找不到输入框']); }
+  setControl(area2, 'café 测试');
+  const menu2 = selectLabelScrolled('命名风格');
+  if (menu2 === undefined) { return problems.concat(['text/naming：第二次找不到「命名风格」下拉']); }
+  if (!pickOption(menu2.bounds, '短横线式')) { problems.push('选不到「短横线式」'); }
+  const converted = textsAfterSwipeUp(1);
+  if (!converted.some((text) => text === 'café-测试')) {
+    problems.push('「café 测试」短横线式没有得到 café-测试（非 ASCII 字符被吃掉了？）');
+  }
+  scrollBackToTop(1);
+  return problems;
 }
 
 /**
@@ -1207,7 +1428,12 @@ const FLOW_CASES = [
   { id: 'importbad', title: '导入坏备份（3 种坏文件 → 如实报错且不改动本机数据）', run: flowImportBadBackup },
   { id: 'clearrestore', title: '清除本机数据 → 导入还原（清空后为空态，再导入恰好恢复）', run: flowClearRestore },
   { id: 'exportroundtrip', title: '导出 → 清除 → 导入 完整往返（用应用自己导出的文件）', run: flowExportRoundTrip },
-  { id: 'privacy', title: '设置页离线隐私政策全文可展开并显示正文', run: flowPrivacyOffline }
+  { id: 'privacy', title: '设置页离线隐私政策全文可展开并显示正文', run: flowPrivacyOffline },
+  // 2026-10-29 新增能力（本轮加的三条；`theme` 未做：主题色色块是**纯图标行**、
+  // 没有可见文字可定位，靠几何猜太脆，改由真机清单 R2 覆盖）。
+  { id: 'passphrase', title: '密码页口令短语：面板接线 + 默认 6 词 + 熵与口径说明', run: flowPassphrase },
+  { id: 'variant', title: '文本工具繁简：词组优先（頭髮 而不是 頭发）+ 往返 + 口径说明', run: flowVariant },
+  { id: 'naming', title: '文本工具命名风格：驼峰/短横线 + 非 ASCII 字符不被吃掉', run: flowNaming }
 ];
 
 function flows(only) {
