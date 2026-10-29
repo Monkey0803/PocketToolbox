@@ -1,7 +1,7 @@
 # 发布前检查
 
 ## 当前状态
-- **模拟器重新拉起并复跑全套（2026-10-29，Mate X7 · API 26；只加测试与文档，应用无改动）**：`emu.mjs smoke` **31/31**、`check-align --views` **35 屏**、`emu.mjs flows` **14/14**（新增 **`passphrase` / `variant` / `naming` / `chain`** 四条，验证口令短语面板与 6 词默认值 + 熵说明、繁简**词组优先**（`頭髮` 而不是 `頭发`）、命名风格不吃非 ASCII 字符、换算结果**「用作输入」写回输入框并按新输入重算**）；**1.75× 大字体探针下**同样 `smoke` 31/31、`check-align` 35 屏、新增用例 3/3（当时 `chain` 尚未加），探针**已还原**（`grep` = 0，卡片高度回到基准 400 px）后默认字号复跑全绿。**同时修掉两处测试脚手架缺陷**：① `flowJson` 用「页面最后一个 Select」当 JSON 下拉，被本轮新增的两组动作顶掉了位置；② 文件选择器走位只在「已记住上次目录」的模拟器上成立，且 `find()` 的子串匹配会命中设置页长正文（现在改为精确匹配 + 判定选择器是否已打开 + 多目录名兜底 + 失败留证）。细节与截图见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)。**仍未在设备上跑过**：复利/储蓄面板、照度/剂量当量/加速度、时间戳的「用作输入」、第三方许可展开与屏幕朗读 → 清单 **R14/R15**。
+- **模拟器重新拉起并复跑全套（2026-10-29，Mate X7 · API 26；只加测试与文档，应用无改动）**：`emu.mjs smoke` **31/31**、`check-align --views` **35 屏**、`emu.mjs flows` **18/18**（新增 **`passphrase` / `variant` / `naming` / `chain` / `loancompound` / `stampchain` / `notices` / `theme`** 八条，验证口令短语面板与 6 词默认值 + 熵说明、繁简**词组优先**（`頭髮` 而不是 `頭发`）、命名风格不吃非 ASCII 字符、换算与时间戳的**「用作输入」**写回并按新输入重算、贷款**复利/储蓄**（零利率=本金、定投累加、越界如实提示）、设置页**第三方许可四条署名**齐全且可收起、**主题色**换预设再换回且取色轮同排）；**1.75× 大字体探针下**同样 `smoke` 31/31、`check-align` 35 屏、当时已有的新用例 3/3，探针**已还原**（`grep` = 0，卡片高度回到基准 400 px）后默认字号复跑全绿。**同时修掉两处测试脚手架缺陷**：① `flowJson` 用「页面最后一个 Select」当 JSON 下拉，被本轮新增的两组动作顶掉了位置；② 文件选择器走位只在「已记住上次目录」的模拟器上成立，且 `find()` 的子串匹配会命中设置页长正文（现在改为精确匹配 + 判定选择器是否已打开 + 多目录名兜底 + 失败留证）。细节与截图见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md)。**仍未在设备上跑过**：照度/剂量当量/加速度（长下拉翻不动页，负结论记在 `tests/emulator/README.md`）、屏幕朗读、深色观感 → 清单 **R14/R15**。
 - **P5.2 意图框架：31 条声明已铺设（2026-10-29，应用有改动、门禁全绿；**系统入口能否拉起待真机判定 R16**）**：按两轮探针的结论走 F2a——`tools/gen-intent-declarations.mjs` 从 `model/ToolMeta.ets` 的 `TOOL_META` **生成** `Index.ets` 里那段 31 条 `@InsightIntentPage`（`intentName = PocketToolboxOpen_<路由 id>`、`navDestinationName` 即既有路由 id、`pagePath` 统一 `ets/pages/Index`；**不传任何调用参数、不引入联网**），一致性**第 37 项**重新渲染逐字节比对并断言「顺序与命名由 TOOL_META 派生」「每条都有 `name === '<id>'` 路由分支」「顶部 import 在」「没有 `paramMappings`/`uri:`/`schema:`/`getSid` 这类字段」「声明段紧贴 `@Entry`」。**实测**：`BUILD SUCCESSFUL`；`insight_intent.json` 的 `extractInsightIntents` **31 条**（`PocketToolboxOpen_qr` … `PocketToolboxOpen_url`）、`intentName`/`navDestinationName` 各自两两不重复；打包后 `module.json` 仍是 `hasInsightIntent: true`。**未验证**：系统入口（小艺/智能搜索）能否真正拉起 → **R16**（能拉起保留 / 只出现不跳转则退回只留 `pagePath` / 完全拉不起则删声明段与第 37 项并记录需华为侧收录）。**不新增权限、不新增 syscap、不新增持久化键**（`module.json5` 与 `LOCAL_KEYS` 未动）。
 - **P4.3 口令短语 + P4.4 繁简转换（2026-10-29，许可已放行；应用有改动、门禁全绿）**：两项随包数据都由**构建期生成器**产出，运行期只读、绝不联网：① `tools/build-wordlist.mjs` 下载 **EFF large wordlist**（7776 词）到 `entry/src/main/resources/rawfile/eff_large_wordlist.txt`（109,332 字节），生成期校验三条（条数恰好 7776、骰子编号恰好覆盖 11111–66666 无重、**没有任何词是另一个词的前缀**），文件头写明来源 URL / CC-BY 4.0 / © EFF / 抓取日期 / 源文件 sha256；② `tools/build-variant-table.mjs` 下载 **OpenCC** 的 `STCharacters`/`STPhrases`/`TSCharacters`/`TSPhrases` 转成 `opencc_variant.txt`（1,082,601 字节，57,878 条映射：4,012 / 49,238 / 4,148 / 480），只取每行**第一个候选**并标注改动，生成期带四条兜底判据（`头发 → 頭髮`、`发 → 發`、`一目瞭然 → 一目了然`、`發 → 发`）。纯逻辑 `model/WordList.ets`（解析 + 三条校验）、`model/Passphrase.ets`（3–8 词、5 种分隔符、`unbiasedWordIndex()` 双字节拒绝采样 + 64 次尝试上限、熵 = 词数 × 12.925 bit）、`model/VariantTable.ets`（四段解析、合并成简→繁/繁→简两张表、算最长键长度）、`model/ChineseVariant.ets`（**最长匹配优先**的贪心替换，因此词组天然优先于单字）；系统能力在 `services/BundledTables.ets`（进程内缓存、失败不缓存、绝不抛异常）与 `services/PasswordGenerator.ets`（**口令短语用与密码/PIN 同一条安全随机源**，绝不退回 `Math.random`）。**界面**：密码页第 4 种类型「口令短语」（词数 + 分隔符两个 `OptionSelect` + 熵说明 + 词表状态如实提示）、文本工具第 6/7 组动作「繁简」「命名风格」。**踩过并修掉的坑**：`PasswordTools.unbiasedIndex()` 上限是 256，直接拿去选 7776 个词会**永远返回 -1**（口令短语永远生成失败）——因此新写了大区间版本并留了单测。**门禁**：一致性新增**第 34 项**（登记表 ↔ `THIRD_PARTY_NOTICES.md` **双向**一致 + 随包词表/字表完好）与 **第 35 项**（README/商店文案的「N 类单位换算」必须等于 `Units.ets` 的类别数）。
 - **纯本机新能力轮（2026-10-29，应用有改动、门禁全绿；**新界面未在设备上跑过**）**：① **贷款「复利/储蓄」**（`calculateCompound()`：按月复利、月末定投、逐月四舍五入到分、等效年化 `(1+i)^12-1`；`calculateLoan()`/`loanSchedule()` **明确拒绝** `compound`，避免它被还款逻辑静默接住；极端组合超过可精确表示范围时如实报 `overflow`）；② **单位换算加照度/剂量当量/加速度**（18 → 21 类，全部线性、只在登记表里加）；③ **单位换算与时间戳的「用作输入」**（复用文本工具的按钮口径；结果无法被输入框解析时**置灰**，不制造假失败；动作行按智感握姿换边）；④ **时间戳批量转换其实早已实现**（`parseStampLines()`/`STAMP_BATCH_MAX`），本轮只把它写进 README——**又一次「文档漏写已实现能力」**。**未完成（如实）**：这些新面板在模拟器与真机上都**没跑过**（本轮 `hdc list targets` 为空），已写成清单 **R14/R15**；`emu.mjs flows` 新增用例需要真机/模拟器实操才能写对，因此本轮**没有新增未经运行的测试**。
@@ -503,6 +503,36 @@
   - **验证**：`node --disable-warning=ExperimentalWarning tests/run-unit-tests.mjs` 全绿（新增约 150 条断言：ToolMeta/搜索、文本 30+、换算 60+、二维码模板 40+）；`hvigorw assembleHap --mode module -p product=default` `BUILD SUCCESSFUL`；API 26 模拟器（@240 dpi 4 列形态）复验搜索过滤与空态、文本三段操作与统计、换算 14 类与市制、精度切换与同类对照、`units_state` 重启保持、收藏时间戳重启保持，证据图存于 `docs/screenshots/emulator/`（`tools-search-box-zh.jpeg`、`tools-search-qr-zh.jpeg`、`tools-search-empty-zh.jpeg`、`qr-wifi-fields-zh.jpeg`、`qr-generate-emulator-unavailable-zh.jpeg`、`units-pressure-6digits-zh.jpeg`）。
   - **仍未覆盖（真机待验）**：二维码生成与真机相机扫描 WiFi/名片二维码（本机模拟器的二维码生成 API 直接失败，只验证到错误提示）、平板与折叠屏下搜索框与新按钮布局、深色模式下新界面（色板已资源化并跟随系统，见第 16 节；本轮审计又修掉写死的白菜单底与低对比度图标色）。逐条步骤见 [`DEVICE_ACCEPTANCE.md`](DEVICE_ACCEPTANCE.md) 第 7 节。
 
+
+## release 混淆开关调研（2026-10-29，**实测**；结论：**暂不开启**）
+
+**旋钮在哪**：`entry/build-profile.json5` → `buildOptionSet[release].arkOptions.obfuscation.ruleOptions`
+（当前 `enable: false`，`files: ["./obfuscation-rules.txt"]`）。仓库里那份规则文件是 DevEco 模板，4 个开关全开；
+不开混淆时构建会打一句 `WARN: If obfuscation is needed, enable obfuscation settings in this build process`。
+
+**三组实测**（每组都是 `node tools/build-hap.mjs --release`；配置与规则文件改完即刻还原，`git diff` 为空）：
+
+| 规则 | 构建 | release 签名 HAP |
+|---|---|---|
+| 模板原样（property + toplevel + filename + export） | **失败** | — |
+| 去掉 `-enable-filename-obfuscation`（其余三个开着） | `BUILD SUCCESSFUL` | **5,594,300 字节** |
+| 全关（当前口径） | `BUILD SUCCESSFUL` | **5,627,788 字节** |
+
+- **失败原文**：`Failed :entry:default@CompileArkTS` → `10311009 ArkTS: ERROR ... Failed to execute es2abc` →
+  `Failed to read file to buffer: entry/build/default/cache/default/default@CompileArkTS/esmodule/release_widget/entry/src/main/ets/a/d.ts`（`a/e.ts` 同）。
+  也就是**文件名混淆把 `release_widget`（服务卡片那一遍编译）的源文件改成了 `a/d.ts`，随后 es2abc 读不到它**。
+  **在当前工具链版本下 `-enable-filename-obfuscation` 对本仓库不可用**（将来想开先验证这条）。
+- **收益很小**：只开 property/toplevel/export 时 **−33,488 字节（−0.60%）**。对本应用（离线工具、无核心算法机密）
+  这点体积不足以抵消下面的成本。
+- **设备实测（趁模拟器在手，已把混淆版 release 装进去跑过）**：`smoke` **31/31** ✓、`import`（用**文档口径**的 JSON 备份导入）✓、
+  `exportroundtrip` ✓；并且**导出的备份键名与不开混淆时逐字相同**——用 `hdc file recv` 把两份文件都拉回本机比对：
+  `app`/`schema`/`exportedAt`/`data` 与 `data` 里的 `schema`/`favorite_tools`/`tax_presets` 一致，
+  即**property 混淆没有改名这套对外契约**（这是本轮最值得记的一条：备份格式跨版本兼容性不受影响）。
+- **仍未验证 / 代价**：① 崩溃栈要靠 `-print-namecache` 产出的映射文件才能还原，**必须把该映射随版本归档**，否则线上 hilog 栈不可读；
+  ② 服务卡片（widget）、31 条意图声明的 `pagePath`（构建产物里是 `@normalized:N&&&entry/src/main/ets/pages/Index&`）、
+  屏幕朗读与分享扩展都应在混淆版上各跑一遍（本轮没跑）；③ `-remove-log` 对本应用无意义（日志走 `hilog`，不是 `console.*`）。
+- **建议**：**暂不开启**。若为过审或体积确需开启，按「去掉 `-enable-filename-obfuscation` + 加 `-print-namecache` 并把映射文件归档 +
+  在混淆版上重跑 18 条 flows / 31 屏 smoke / widget / 意图」这一套走，并用上表数字做回归基线。
 
 ## 发版步骤（HarmonyOS / AppGallery Connect）
 
