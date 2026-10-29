@@ -430,7 +430,7 @@ function pickOption(trigger, to) {
   return false;
 }
 
-/** 往某个 `TextArea`/`TextInput` 里写值（先点进去、退格清空、再输入、最后关掉软键盘）。 */
+
 function setControl(control, value) {
   setText(control.bounds.cx, control.bounds.cy, value);
   sleep(600);
@@ -1126,6 +1126,222 @@ function flowChain() {
   return problems;
 }
 
+/** 反复上滑直到某个**精确文本**可见（`dumpLayout` 只导出可见节点；设置页很长，必须边走边找）。 */
+function scrollUntilExactText(label, maxSwipes = 8) {
+  for (let attempt = 0; attempt <= maxSwipes; attempt++) {
+    const hit = nodesWithBounds().filter((item) => String(item.node.attributes?.text ?? '') === label)[0];
+    if (hit !== undefined) { return hit; }
+    t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '900', '800']);
+    sleep(900);
+  }
+  return undefined;
+}
+
+/**
+ * 贷款「复利/储蓄」（2026-10-29 新增的第 3 种方式）：面板差异 + 三个数字口径 + 越界如实拒绝。
+ *
+ * 三段断言：① 零利率 + 不定投 → 到期金额**等于本金**；② 加每月定投 → 到期金额 = 本金 + 定投总额；
+ * ③ 年利率 100% × 50 年 → 必须给「超出可计算范围」而不是一个已经丢精度的巨数。
+ */
+function flowLoanCompound() {
+  const problems = [];
+  const tree = openTool('loan');
+  const method = selectNearLabel('还款方式');
+  if (method === undefined) { return ['loan/compound：找不到「还款方式」下拉']; }
+  if (!pickOption(method.bounds, '复利/储蓄')) { return ['loan/compound：选不到「复利/储蓄」']; }
+  // 复利方式下输入框顺序：本金 / 年利率 / **每月定投** / 期限（年）/ 期限（月）。
+  let inputs = controlsOf(dump(), 'TextInput');
+  if (inputs.length < 4) {
+    return problems.concat([`复利方式下没有出现「每月定投」输入框（期望 ≥ 4 个输入框，实测 ${inputs.length}）`]);
+  }
+  setControl(inputs[0], '100000');
+  setControl(controlsOf(dump(), 'TextInput')[1], '0');
+  // 期限必须给：**留空时计算会被拒**（0 期），错误走 2 秒 toast 而不是结果卡
+  // ——2026-10-29 实测：不设期限时第一段断言「到期=本金」直接失败，而页面上只闪过一句提示。
+  setControl(controlsOf(dump(), 'TextInput')[3], '1');
+  let compute = resultActionPair();
+  if (compute === undefined || compute.length < 2) {
+    return problems.concat(['loan/compound：找不到「计算 / 清空」动作行']);
+  }
+  click(compute[0].bounds.cx, compute[0].bounds.cy);
+  sleep(1500);
+  // 结果卡在 5 个输入行之下，`dumpLayout` 只导出可见节点 → 必须上滑收集（否则会误判成「没算出来」）。
+  if (!textsAfterSwipeUp(2).some((text) => text === '100000.00')) {
+    problems.push('零利率且不定投时，到期本息合计应等于本金 100000.00');
+  }
+  scrollBackToTop(2);
+  // ② 加每月定投 1000 × 12 期（零利率）→ 112000.00
+  inputs = controlsOf(dump(), 'TextInput');
+  if (inputs.length < 5) { return problems.concat(['loan/compound：第二次找不到全部输入框']); }
+  setControl(inputs[2], '1000');
+  setControl(controlsOf(dump(), 'TextInput')[3], '1');
+  compute = resultActionPair();
+  if (compute === undefined || compute.length < 2) {
+    return problems.concat(['loan/compound：第二次找不到「计算 / 清空」动作行']);
+  }
+  click(compute[0].bounds.cx, compute[0].bounds.cy);
+  sleep(1500);
+  if (!textsAfterSwipeUp(2).some((text) => text === '112000.00')) {
+    problems.push('零利率 + 每月 1000 × 12 期时，到期本息合计应为 112000.00');
+  }
+  scrollBackToTop(2);
+  // ③ 越界：100% 年利率 × 50 年（600 期）→ 复利是指数增长，必须如实拒绝。
+  // **提示是 2 秒 toast**（页面走 `onStatus`），因此点完立刻连续 dump 去抓——先睡 2 秒正好会睡过去。
+  inputs = controlsOf(dump(), 'TextInput');
+  if (inputs.length < 5) { return problems.concat(['loan/compound：第三次找不到全部输入框']); }
+  setControl(inputs[1], '100');
+  setControl(controlsOf(dump(), 'TextInput')[3], '50');
+  compute = resultActionPair();
+  if (compute === undefined || compute.length < 2) {
+    return problems.concat(['loan/compound：第三次找不到「计算 / 清空」动作行']);
+  }
+  click(compute[0].bounds.cx, compute[0].bounds.cy);
+  if (!textsAfterPickFor(3500).some((text) => text.includes('超出可计算范围'))) {
+    problems.push('100% 年利率 × 50 年应如实提示「超出可计算范围」，而不是显示一个巨数');
+  }
+  scrollBackToTop(2);
+  return problems;
+}
+
+/**
+ * 主题色块那一排：**几何定位**（色块是纯图标格子、名字只在 `accessibilityText` 里，按文字取不到）。
+ *
+ * 判据：取「紧贴在『当前主题：…』那一行**上方**、且同排方形节点最多」的一排，要求 ≥ 7 个
+ * （7 套预设 + 1 个系统取色轮；设置页上面的应用图标网格只有 5 个，会被这条排掉）。
+ * 2026-10-29 实测（Mate X7 默认字号）：这一排是 `y 1222–1397`、每格 175×175，
+ * x1 依次 125 / 338 / 550 / 763 / 975 / 1188 / 1400 / 1613。
+ */
+function themeSwatchRow() {
+  const nodes = nodesWithBounds();
+  const caption = nodes.find((item) => String(item.node.attributes?.text ?? '').startsWith('当前主题'));
+  if (caption === undefined) { return undefined; }
+  const squares = nodes.filter((item) => {
+    const width = item.bounds.x2 - item.bounds.x1;
+    const height = item.bounds.y2 - item.bounds.y1;
+    return width === height && width >= 120 && width <= 260 && item.bounds.y2 <= caption.bounds.y1;
+  });
+  const rows = new Map();
+  for (const item of squares) {
+    const key = String(Math.round(item.bounds.y1 / 20));
+    if (!rows.has(key)) { rows.set(key, []); }
+    rows.get(key).push(item);
+  }
+  const best = [...rows.values()].sort((a, b) => (b.length - a.length) || (b[0].bounds.y1 - a[0].bounds.y1))[0];
+  if (best === undefined || best.length < 7) { return undefined; }
+  return best.slice().sort((a, b) => a.bounds.x1 - b.bounds.x1);
+}
+
+/**
+ * 主题色（2026-10-29 补）：换一套预设再换回来，并确认取色轮也在同一排。
+ *
+ * 为什么值得一条用例：主题色是**运行期强调色四件套**（`ToolPalette.primary/primaryDeep/accentTint/onPrimary`
+ * 由 `ThemeState` 单例转发），换色要能立刻反映到「当前主题：…」这一行与选中勾；而色块本身是纯图标格子、
+ * 名字只在 `accessibilityText` 里，所以这里改用**几何定位**（`themeSwatchRow()`）。
+ * **不打开系统取色面板**（那是系统 UI，且本届真机清单 R2/R14 覆盖），只断言它在。
+ */
+function flowTheme() {
+  const problems = [];
+  const captionText = () => allTexts().find((text) => text.startsWith('当前主题：')) ?? '';
+  t(['shell', 'power-shell', 'wakeup']);
+  t(['shell', 'aa', 'force-stop', BUNDLE]);
+  sleep(800);
+  t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+  sleep(2800);
+  const tab = tabAtBottom('设置');
+  if (tab === undefined) { return ['theme：找不到「设置」页签']; }
+  click(tab.bounds.cx, tab.bounds.cy);
+  sleep(2200);
+  let row = themeSwatchRow();
+  if (row === undefined) {
+    // 主题色区块在设置页靠上位置；先回到顶部再试一次。
+    scrollBackToTop(3);
+    row = themeSwatchRow();
+  }
+  if (row === undefined) { return ['theme：找不到主题色块那一排（几何定位失败）']; }
+  if (row.length < 8) {
+    problems.push(`主题色块一排应有 7 套预设 + 1 个取色轮（实测 ${row.length} 个）`);
+  }
+  click(row[1].bounds.cx, row[1].bounds.cy);
+  sleep(1300);
+  if (captionText() !== '当前主题：青碧') {
+    problems.push(`点第 2 个色块后当前主题应变「青碧」（实测 ${JSON.stringify(captionText())}）`);
+  }
+  const row2 = themeSwatchRow();
+  if (row2 === undefined) { return problems.concat(['theme：换色后找不到色块那一排']); }
+  click(row2[0].bounds.cx, row2[0].bounds.cy);
+  sleep(1300);
+  if (captionText() !== '当前主题：经典蓝') {
+    problems.push(`点回第 1 个色块后应回到「经典蓝」（实测 ${JSON.stringify(captionText())}）`);
+  }
+  return problems;
+}
+
+/** 时间戳「用作输入」（2026-10-29 新增能力）：把本地时间写回输入框，并断言写回的就是那一行。 */
+function flowStampChain() {
+  const problems = [];
+  const tree = openTool('timestamp');
+  const area = controlsOf(tree, 'TextArea')[0];
+  if (area === undefined) { return ['stamp/chain：找不到输入框']; }
+  setControl(area, '0');
+  const local = allTexts().find((text) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text));
+  if (local === undefined) { return problems.concat(['时间戳 0 没有给出「本地时间」那一行']); }
+  // 动作行是「现在 + 用作输入」，最右边那颗才是「用作输入」。
+  const row = resultActionPair();
+  if (row === undefined || row.length < 2) {
+    return problems.concat(['stamp/chain：找不到「现在 / 用作输入」动作行']);
+  }
+  const use = row[row.length - 1];
+  click(use.bounds.cx, use.bounds.cy);
+  sleep(1200);
+  const after = controlsOf(dump(), 'TextArea')[0];
+  const text = after === undefined ? '' : String(after.node.attributes?.text ?? '');
+  if (text !== local) {
+    problems.push(`「用作输入」没有把本地时间写回输入框（实测 ${JSON.stringify(text)}，期望 ${JSON.stringify(local)}）`);
+  }
+  return problems;
+}
+
+/**
+ * 设置页「第三方软件与数据许可」（2026-10-29 新增）：展开后四条署名都要看得到。
+ *
+ * CC-BY 4.0 要求「在再分发物中署名」，因此这条不只是 UI 观感——**列表缺一条就是少一次署名**。
+ * 断网可读这条留给真机（R15），模拟器上只验展开与内容。
+ */
+function flowNotices() {
+  const problems = [];
+  t(['shell', 'power-shell', 'wakeup']);
+  t(['shell', 'aa', 'force-stop', BUNDLE]);
+  sleep(800);
+  t(['shell', 'aa', 'start', '-b', BUNDLE, '-a', ABILITY]);
+  sleep(2800);
+  const tab = tabAtBottom('设置');
+  if (tab === undefined) { return ['settings/notices：找不到「设置」页签']; }
+  click(tab.bounds.cx, tab.bounds.cy);
+  sleep(2200);
+  const heading = scrollUntilExactText('第三方软件与数据许可', 10);
+  if (heading === undefined) { return ['settings/notices：滚不到「第三方软件与数据许可」入口']; }
+  click(heading.bounds.cx, heading.bounds.cy);
+  sleep(1200);
+  // 四条署名（名称 + 许可 + 地址）排下来比一屏长，必须滚动收集。
+  const texts = textsAfterSwipeUp(3);
+  for (const marker of ['holiday-cn', 'lunar-javascript', 'EFF large wordlist', 'CC-BY 4.0',
+    'OpenCC', 'Apache-2.0']) {
+    if (!texts.some((text) => text.includes(marker))) {
+      problems.push(`展开「第三方软件与数据许可」后看不到「${marker}」`);
+    }
+  }
+  // 再点一次应收起（与离线隐私政策同一套展开行）。
+  const again = scrollUntilExactText('第三方软件与数据许可', 4);
+  if (again !== undefined) {
+    click(again.bounds.cx, again.bounds.cy);
+    sleep(1000);
+    if (allTexts().some((text) => text.includes('EFF large wordlist'))) {
+      problems.push('再点一次没有收起许可列表');
+    }
+  }
+  return problems;
+}
+
 /**
  * 口令短语（2026-10-29 新增的第 4 种类型）：面板接线 + 默认 6 词 + 熵/口径说明。
  *
@@ -1478,7 +1694,11 @@ const FLOW_CASES = [
   { id: 'passphrase', title: '密码页口令短语：面板接线 + 默认 6 词 + 熵与口径说明', run: flowPassphrase },
   { id: 'variant', title: '文本工具繁简：词组优先（頭髮 而不是 頭发）+ 往返 + 口径说明', run: flowVariant },
   { id: 'naming', title: '文本工具命名风格：驼峰/短横线 + 非 ASCII 字符不被吃掉', run: flowNaming },
-  { id: 'chain', title: '单位换算「用作输入」：结果写回输入框并按新输入重算', run: flowChain }
+  { id: 'chain', title: '单位换算「用作输入」：结果写回输入框并按新输入重算', run: flowChain },
+  { id: 'loancompound', title: '贷款「复利/储蓄」：零利率=本金、定投累加、越界如实拒绝', run: flowLoanCompound },
+  { id: 'stampchain', title: '时间戳「用作输入」：本地时间写回输入框', run: flowStampChain },
+  { id: 'notices', title: '设置页第三方许可展开：四条署名齐全 + 可收起', run: flowNotices },
+  { id: 'theme', title: '主题色：换预设再换回（几何定位色块）+ 取色轮同排', run: flowTheme }
 ];
 
 function flows(only) {
