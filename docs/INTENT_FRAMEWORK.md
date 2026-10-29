@@ -137,8 +137,33 @@ struct Index { … }
 
 ## 8. 变更记录
 
+### 8.1 2026-10-29 第二轮探针：**同一 struct 上可以叠多条 `@InsightIntentPage`**（F1 结论）
+
+上一轮只验证了「一条声明能编译并进产物」。P5.2 真正要回答的是**31 条怎么办**——
+如果编译器只接受一条，就得退回「单条标准意图 + `pageId` 参数」的设计（§7 的 F2b）。
+
+**做法**（探针已还原，见下）：在 `pages/Index.ets` 的 `Index` struct 上同时叠**两条**自定义意图
+（`PocketToolboxProbeOpenQr` + `navDestinationName: 'qr'`、`PocketToolboxProbeOpenText` + `navDestinationName: 'text'`），
+`import { InsightIntentPage } from '@kit.AbilityKit';` 必须放在**文件顶部**（放中间会报
+`arkts-no-misplaced-imports`，本轮实测踩到一次）。
+
+**结果**：
+- `BUILD SUCCESSFUL`；
+- 生成的 `insight_intent.json` 里 `extractInsightIntents` 有**两条**条目，各自的 `intentName`、`displayName`、
+  `pagePath`（都归一成 `@normalized:N&&&entry/src/main/ets/pages/Index&`）与 `navDestinationName`（`qr` / `text`）都在；
+- 打包后的 `module.json` 仍是 **`"hasInsightIntent": true`**（应用不手写这个字段）。
+
+**因此 F2a 可行**：31 条声明可以逐个挂在 `Index` 上，`intentName` 用稳定前缀（如 `PocketToolboxOpen_<route id>`）保证唯一、
+`navDestinationName` 直接取既有路由 id，**不需要**引入「`pageId` 参数 + 运行期分发」那一套（F2b 作为备选保留）。
+**仍未验证的仍是同一件事**：系统入口（小艺/智能搜索）能否真正拉起 —— 本机没有这些入口，也没有设备。
+**因此本轮（2026-10-29）只做探针、没有铺设 31 条声明**：`grep InsightIntent entry/src/main/ets/**/*.ets` = 0、
+`insight_intent.json` 不存在、`git status` 干净、门禁全绿（一致性 36 项 + 单测 + 逐函数覆盖 + HMSymbol）。
+
+### 8.2 变更记录
+
 | 日期 | 变更 |
 |---|---|
 | 2026-10-27 | 建立本文件：P5.1 可行性闸门结论（装饰器机制 + 本机探针证据 + 停在 P5.2 的判定 + 真机验证配方 + 将来实现口径）与 P5.3 的快捷方式能力边界更正 |
+| 2026-10-29 | 第二轮探针（§8.1）：**多条 `@InsightIntentPage` 可同一 struct 共存**且都进产物 → 确定走 F2a（31 条生成式声明）；仍因「本机无设备/无系统入口」**未铺设声明**，配方与回滚规则不变 |
 
 
