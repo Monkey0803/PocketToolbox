@@ -104,6 +104,32 @@ export const CATEGORIES: UnitCategory[] = [
     new UnitDef('TiB', '二进制太字节', 'Tebibyte', 1099511627776),
     new UnitDef('PiB', '二进制拍字节', 'Pebibyte', 1125899906842624)
   ]),
+  // 数据速率（2026-10-27 新增）：基准 **bit/s**。字节侧一律按 1 B = 8 bit 换算，
+  // 与上面的「数据容量」类别口径一致（那一类是 1000 进制 + 二进制侧单列）。
+  new UnitCategory('rate', '数据速率', 'Data rate', [
+    new UnitDef('bits', '比特每秒', 'Bit/s', 1), new UnitDef('kbits', '千比特每秒', 'kbit/s', 1000),
+    new UnitDef('mbits', '兆比特每秒', 'Mbit/s', 1000000), new UnitDef('gbits', '吉比特每秒', 'Gbit/s', 1000000000),
+    new UnitDef('bytes', '字节每秒', 'B/s', 8), new UnitDef('kbytes', '千字节每秒', 'KB/s', 8000),
+    new UnitDef('mbytes', '兆字节每秒', 'MB/s', 8000000),
+    new UnitDef('gbytes', '吉字节每秒', 'GB/s', 8000000000)
+  ]),
+  // 力（2026-10-27 新增）：基准 **牛顿（N）**。kgf 取标准重力加速度 9.80665 m/s² 下的定义值，
+  // lbf 取国际英尺-磅定义（1 lbf = 4.4482216152605 N），两者都是**定义值**而非近似。
+  new UnitCategory('force', '力', 'Force', [
+    new UnitDef('n', '牛顿', 'Newton', 1), new UnitDef('kn', '千牛', 'Kilonewton', 1000),
+    new UnitDef('kgf', '千克力', 'Kilogram-force', 9.80665),
+    new UnitDef('lbf', '磅力', 'Pound-force', 4.4482216152605),
+    new UnitDef('dyn', '达因', 'Dyne', 0.00001)
+  ]),
+  // 扭矩（2026-10-27 新增）：基准 **牛米（N·m）**。同样是定义值换算：
+  // kgf·m = 9.80665 N·m、lbf·ft = 1.3558179483314004 N·m、lbf·in 是 lbf·ft 的 1/12。
+  // 名称里写明「英尺/英寸」，避免与「磅力」本身混淆（与英制/美制加仑、英制/米制马力同一套写法）。
+  new UnitCategory('torque', '扭矩', 'Torque', [
+    new UnitDef('nm', '牛米', 'Newton metre', 1),
+    new UnitDef('kgfm', '千克力米', 'Kilogram-force metre', 9.80665),
+    new UnitDef('lbfft', '磅力英尺', 'Pound-force foot', 1.3558179483314004),
+    new UnitDef('lbfin', '磅力英寸', 'Pound-force inch', 0.1129848290276167)
+  ]),
   new UnitCategory('pressure', '压力', 'Pressure', [
     new UnitDef('pa', '帕斯卡', 'Pascal', 1), new UnitDef('kpa', '千帕', 'Kilopascal', 1000),
     new UnitDef('bar', '巴', 'Bar', 100000), new UnitDef('psi', '磅力每平方英寸', 'PSI', 6894.757293168),
