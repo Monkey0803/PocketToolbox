@@ -12,6 +12,8 @@ import { THEME_COLORS, THEME_COLOR_CUSTOM, ThemeColorOption, themeAccentOf,
 import { appTheme } from '../model/ThemeState';
 import { PRIVACY_POLICY_URL, isUsablePolicyUrl, privacyCopyHintText, privacyEntryNoteText,
   privacyOpenFailedText, privacyPendingText } from '../model/AboutInfo';
+// 离线隐私政策全文（2026-10-27）：正文由 `docs/PRIVACY.md` 生成，随包一份，用户离线也读得到。
+import { PrivacyBlock, privacyBlockCount, privacyBlocks } from '../model/PrivacyText';
 import { historyClearConfirmText } from '../model/HistoryKinds';
 import { HolidayTable, parseHolidayIcs } from '../model/HolidayIcs';
 import { netErrorText } from '../model/NetworkTools';
@@ -182,6 +184,8 @@ export struct SettingsPage {
   @Local holidayUpdating: boolean = false;
   // 应用更新检查进行中（同一取舍：防重复点击 + 按钮置灰）。
   @Local updateChecking: boolean = false;
+  // 离线隐私政策全文是否展开（默认收起：设置页不该一进来就铺开一整页政策正文）。
+  @Local privacyExpanded: boolean = false;
   // 节气/农历节日数据包：当前表的字段（日期取沙箱信封的抓取日期或随包生成日期）与更新中标志。
   @Local solarTable: SolarTermTable = new SolarTermTable();
   @Local solarUpdating: boolean = false;
@@ -747,9 +751,55 @@ export struct SettingsPage {
               })
             }.width('100%')
           }
+          // 离线全文（2026-10-27）：正文随包，公网地址未托管或用户离线时也能读到自己的隐私政策。
+          // 展开/收起用同一行（44 vp 命中区），文案与箭头都随状态变——行内读 `this` 状态，不靠参数传值。
+          Row({ space: 12 }) {
+            Text(appText('settings.privacyFull', this.english)).fontSize(15)
+              .fontColor(ToolPalette.textPrimary).layoutWeight(1)
+            SymbolGlyph(this.privacyExpanded ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+              .fontSize(20).fontColor([ToolPalette.textMuted])
+          }
+          .width('100%').height(44)
+          .accessibilityText(appText('settings.privacyFullA11y', this.english))
+          .onClick(() => { this.privacyExpanded = !this.privacyExpanded; })
+          if (this.privacyExpanded) {
+            Text(this.tr(`离线全文，共 ${privacyBlockCount(this.english)} 段；与随包文档一致，不需要联网。`,
+              `Offline full text, ${privacyBlockCount(this.english)} sections; identical to the bundled policy, no network needed.`))
+              .fontSize(12).fontColor(ToolPalette.textFaint).width('100%')
+            // 正文块来自 `model/PrivacyText.ets`（由 `docs/PRIVACY.md` 生成）。
+            // `ForEach` 的 key 必须带上渲染出来的内容：换语言后文本变了，key 不变就不会重建条目。
+            ForEach(privacyBlocks(this.english), (block: PrivacyBlock, index: number) => {
+              this.privacyBlockLine(block, index)
+            }, (block: PrivacyBlock, index: number) => `${index}|${block.kind}|${block.text.slice(0, 24)}`)
+          }
         }.padding(16).width('100%')
       }
     }.width('100%')
+  }
+
+  /**
+   * 离线隐私政策正文的一块：`h2` 小节标题 / `li` 列表项（前面补一个圆点）/ `p` 段落。
+   *
+   * 三种块都在这一个构建函数里分支——数据里出现哪种就渲染哪种（当前政策只有 `p` 与 `li`），
+   * 这样政策加了子标题也不用改页面；`tests/check-consistency.mjs` 会核对「数据里出现的块种类
+   * 页面都处理了」。
+   */
+  @Builder private privacyBlockLine(block: PrivacyBlock, index: number) {
+    if (block.kind === 'h2') {
+      Text(block.text).fontSize(15).fontWeight(FontWeight.Bold)
+        .fontColor(ToolPalette.textPrimary).width('100%').margin({ top: 4 })
+    } else if (block.kind === 'li') {
+      Row({ space: 6 }) {
+        Text('·').fontSize(14).fontColor(ToolPalette.textSecondary)
+        Text(block.text).fontSize(13).fontColor(ToolPalette.textSecondary).layoutWeight(1)
+      }.width('100%').alignItems(VerticalAlign.Top)
+    } else if (block.kind === 'p') {
+      Text(block.text).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
+    } else {
+      // 未知块种类按段落渲染：**宁可多显示一句话，也不要静默吞掉政策正文**（种类由生成器限定，
+      // 走到这里说明生成器加了新种类而页面还没跟上——一致性检查会先报「设置页没有该分支」）。
+      Text(block.text).fontSize(13).fontColor(ToolPalette.textSecondary).width('100%')
+    }
   }
 
   // 语言选项来自纯逻辑登记表 `model/LanguagePreference.ets`：语言名本身不翻译（否则「English」会变成
