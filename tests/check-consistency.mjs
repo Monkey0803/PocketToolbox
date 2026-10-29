@@ -15,6 +15,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { privacyPageProblems, renderPrivacyHtml, renderPrivacyTextModule } from '../tools/privacy-page.mjs';
+import { renderA11yChecklist, A11Y_CHECKLIST_PATH } from '../tools/build-a11y-checklist.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -1147,7 +1148,7 @@ check('发布就绪页：引用的门禁数字与真实值一致', () => {
 // （2026-10-27 实测：英文描述**完全没提主题色**，而中文写着「外观可选 7 套主题色」；社保与公积金预设
 // 则是**两种语言都没提**——用户从商店页根本发现不了这个已上线能力）。
 // 判据：每项已上线能力在**两种语言**的描述里都要有对应说法（标记串按实际文案写死，改文案要同步这里）。
-check('商店文案：中英描述都要提到已上线能力（主题色 / 社保预设 / URL / JSON / 年度汇算 / 离线政策）', () => {
+check('商店文案：中英描述都要提到已上线能力（主题色 / 社保预设 / URL / JSON / 年度汇算 / 离线政策 / 口令短语 / 繁简 / 命名风格 / 复利 / 第三方许可）', () => {
   const listing = read('docs/STORE_LISTING.md');
   const lines = listing.split('\n');
   const zh = lines.find((line) => line.startsWith('**应用介绍**'));
@@ -1162,6 +1163,12 @@ check('商店文案：中英描述都要提到已上线能力（主题色 / 社�
     ['JSON', 'JSON'],
     ['年度综合所得汇算', 'annual consolidated'],
     ['隐私政策全文', 'privacy policy'],
+    // 2026-10-29 新增（P4.3/P4.4 与 C 轮）：口令短语、繁简转换、命名风格、复利/储蓄、第三方许可。
+    ['口令短语', 'passphrase'],
+    ['繁简', 'traditional'],
+    ['命名风格', 'naming'],
+    ['复利', 'compound growth'],
+    ['第三方', 'third-party'],
   ];
   const offenders = [];
   for (const [zhMarker, enMarker] of features) {
@@ -1233,12 +1240,149 @@ check('商店截图清单：已上线能力都要有对应截图要求', () => {
   const required = [
     'URL 编解码', 'JSON', '年度汇算', '预设', '主题色', '隐私政策全文',
     '服务卡片', '图片工具', '世界时钟', '番茄钟', '转盘', '身份证',
+    // 2026-10-29 新增能力也要有截图落点。
+    '口令短语', '繁简', '命名风格', '复利',
   ];
   const missing = required.filter((marker) => !section.includes(marker));
   if (missing.length > 0) {
     throw new Error(`截图清单漏了已上线能力（照它拍完提交会缺这些图）：${missing.join('、')}`);
   }
   return `${required.length} 项能力在截图清单里都有落点`;
+});
+
+// --- 34. 第三方许可：应用内登记表 ↔ 文档 双向一致，且随包数据表完好 -----------
+// 背景：2026-10-29 新增两项随包数据（EFF 词表 CC-BY 4.0、OpenCC 字表 Apache-2.0），许可都要求
+// 「在再分发物中署名」——署名写在 `model/ThirdPartyNotices.ets`（应用内设置页渲染）与
+// `docs/THIRD_PARTY_NOTICES.md`（完整版）两处。两处各写一遍必然漂移：漏一处就是少一次署名。
+// 判据：① 登记表每条都能在文档里找到同名小节，且小节里写着同一个许可与来源地址；
+// ② 文档里凡出现许可关键字（MIT License / Apache / CC-BY）的小节，都必须进登记表（反向）；
+// ③ 随包数据表本身完好（词表 7776 条 + 署名信息；字表四段齐全 + 词组优先的关键对照）。
+check('第三方许可：登记表与 THIRD_PARTY_NOTICES.md 双向一致，且随包词表/字表完好', () => {
+  const model = read('entry/src/main/ets/model/ThirdPartyNotices.ets').replace(/\r\n/g, '\n');
+  const doc = read('docs/THIRD_PARTY_NOTICES.md').replace(/\r\n/g, '\n');
+  // 构造函数参数顺序固定：id, nameZh, nameEn, licence, url, docHeading, noteZh, noteEn。
+  // 逐个 `new ThirdPartyNotice(...)` 块取引号里的字面量，按下标定位（顺序改了这里会立刻报错）。
+  const entries = [];
+  // 参数里**可能有 ASCII 括号**（例如 `China public-holiday data (holiday-cn)`），因此不能按「第一个 `)`」截断：
+  // 以 `new ThirdPartyNotice(` 切块，每块取**最后一个** `)` 之前的内容作为参数表（调用结束后只会剩 `,`/`;`）。
+  const chunks = model.split('new ThirdPartyNotice(');
+  chunks.shift();
+  for (const chunk of chunks) {
+    const end = chunk.lastIndexOf(')');
+    if (end < 0) { throw new Error('登记项没有闭合的右括号（文件可能被改坏了）'); }
+    const args = (chunk.slice(0, end).match(/'[^']*'/g) ?? []).map((item) => item.slice(1, -1));
+    if (args.length < 6) {
+      throw new Error(`解析登记项失败（引号参数少于 6 个，构造函数顺序可能变了）：${chunk.slice(0, 60)}…`);
+    }
+    entries.push({ id: args[0], licence: args[3], url: args[4], heading: args[5] });
+  }
+  if (entries.length === 0) { throw new Error('解析不到任何第三方许可登记项'); }
+  const ids = entries.map((entry) => entry.id);
+  if (new Set(ids).size !== ids.length) { throw new Error(`登记项 id 有重复：${ids.join(', ')}`); }
+
+  const headings = [...doc.matchAll(/^## (.+)$/gm)].map((item) => item[1].trim());
+  const sectionBody = (heading) => {
+    const at = doc.indexOf('## ' + heading);
+    const next = doc.indexOf('\n## ', at + 1);
+    return doc.slice(at, next < 0 ? doc.length : next);
+  };
+  for (const entry of entries) {
+    if (!headings.includes(entry.heading)) {
+      throw new Error(`登记项 ${entry.id} 的小节「${entry.heading}」在 docs/THIRD_PARTY_NOTICES.md 里不存在` +
+        '（应用内署名了、文档里没有，或标题被改过）');
+    }
+    const body = sectionBody(entry.heading);
+    if (!body.includes(entry.licence)) {
+      throw new Error(`文档小节「${entry.heading}」里没写许可 ${entry.licence}`);
+    }
+    if (!body.includes(entry.url)) {
+      throw new Error(`文档小节「${entry.heading}」里没写来源地址 ${entry.url}`);
+    }
+  }
+  // 反向：文档里凡是有许可关键字的小节，都必须进登记表，否则应用内漏了一次署名。
+  const licenceKeywords = ['MIT License', 'Apache', 'CC-BY'];
+  const uncovered = headings.filter((heading) => {
+    const body = sectionBody(heading);
+    return licenceKeywords.some((keyword) => body.includes(keyword)) &&
+      !entries.some((entry) => entry.heading === heading);
+  });
+  if (uncovered.length > 0) {
+    throw new Error(`文档里有许可小节没进应用内登记表（用户读不到这次署名）：${uncovered.join('、')}`);
+  }
+
+  // 随包数据表：词表条数与署名信息。
+  const wordlist = read('entry/src/main/resources/rawfile/eff_large_wordlist.txt').replace(/\r\n/g, '\n');
+  const words = wordlist.split('\n').filter((line) => line.trim().length > 0 && !line.startsWith('#'));
+  equal('随包词表条数', words.length, 7776);
+  if (!wordlist.includes('CC-BY 4.0') || !wordlist.includes('Electronic Frontier Foundation')) {
+    throw new Error('词表文件头缺少 CC-BY 4.0 署名信息（版本与来源无法追溯）');
+  }
+  // 随包字表：四段齐全、非空，且词组优先的关键对照在数据里（代码能匹配的前提）。
+  const variant = read('entry/src/main/resources/rawfile/opencc_variant.txt').replace(/\r\n/g, '\n');
+  if (!variant.includes('Apache-2.0')) { throw new Error('字表文件头缺少 Apache-2.0 许可信息'); }
+  for (const section of ['stchars', 'stphrases', 'tschars', 'tsphrases']) {
+    const at = variant.indexOf(`[${section}]`);
+    if (at < 0) { throw new Error(`字表缺少 [${section}] 段`); }
+    const next = variant.indexOf('\n[', at + 1);
+    const body = variant.slice(at, next < 0 ? variant.length : next);
+    const rows = body.split('\n').filter((line) => line.indexOf('\t') > 0);
+    if (rows.length === 0) { throw new Error(`字表 [${section}] 段是空的`); }
+  }
+  if (!variant.includes('头发\t頭髮')) {
+    throw new Error('字表缺少「头发 → 頭髮」这条词组优先的关键对照（转换会把「头发」逐字转成「頭发」）');
+  }
+  return `登记表 ${entries.length} 条 ↔ 文档小节双向一致；词表 ${words.length} 条、字表四段齐全`;
+});
+
+// --- 35. 单位类别数口径：README（中英）与商店文案英文说明 与 Units.ets 一致 -----
+// 背景：加单位类别是「只改登记表」的活，README 里的「十八类单位换算」与商店英文的
+// `eighteen categories of units` 全是手写的。改了登记表忘了改文案，用户看到的类别数与实际不符。
+// 与第 25 项（工具数）同源，只是把口径换成「类别数」。
+check('单位类别数口径：README / 商店文案英文说明 与 Units.ets 的类别数一致', () => {
+  const units = read('entry/src/main/ets/model/Units.ets');
+  const count = (units.match(/new UnitCategory\(/g) ?? []).length;
+  if (count === 0) { throw new Error('在 Units.ets 里找不到任何 new UnitCategory('); }
+  const chineseDigits = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const chineseNumber = (text) => {
+    if (text === '十') { return 10; }
+    const tenAt = text.indexOf('十');
+    if (tenAt < 0) { return chineseDigits[text]; }
+    const tens = tenAt === 0 ? 1 : chineseDigits[text.charAt(0)];
+    const ones = tenAt === text.length - 1 ? 0 : chineseDigits[text.charAt(text.length - 1)];
+    return tens * 10 + ones;
+  };
+  const englishNumbers = {
+    fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+    'twenty-one': 21, 'twenty-two': 22, 'twenty-three': 23, 'twenty-four': 24, 'twenty-five': 25,
+  };
+  const readme = read('README.md').replace(/\r\n/g, '\n');
+  const zhMatch = /([一二三四五六七八九十]+)类单位换算/.exec(readme);
+  if (zhMatch === null) { throw new Error('README 里找不到「N 类单位换算」这句声明'); }
+  equal('README 的中文类别数', chineseNumber(zhMatch[1]), count);
+  const listing = read('docs/STORE_LISTING.md').replace(/\r\n/g, '\n');
+  const enMatch = /convert ([a-z-]+) categories of units/.exec(listing);
+  if (enMatch === null) { throw new Error('商店文案英文说明里找不到「convert N categories of units」'); }
+  const english = englishNumbers[enMatch[1]];
+  if (english === undefined) { throw new Error(`不认识英文数词 ${enMatch[1]}（数词表该扩了）`); }
+  equal('商店文案英文的类别数', english, count);
+  return `Units.ets ${count} 类：README 中文「${zhMatch[1]}类」与商店英文「${enMatch[1]}」一致`;
+});
+
+// --- 36. 屏幕朗读走查清单必须与源码一致 ---------------------------------------
+// 背景：`uitest dumpLayout` **不导出 `accessibilityText`**，所以「读屏能不能听出这个按钮是什么」
+// 只能真机逐条念。清单由 `tools/build-a11y-checklist.mjs` 生成，靠人手维护必然漂移
+// （新加一个图标按钮就漏一条）——因此这里**重新渲染并逐字节比对**，与隐私政策那两份产物同一套纪律。
+// 与第 22 项的分工：第 22 项判「有没有名字」，本项判「清单里有没有把每个需要名字的节点都列上」。
+check('无障碍：屏幕朗读走查清单与源码一致（重新生成逐字节比对）', () => {
+  const expected = renderA11yChecklist();
+  const actual = read(A11Y_CHECKLIST_PATH).replace(/\r\n/g, '\n');
+  if (actual !== expected) {
+    throw new Error(`${A11Y_CHECKLIST_PATH} 与源码不一致：请运行 node tools/build-a11y-checklist.mjs 重新生成`);
+  }
+  const rows = expected.split('\n').filter((line) => /^\| \d+ \|/.test(line)).length;
+  if (rows === 0) { throw new Error('走查清单里一个节点都没有（扫描器坏了？）'); }
+  const files = (expected.match(/^## /gm) ?? []).length;
+  return `${files} 个文件、${rows} 个交互节点已列入走查清单`;
 });
 
 for (const line of checks) { console.log(line); }

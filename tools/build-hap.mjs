@@ -19,8 +19,17 @@
  * 用法：
  *   node tools/build-hap.mjs                   # assembleHap --mode module -p product=default
  *   node tools/build-hap.mjs --tests           # 构建后顺带跑一致性检查 + 纯逻辑单测
+ *   node tools/build-hap.mjs --release         # 加 `-p buildMode=release`：**发布包必须走这条**
  *   node tools/build-hap.mjs --xmx 768         # 放宽堆上限（内存充裕时）
  *   node tools/build-hap.mjs clean             # 其余参数原样透传给 hvigor
+ *
+ * 为什么需要 `--release`（2026-10-29 实测）：调试构建会把 ArkTS 的 `ets/sourceMaps.map` **原样存储**
+ * （不压缩，2.25 MiB）打进 HAP，并且 `ets/modules.abc` 也带调试信息——本机同一份源码：
+ * **debug 9,814,179 字节（9.36 MiB）vs release 5,615,498 字节（5.36 MiB）**，release 里没有 source map。
+ * 「外置 source map」的三条路子都做过 clean 重建实测：hvigor-config.json5 的
+ * `properties["ohos.arkCompile.sourceMapDir"]` **只会在该目录另存一份**（相对路径的基准是 `hvigor/`），
+ * **包里那份仍在**；命令行 `-p ohos.arkCompile.sourceMapDir=…` **完全不生效**；只有 release 模式真的去掉它。
+ * 结论是**不改构建配置**，发布时直接用 release 模式（细节见 `docs/RELEASE_CHECKLIST.md`）。
  *
  * 查找顺序：环境变量优先，其次 DevEco Studio 默认安装目录。
  *   DEVECO_STUDIO_HOME / DEVECO_SDK_HOME / JAVA_HOME / HVIGORW
@@ -57,11 +66,15 @@ function optionValue(name) {
 }
 const XMX = Number(optionValue('--xmx') ?? process.env.POCKET_XMX ?? 512);
 const WITH_TESTS = ARGS.includes('--tests');
+// 发布包必须用 release 构建模式：调试模式的 HAP 里带 `ets/sourceMaps.map`（原样存储 2.25 MiB）
+// 与带调试信息的 `modules.abc`，实测同一份源码 9.36 MiB → release 5.36 MiB（见文件头）。
+const RELEASE = ARGS.includes('--release');
 // 透传给 hvigor 的参数：去掉本脚本自己的开关。
 const PASS_THROUGH = [];
 for (let index = 0; index < ARGS.length; index++) {
   const arg = ARGS[index];
   if (arg === '--tests') continue;
+  if (arg === '--release') continue;
   if (arg === '--xmx') { index++; continue; }
   PASS_THROUGH.push(arg);
 }
@@ -115,6 +128,9 @@ const existingHeap = envValue('JAVA_TOOL_OPTIONS');
 setEnv('JAVA_TOOL_OPTIONS', existingHeap ? `${existingHeap} ${HEAP_CAP}` : HEAP_CAP);
 
 const tasks = PASS_THROUGH.length > 0 ? PASS_THROUGH : ['assembleHap', '--mode', 'module', '-p', 'product=default'];
+// `--release` 只影响默认任务链：显式透传了别的 hvigor 任务时由调用方自己决定参数，不在这里叠加。
+if (RELEASE && PASS_THROUGH.length === 0) tasks.push('-p', 'buildMode=release');
+if (RELEASE) console.log('构建模式: release（发布包口径：不含 source map）');
 if (!tasks.includes('--daemon') && !tasks.includes('--no-daemon')) tasks.push('--no-daemon');
 if (!tasks.includes('--Xmx')) tasks.push('--Xmx', String(XMX));
 

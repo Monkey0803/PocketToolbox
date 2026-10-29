@@ -5,6 +5,8 @@
 **/build
 /.hvigor
 /.cache
+# hvigor 属性目录：`ohos.arkCompile.sourceMapDir` 用相对路径时产物会落到 `hvigor/` 下
+/hvigor/.cache
 .cxx
 /.clangd
 /.clang-format

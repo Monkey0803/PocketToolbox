@@ -8,6 +8,25 @@
 - 说明：内容区的卡片按约定就是**退化的普通底色**（ArkUI 组件级材质只在标题栏与底部页签渲染），卡片不是玻璃质感属于预期，不要记为缺陷。
 - 说明：随包的节假日日历现在是**真实数据**（2022–2026，构建期由 `tools/fetch-holidays.mjs` 从 NateScarlet/holiday-cn 生成，见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)），应用不申请网络权限，也没有「更新」按钮；工作日界面应显示「已排除周末与法定节假日，并计入调休上班日」与数据日期。核对工作日时请按当年国务院公告确认预期值。
 
+## 2026-10-29 本轮：**没有可用设备**，因此只记录本机可测得的东西
+
+**先如实说明边界**：本轮 `hdc list targets` 返回 `[Empty]`（DevEco SDK 的 `hdc.exe` 已找到、能执行），所以
+**没有任何一条界面行为是在设备上跑过的**。本轮新增的口令短语 / 繁简 / 命名风格 / 复利 / 三类新单位 /
+「用作输入」/ 第三方许可，全部落在 [`PHONE_ACCEPTANCE_CHECKLIST.md`](PHONE_ACCEPTANCE_CHECKLIST.md) 的 **R14/R15**。
+相应地，本机**也没有新增 `emu.mjs flows` 用例**——那种用例必须真跑一遍才算数，交付「从没跑过的测试」比不交付更糟。
+
+### 本机可测且已测的三件事
+
+1. **随包数据生成器（联网、构建期一次性）**：
+   - `node tools/build-wordlist.mjs` → `词条 7776 条，编号覆盖完整（11111–66666），无重复、无前缀关系`、输出 **106.6 KiB**（源码字符串长度）/ 落盘 **109,332 字节**；
+   - `node tools/build-variant-table.mjs` → `STCharacters 4012 / STPhrases 49238 / TSCharacters 4148 / TSPhrases 480`、兜底判据 4 条全部命中、合计 **57,878 条映射 / 1,057.2 KiB**（UTF-8 字节）/ 落盘 **1,082,601 字节**。
+   - 两条生成器都在**校验失败时报错退出**（本轮实测过一次：最初给 `TSPhrases` 挑的兜底对照 `頭髮 → 头发` 并不在该表里——`TSPhrases` 只收两类罕见异体/类推简化，常见词走单字表——生成器当场红，因此改为 `一目瞭然 → 一目了然`）。
+2. **纯逻辑行为（本机 Node 直跑模型 + 真实数据文件）**：词表解析 `ok=true / 7776`；口令短语确定性随机源下得到 `abdomen-abdominal-abide-abiding-ability-ablaze`；大区间下标在恒定 255 的源上返回 `-1`（拒绝采样 + 尝试上限，不会挂住）；字表 `loaded=true`、最长键 12/10；`头发很长，请开发软件` → `頭髮很長，請開發軟件` 且繁→简能原样回到 `头发很长，请开发软件`；命名风格 `HTTP server_user name` → `httpServerUserName`、`café 测试` → `café-测试`（**非 ASCII 不丢字**）。
+3. **包体与 source map（同一份源码、clean 重建）**：
+   - debug：HAP **9,814,179 字节**，含 `ets/sourceMaps.map` **2,252,328 字节**（存储方式为**不压缩**）、`ets/modules.abc` **4,535,704 字节**；
+   - release（`-p buildMode=release`）：HAP **5,615,498 字节**，**没有** `sourceMaps.map`、`modules.abc` 降到 **2,620,664 字节**；
+   - 三条「外置 source map」路子**各自 clean 重建（删 `entry/build`）实测**：① `hvigor/hvigor-config.json5` 的 `properties["ohos.arkCompile.sourceMapDir"]` —— **会另存一份**到该目录（相对路径基准是 `hvigor/`：写 `.cache/x` 会落到 `hvigor/.cache/x/entry/sourceMaps.map`），**但 HAP 里那份还在**（9,814,177 字节、`ets/sourceMaps.map` 依旧打包）；② 命令行 `-p ohos.arkCompile.sourceMapDir=…` —— **完全不生效**；③ release 模式 —— **有效**（5,615,498 字节、无该条目）。**结论**：不改构建配置（实验属性已删掉），发布走 release 模式（已固化成 `node tools/build-hap.mjs --release`）。
+
 ## 2026-10-27 模拟器补验：实况窗**在模拟器上就能验**，并又抓到一个真 bug（Mate X7 · API 26）
 
 **先更正一条旧结论**：`docs/PHONE_ACCEPTANCE_CHECKLIST.md` 的 P7 一直写着「只能真机验，模拟器没有状态栏胶囊/通知能力」——**这对 Mate X7 镜像不成立**。这台模拟器有 `SystemCapability.LiveView.LiveViewService`，也放行本应用的实况窗（不需要 AGC 权益），而且**真的**把 `PickupLayout.descPic` 指向的 rawfile 解析成了图标：

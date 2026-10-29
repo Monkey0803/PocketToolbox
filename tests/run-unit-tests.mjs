@@ -123,6 +123,13 @@ const wheelTools = await loadEts('../entry/src/main/ets/model/WheelTools.ets');
 const imageTools = await loadEts('../entry/src/main/ets/model/ImageTools.ets');
 // 主题色（2026-10-23）：预设登记表、偏好归一、以及**每个预设与自定义色的对比度门槛**（这是功能的安全网）。
 const themeColors = await loadEts('../entry/src/main/ets/model/ThemeColors.ets');
+// 口令短语与繁简转换（2026-10-29，P4.3/P4.4）：随包数据表的解析与校验、大区间无偏下标、词组优先的转换。
+const wordListModel = await loadEts('../entry/src/main/ets/model/WordList.ets');
+const passphraseModel = await loadEts('../entry/src/main/ets/model/Passphrase.ets');
+const variantTableModel = await loadEts('../entry/src/main/ets/model/VariantTable.ets');
+const chineseVariant = await loadEts('../entry/src/main/ets/model/ChineseVariant.ets');
+// 第三方许可登记表（2026-10-29）：CC-BY 的署名义务落在应用内，因此登记表必须与文档一致（一致性门禁也盯）。
+const thirdPartyNotices = await loadEts('../entry/src/main/ets/model/ThirdPartyNotices.ets');
 const { createHash } = await import('node:crypto');
 
 // --- 「关于」区与隐私政策链接（2026-10-21 新增，配合设置页的隐私政策入口）---
@@ -201,7 +208,7 @@ near(units.convert(1, data, unit(data, 'KiB'), unit(data, 'B')), 1024);
 near(units.convert(1, data, unit(data, 'KB'), unit(data, 'B')), 1000);
 near(units.convert(8, data, unit(data, 'bit'), unit(data, 'B')), 1);
 assert.equal(units.formatValue(Infinity), '—');
-assert.equal(units.CATEGORIES.length, 18);
+assert.equal(units.CATEGORIES.length, 21);
 // 2026-10-27 新增三组**线性**类别：数据速率（基准 bit/s）、力（基准 N）、扭矩（基准 N·m）。
 // 断言取的是**定义值**（不是近似），并顺带钉住「字节 = 8 bit」「kgf·m = 9.80665 N·m」这些跨类别的换算关系。
 const rate = units.CATEGORIES.find((entry) => entry.id === 'rate');
@@ -225,6 +232,31 @@ near(units.convert(12, torque, unit(torque, 'lbfin'), unit(torque, 'lbfft')), 1)
 assert.notEqual(force.id, torque.id);
 assert.equal(unit(force, 'n').factor, 1);
 assert.equal(unit(torque, 'nm').factor, 1);
+// 2026-10-29 新增三组**线性**类别：照度（基准 lx）、剂量当量（基准 Sv）、加速度（基准 m/s²）。
+// 同样断言**定义值**：英尺烛光由 1 ft = 0.3048 m 推导（1 lm/ft²）、rem = 0.01 Sv、gal = 0.01 m/s²。
+const illuminance = units.CATEGORIES.find((entry) => entry.id === 'illuminance');
+assert.equal(illuminance.special, '');
+near(units.convert(1, illuminance, unit(illuminance, 'klx'), unit(illuminance, 'lx')), 1000);
+near(units.convert(1, illuminance, unit(illuminance, 'fc'), unit(illuminance, 'lx')), 10.763910416709722);
+near(units.convert(1, illuminance, unit(illuminance, 'ph'), unit(illuminance, 'lx')), 10000);
+const dose = units.CATEGORIES.find((entry) => entry.id === 'dose');
+assert.equal(dose.special, '');
+near(units.convert(1, dose, unit(dose, 'msv'), unit(dose, 'sv')), 0.001);
+near(units.convert(1, dose, unit(dose, 'usv'), unit(dose, 'sv')), 0.000001);
+near(units.convert(1, dose, unit(dose, 'rem'), unit(dose, 'sv')), 0.01);
+near(units.convert(1, dose, unit(dose, 'mrem'), unit(dose, 'rem')), 0.001);
+const acceleration = units.CATEGORIES.find((entry) => entry.id === 'acceleration');
+assert.equal(acceleration.special, '');
+near(units.convert(1, acceleration, unit(acceleration, 'g'), unit(acceleration, 'mps2')), 9.80665);
+near(units.convert(100, acceleration, unit(acceleration, 'gal'), unit(acceleration, 'mps2')), 1);
+near(units.convert(1, acceleration, unit(acceleration, 'ftps2'), unit(acceleration, 'mps2')), 0.3048);
+// 三组都是**线性**类别，各自的基准单位必须恰好是 1（写错基准会让整类结果整体偏移）。
+assert.equal(unit(illuminance, 'lx').factor, 1);
+assert.equal(unit(dose, 'sv').factor, 1);
+assert.equal(unit(acceleration, 'mps2').factor, 1);
+// 单位 id 在不同类别里可以重名（`g`/`gal` 与质量、体积里的同名单位）：查找一律按类别作用域。
+assert.equal(unit(acceleration, 'g').zh, '标准重力');
+assert.notEqual(unit(category('mass'), 'g').zh, '标准重力');
 // 货币类别走 `special = 'currency'`（不在页面按 id 硬编码），单位表为空、换算交给 FxTools
 const currencyCategory = units.CATEGORIES.find((entry) => entry.id === 'currency');
 assert.equal(currencyCategory.special, 'currency');
@@ -3905,9 +3937,12 @@ function pixelAt(buffer, width, x, y) {
 }
 
 // --- 贷款计算：登记表、输入解析、等额本息、等额本金、边界 ---
-assert.equal(loans.LOAN_METHODS.length, 2);
-assert.deepEqual(loans.LOAN_METHODS.map((entry) => entry.id), ['equalInstallment', 'equalPrincipal']);
+// 2026-10-29：登记表加了第 3 项「复利/储蓄」（它不是还款方式，有独立计算入口 `calculateCompound()`）。
+assert.equal(loans.LOAN_METHODS.length, 3);
+assert.deepEqual(loans.LOAN_METHODS.map((entry) => entry.id),
+  ['equalInstallment', 'equalPrincipal', 'compound']);
 assert.equal(loans.loanMethodIndex('equalPrincipal'), 1);
+assert.equal(loans.loanMethodIndex('compound'), 2);
 assert.equal(loans.loanMethodIndex('nope'), -1);
 assert.equal(loans.loanMethodLabel('equalPrincipal', true), 'Equal principal');
 assert.equal(loans.loanMethodLabel('equalPrincipal', false), '等额本金');
@@ -6433,13 +6468,17 @@ function byteSequence(values) {
   let index = 0;
   return () => values[index++ % values.length];
 }
-assert.equal(passwords.PASSWORD_MODES.length, 3);
-assert.deepEqual(passwords.PASSWORD_MODES.map((mode) => mode.id), ['password', 'pin', 'analyze']);
+assert.equal(passwords.PASSWORD_MODES.length, 4);
+assert.deepEqual(passwords.PASSWORD_MODES.map((mode) => mode.id), ['password', 'passphrase', 'pin', 'analyze']);
 assert.equal(passwords.passwordModeIndex('password'), 0);
-assert.equal(passwords.passwordModeIndex('pin'), 1);
-assert.equal(passwords.passwordModeIndex('analyze'), 2);
+assert.equal(passwords.passwordModeIndex('passphrase'), 1);
+assert.equal(passwords.passwordModeIndex('pin'), 2);
+assert.equal(passwords.passwordModeIndex('analyze'), 3);
 assert.equal(passwords.passwordModeIndex('nope'), -1);
 assert.equal(passwords.passwordModeById('pin').zh, 'PIN 码');
+// 2026-10-29 新增「口令短语」：登记在**同一张**类型表里，因此上面的下标整体后移一位——
+// 这条断言就是用来钉住「下标跟着表走」的（页面按 id 取值，不按下标硬编码）。
+assert.equal(passwords.passwordModeById('passphrase').en, 'Passphrase');
 // 2026-10-22 新增第三种类型「强度检查」（页面按 id 分支、与生成两种类型共用同一个下拉）
 assert.equal(passwords.passwordModeById('analyze').zh, '强度检查');
 assert.equal(passwords.passwordModeById('analyze').en, 'Strength check');
@@ -9026,11 +9065,80 @@ for (const bogus of ['nope', '', 'EQUALINSTALLMENT', 'equal_installment']) {
   assert.ok(loans.loanErrorText('method', false).includes('还款方式'));
   assert.ok(/repayment method/i.test(loans.loanErrorText('method', true)));
 }
-// 登记表里的每个 id 都要能算出完整计划表（拒绝的只是「表外 id」）
+// 登记表里的每个 id 都要能算出完整计划表（拒绝的只是「表外 id」）——
+// **但 `compound` 例外**：它是复利/储蓄，不是还款方式，`calculateLoan()` 明确拒绝它（见下面那一块）。
 for (const entry of loans.LOAN_METHODS) {
+  if (entry.id === 'compound') { continue; }
   const result = loans.calculateLoan(100000000, 4.9, 12, entry.id);
   assert.equal(result.ok, true, `登记项 ${entry.id} 应可用`);
   assert.equal(loans.loanSchedule(100000000, 4.9, 12, entry.id).length, 12);
+}
+
+// 复利/储蓄（2026-10-29）：不是还款方式，必须走自己的入口，且**不能被还款逻辑静默接住**。
+{
+  // ① 还款入口必须明确拒绝复利，而不是照着等额本息算一张表出来。
+  const asLoan = loans.calculateLoan(100000000, 4.9, 12, 'compound');
+  assert.equal(asLoan.ok, false);
+  assert.equal(asLoan.error, 'compound');
+  assert.equal(asLoan.monthlyPaymentCents, 0);
+  assert.equal(loans.loanSchedule(100000000, 4.9, 12, 'compound').length, 0);
+  assert.notEqual(loans.loanErrorText('compound', false), loans.loanErrorText('months', false));
+
+  // ② 零利率 + 无定投：到期金额恰好等于本金，利息为 0（退化路径）。
+  const flat = loans.calculateCompound(100000000, 0, 12, 0);
+  assert.equal(flat.ok, true);
+  assert.equal(flat.maturityCents, 100000000);
+  assert.equal(flat.totalInterestCents, 0);
+  assert.equal(flat.depositedCents, 0);
+  assert.equal(flat.effectiveAnnualRatePercent, 0);
+
+  // ③ 零利率 + 每月定投：逐月累加，本金投入 = 期初 + 定投总额。
+  const saving = loans.calculateCompound(0 + 100000, 0, 12, 50000);
+  assert.equal(saving.ok, true);
+  assert.equal(saving.maturityCents, 100000 + 50000 * 12);
+  assert.equal(saving.depositedCents, 600000);
+  assert.equal(saving.totalPrincipalCents, 700000);
+  assert.equal(saving.totalInterestCents, 0);
+
+  // ④ 逐月四舍五入到分：12% 年利率、100 万元、1 期 → 利息 = round(1000000 * 0.01) = 10000 分。
+  const onePeriod = loans.calculateCompound(1000000, 12, 1, 0);
+  assert.equal(onePeriod.ok, true);
+  assert.equal(onePeriod.monthlyRate, 0.01);
+  assert.equal(onePeriod.firstInterestCents, 10000);
+  assert.equal(onePeriod.totalInterestCents, 10000);
+  assert.equal(onePeriod.maturityCents, 1010000);
+  // 等效年化 = (1+1%)^12 - 1 ≈ 12.6825%（**不是** 12% 本身——这正是「年化」容易说错的地方）。
+  near(onePeriod.effectiveAnnualRatePercent, (Math.pow(1.01, 12) - 1) * 100, 1e-9);
+  assert.ok(onePeriod.effectiveAnnualRatePercent > 12);
+
+  // ⑤ 定投在**月末**投入：第一期定投不产生当月利息（利息只按月初余额算）。
+  const depositLater = loans.calculateCompound(1000000, 12, 1, 1000000);
+  assert.equal(depositLater.firstInterestCents, 10000);
+  assert.equal(depositLater.maturityCents, 1000000 + 10000 + 1000000);
+
+  // ⑥ 极端组合越界：如实报 overflow，而不是给一个已经丢精度的数字。
+  const overflow = loans.calculateCompound(100000000000, 100, 600, 0);
+  assert.equal(overflow.ok, false);
+  assert.equal(overflow.error, 'overflow');
+  assert.equal(loans.loanErrorText('overflow', true).length > 0, true);
+  assert.notEqual(loans.loanErrorText('overflow', false), loans.loanErrorText('overflow', true));
+
+  // ⑦ 入参校验：本金/利率/期限沿用同一套；定投允许 0，但不允许负数与超上限。
+  assert.equal(loans.calculateCompound(0, 4.9, 12, 0).error, 'principal');
+  assert.equal(loans.calculateCompound(1000000, -1, 12, 0).error, 'rate');
+  assert.equal(loans.calculateCompound(1000000, 4.9, 601, 0).error, 'months');
+  assert.equal(loans.calculateCompound(1000000, 4.9, 12, -1).error, 'deposit');
+  assert.equal(loans.calculateCompound(1000000, 4.9, 12, 0.5).error, 'deposit');
+  assert.notEqual(loans.loanErrorText('deposit', false), loans.loanErrorText('deposit', true));
+  // 定投解析：空串交给页面按 0 处理，这里只钉住「0 合法、负数/字母非法、两位小数以内」。
+  assert.equal(loans.loanDepositCents('0'), 0);
+  assert.equal(loans.loanDepositCents('1000.55'), 100055);
+  assert.equal(loans.loanDepositCents('1000.555'), undefined);
+  assert.equal(loans.loanDepositCents('-1'), undefined);
+  assert.equal(loans.loanDepositCents('abc'), undefined);
+  assert.equal(loans.loanDepositCents(''), undefined);
+  // 与本金解析的区别只有一条：0 合法（本金 0 非法）。
+  assert.equal(loans.loanCents('0'), undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -12558,6 +12666,238 @@ for (const mode of netInfo.NETINFO_MODES) {
   const custom = new p.PrivacyBlock('p', 'x');
   assert.equal(custom.kind, 'p');
   assert.equal(custom.text, 'x');
+}
+
+// --- 口令短语（2026-10-29，P4.3）：EFF 词表解析、大区间无偏下标、生成与熵 ---
+// 为什么要有断言：口令短语的强度**完全**取决于「词表大小 × 词数」。词表少几百条、随机下标带模偏差、
+// 或者退化成 Math.random，界面看上去都「正常生成了一句话」，只有断言能发现。
+{
+  assert.equal(wordListModel.EFF_WORD_COUNT, 7776);
+  near(wordListModel.WORD_ENTROPY_BITS, 12.925, 0.001);
+  assert.equal(wordListModel.WORD_ENTROPY_BITS, Math.log2(7776));
+
+  // 真实随包词表：解析必须通过三条校验（7776 条 / 无重复 / 无前缀关系）。
+  const wordText = await readFile(join(ROOT, 'entry/src/main/resources/rawfile/eff_large_wordlist.txt'), 'utf8');
+  const parsedWords = wordListModel.parseWordList(wordText);
+  assert.equal(parsedWords.ok, true);
+  assert.equal(parsedWords.error, 'ok');
+  assert.equal(parsedWords.words.length, wordListModel.EFF_WORD_COUNT);
+  assert.equal(new Set(parsedWords.words).size, wordListModel.EFF_WORD_COUNT);
+  // 词表里不该出现「编号被当成词」这类解析错位（编号是纯数字，词里可以含数字但不会全是数字且 5 位）。
+  assert.equal(parsedWords.words.some((word) => /^[1-6]{5}$/.test(word)), false);
+  // 文件头带来源与许可（CC-BY 的署名线索），解析时被忽略。
+  assert.equal(wordText.includes('CC-BY 4.0'), true);
+  assert.equal(wordText.includes('Electronic Frontier Foundation'), true);
+
+  // 坏数据：空 / 条目数不对 / 重复 / 互为前缀，四种都必须被拒绝并给不同错误码。
+  assert.equal(wordListModel.parseWordList('').ok, false);
+  assert.equal(wordListModel.parseWordList('').error, 'empty');
+  assert.equal(wordListModel.parseWordList('11111\tabacus\n11112\tabdomen').error, 'count');
+  const duplicated = [];
+  for (let index = 0; index < 7776; index++) { duplicated.push('11111\tword' + index); }
+  duplicated[7775] = '66666\tword0';
+  assert.equal(wordListModel.parseWordList(duplicated.join('\n')).error, 'duplicate');
+  const prefixed = [];
+  for (let index = 0; index < 7776; index++) { prefixed.push('11111\tx' + index); }
+  prefixed[0] = '11111\tx1x';
+  assert.equal(wordListModel.parseWordList(prefixed.join('\n')).error, 'prefix');
+
+  // 错误文案：四种都非空且中英不同（读屏与界面都要看得懂到底哪里不对）。
+  for (const code of ['empty', 'count', 'duplicate', 'prefix']) {
+    const zh = wordListModel.wordListErrorText(code, false);
+    const en = wordListModel.wordListErrorText(code, true);
+    assert.equal(zh.length > 0 && en.length > 0, true);
+    assert.notEqual(zh, en);
+  }
+
+  // 大区间无偏下标：单个字节不够用（`PasswordTools.unbiasedIndex` 上限 256），必须两个字节 +
+  // 拒绝采样，且拒绝到上限要返回 -1 而不是死循环。
+  assert.equal(passphraseModel.unbiasedWordIndex(10, () => 0), 0);
+  const sequence = [0, 5];
+  let sequenceIndex = 0;
+  assert.equal(passphraseModel.unbiasedWordIndex(10, () => sequence[sequenceIndex++]), 5);
+  assert.equal(passphraseModel.unbiasedWordIndex(7776, () => 255), -1);
+  assert.equal(passphraseModel.unbiasedWordIndex(0, () => 0), -1);
+  assert.equal(passphraseModel.unbiasedWordIndex(65537, () => 0), -1);
+  assert.equal(passphraseModel.unbiasedWordIndex(10, () => 1.5), -1);
+  assert.equal(passphraseModel.unbiasedWordIndex(10, () => -1), -1);
+  // 拒绝采样不改变取值域：0–255 循环取值时下标始终落在 [0, bound)。
+  let cycle = 0;
+  for (let draw = 0; draw < 200; draw++) {
+    const index = passphraseModel.unbiasedWordIndex(7, () => (cycle++) % 256);
+    assert.equal(index >= 0 && index < 7, true);
+  }
+
+  // 生成：确定性随机源 → 确定性结果（这样才可能断言「选中的是哪几个词」）。
+  const words = ['alpha', 'beta', 'gamma', 'delta'];
+  const draws = [0, 0, 0, 1, 0, 2];
+  let drawIndex = 0;
+  const nextByte = () => draws[drawIndex++ % draws.length];
+  assert.equal(passphraseModel.generatePassphrase(words, 3, 'dash', nextByte), 'alpha-beta-gamma');
+  drawIndex = 0;
+  assert.equal(passphraseModel.generatePassphrase(words, 3, 'none', nextByte), 'alphabetagamma');
+  assert.equal(passphraseModel.generatePassphrase(words, 2, 'dash', () => 0), undefined);
+  assert.equal(passphraseModel.generatePassphrase([], 3, 'dash', () => 0), undefined);
+  assert.equal(passphraseModel.generatePassphrase(words, 3, 'no-such-separator', () => 0), undefined);
+  assert.equal(passphraseModel.generatePassphrase(['x'.repeat(65)], 3, 'dash', () => 0), undefined);
+  // 随机源失控（恒返回被拒值）时必须返回 undefined，而不是挂住界面。
+  // 注意 bound：65536 能被 4 整除，所以「4 个词的小表」根本不会拒绝任何输入；
+  // 只有真实词表规模（7776）才落进拒绝区间——这也是这里必须用真词表的原因。
+  assert.equal(passphraseModel.generatePassphrase(parsedWords.words, 6, 'dash', () => 255), undefined);
+
+  // 登记表：3–8 词，默认 6；分隔符 5 项。
+  assert.deepEqual(passphraseModel.PASSPHRASE_WORD_COUNTS, [3, 4, 5, 6, 7, 8]);
+  assert.equal(passphraseModel.PASSPHRASE_WORD_COUNTS.includes(passphraseModel.DEFAULT_PASSPHRASE_WORDS), true);
+  assert.equal(passphraseModel.PASSPHRASE_SEPARATORS.length, 5);
+  assert.equal(passphraseModel.separatorIndex('dash'), 0);
+  assert.equal(passphraseModel.separatorIndex('no-such'), -1);
+  assert.equal(passphraseModel.separatorById('none').separator, '');
+  assert.equal(passphraseModel.separatorById('no-such'), undefined);
+  assert.notEqual(passphraseModel.separatorLabel('space', false), passphraseModel.separatorLabel('space', true));
+  assert.equal(passphraseModel.passphraseCountIndex(6), 3);
+  assert.equal(passphraseModel.passphraseCountIndex(2), -1);
+  assert.equal(passphraseModel.validPassphraseCount(6), true);
+  assert.equal(passphraseModel.validPassphraseCount(2), false);
+  assert.notEqual(passphraseModel.passphraseCountLabel(6, false), passphraseModel.passphraseCountLabel(6, true));
+
+  // 熵只按词数算：6 词 ≈ 77.55 bit，非法词数按 0（不返回负数/NaN）。
+  near(passphraseModel.passphraseEntropyBits(6), 77.55, 0.01);
+  assert.equal(passphraseModel.passphraseEntropyBits(0), 0);
+  assert.equal(passphraseModel.passphraseEntropyBits(-3), 0);
+  assert.equal(passphraseModel.passphraseEntropyBits(Number.NaN), 0);
+  // 与随机密码同一套强度分级（复用 strengthText，避免两处口径漂移）。
+  assert.notEqual(passphraseModel.passphraseStrengthText(6, false),
+    passphraseModel.passphraseStrengthText(6, true));
+  assert.equal(passphraseModel.passphraseStrengthText(6, false).includes('位熵'), true);
+  assert.equal(passphraseModel.passphraseStrengthText(6, true).includes('bits'), true);
+
+  // 口径说明必须点出「只有词数增加熵」与词表来源（合规署名的一部分）。
+  const noteZh = passphraseModel.passphraseNoteText(false);
+  const noteEn = passphraseModel.passphraseNoteText(true);
+  assert.notEqual(noteZh, noteEn);
+  assert.equal(noteEn.includes('EFF'), true);
+  assert.equal(noteZh.includes('EFF'), true);
+  assert.notEqual(passphraseModel.passphraseErrorText('count', false),
+    passphraseModel.passphraseErrorText('count', true));
+  assert.notEqual(passphraseModel.passphraseErrorText('words', false),
+    passphraseModel.passphraseErrorText('words', true));
+}
+
+// --- 繁简转换（2026-10-29，P4.4）：OpenCC 字表解析、词组优先、往返幂等、失败不假装成功 ---
+{
+  const table = variantTableModel.parseVariantTable(
+    await readFile(join(ROOT, 'entry/src/main/resources/rawfile/opencc_variant.txt'), 'utf8'));
+  assert.equal(table.loaded, true);
+  assert.equal(table.error, 'ok');
+  // 四段都必须有内容（缺一段就整体不可用，避免「一半能转」的假象）。
+  assert.equal(table.stCharsCount > 0, true);
+  assert.equal(table.stPhrasesCount > 0, true);
+  assert.equal(table.tsCharsCount > 0, true);
+  assert.equal(table.tsPhrasesCount > 0, true);
+  // 最长键长度决定贪心回看窗口：必须有限且 > 1（否则词组永远匹配不到）。
+  assert.equal(table.stMaxKey > 1, true);
+  assert.equal(table.tsMaxKey > 1, true);
+  assert.equal(table.st.size, table.stCharsCount + table.stPhrasesCount);
+  assert.equal(table.ts.size, table.tsCharsCount + table.tsPhrasesCount);
+
+  // **词组优先**是这套数据的关键行为：`发` 的单字首选是 `發`，但 `头发` 必须整体命中 `頭髮`。
+  const phrase = chineseVariant.convertVariant('头发', 's2t', table);
+  assert.equal(phrase.ok, true);
+  assert.equal(phrase.text, '頭髮');
+  assert.notEqual(phrase.text, '頭發');
+  assert.equal(chineseVariant.convertVariant('头发', 't2s', table).text, '头发');
+  // 单字走单字表。
+  assert.equal(chineseVariant.convertVariant('发', 's2t', table).text, '發');
+  assert.equal(chineseVariant.convertVariant('發', 't2s', table).text, '发');
+  // 表里没有的字符原样保留（不做猜测、不删字）。
+  assert.equal(chineseVariant.convertVariant('abc 123 !!!', 's2t', table).text, 'abc 123 !!!');
+  // 往返：同一段文本简→繁→简必须回到原样（覆盖集内）。
+  const sample = '头发很长，请开发软件；里面还有后发制人的成语。';
+  const traditional = chineseVariant.convertVariant(sample, 's2t', table).text;
+  assert.equal(traditional.length > 0, true);
+  assert.equal(chineseVariant.convertVariant(traditional, 't2s', table).text, sample);
+  // 幂等：对已经是目标字形的文本再转一次不变。
+  assert.equal(chineseVariant.convertVariant(traditional, 's2t', table).text, traditional);
+
+  // 失败路径：空文本成功返回空；方向非法/表未加载/超长各有错误码，且**不返回原文当成功**。
+  const emptyResult = chineseVariant.convertVariant('', 's2t', table);
+  assert.equal(emptyResult.ok, true);
+  assert.equal(emptyResult.text, '');
+  assert.equal(chineseVariant.convertVariant('头发', 'no-such', table).error, 'direction');
+  assert.equal(chineseVariant.convertVariant('头发', 's2t', variantTableModel.emptyVariantTable()).error, 'table');
+  assert.equal(chineseVariant.convertVariant('x'.repeat(textTools.TEXT_INPUT_MAX + 1), 's2t', table).error, 'tooLong');
+  assert.equal(variantTableModel.variantInputTooLong('x'.repeat(textTools.TEXT_INPUT_MAX)), false);
+  assert.equal(variantTableModel.variantInputTooLong('x'.repeat(textTools.TEXT_INPUT_MAX + 1)), true);
+
+  // 解析的容错与严格：注释/未知段忽略，缺一段报 incomplete，坏行报 line，空表报 empty。
+  assert.equal(variantTableModel.parseVariantTable('').error, 'empty');
+  assert.equal(variantTableModel.parseVariantTable('# only a comment\n').error, 'empty');
+  assert.equal(variantTableModel.parseVariantTable('[stchars]\n发\t發\n').error, 'incomplete');
+  assert.equal(variantTableModel.parseVariantTable('[stchars]\nbroken-line\n').error, 'line');
+  assert.equal(variantTableModel.parseVariantTable('[unknown-section]\n发\t發\n').error, 'empty');
+  assert.equal(variantTableModel.emptyVariantTable().loaded, false);
+  // 小表上的方向登记表（页面用它做下拉文案，不能在这里另抄一份中英）。
+  assert.deepEqual(chineseVariant.VARIANT_DIRECTIONS.map((entry) => entry.id), ['s2t', 't2s']);
+  assert.notEqual(chineseVariant.variantDirectionLabel('s2t', false), chineseVariant.variantDirectionLabel('s2t', true));
+  assert.equal(chineseVariant.variantDirectionLabel('no-such', false).length > 0, true);
+  // 口径说明与错误文案：中英互异、非空。
+  assert.notEqual(chineseVariant.variantNoteText(false), chineseVariant.variantNoteText(true));
+  for (const code of ['tooLong', 'direction', 'table']) {
+    assert.notEqual(chineseVariant.variantErrorText(code, false), chineseVariant.variantErrorText(code, true));
+  }
+  for (const code of ['empty', 'incomplete', 'line']) {
+    assert.notEqual(variantTableModel.variantTableErrorText(code, false),
+      variantTableModel.variantTableErrorText(code, true));
+  }
+}
+
+// --- 第三方许可登记表（2026-10-29）：署名义务的单一数据源 ---
+{
+  assert.equal(thirdPartyNotices.THIRD_PARTY_NOTICES.length, 4);
+  const ids = thirdPartyNotices.THIRD_PARTY_NOTICES.map((notice) => notice.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(ids.includes('wordlist'), true);
+  assert.equal(ids.includes('opencc'), true);
+  for (const notice of thirdPartyNotices.THIRD_PARTY_NOTICES) {
+    // 名称、许可、地址、文档标题、用途说明都必须齐——缺一项署名就不完整。
+    // 名称**不要求中英不同**：`EFF large wordlist` 这类专有名词两边就是同一个写法。
+    assert.equal(notice.nameZh.length > 0 && notice.nameEn.length > 0, true);
+    assert.equal(notice.licence.length > 0, true);
+    assert.equal(notice.url.startsWith('https://'), true);
+    assert.equal(notice.docHeading.length > 0, true);
+    assert.equal(notice.noteZh.length > 0 && notice.noteEn.length > 0, true);
+    assert.notEqual(notice.noteZh, notice.noteEn);
+    // 展示行必须同时带上名称与许可（只写名字等于没署名）。
+    const title = thirdPartyNotices.noticeTitleText(notice, false);
+    assert.equal(title.includes(notice.nameZh), true);
+    assert.equal(title.includes(notice.licence), true);
+    assert.notEqual(thirdPartyNotices.noticeNoteText(notice, false),
+      thirdPartyNotices.noticeNoteText(notice, true));
+  }
+  assert.equal(thirdPartyNotices.thirdPartyNoticeCount(), 4);
+  assert.notEqual(thirdPartyNotices.noticesHeadingText(false), thirdPartyNotices.noticesHeadingText(true));
+  assert.notEqual(thirdPartyNotices.noticesNoteText(false), thirdPartyNotices.noticesNoteText(true));
+  // 四种许可写法都出现在登记表里（门禁会拿这些字串去文档里核对）。
+  const licences = thirdPartyNotices.THIRD_PARTY_NOTICES.map((notice) => notice.licence);
+  assert.equal(licences.includes('MIT'), true);
+  assert.equal(licences.includes('CC-BY 4.0'), true);
+  assert.equal(licences.includes('Apache-2.0'), true);
+}
+
+// --- 文本工具「命名风格」（2026-10-29，第 7 组动作）---
+{
+  assert.equal(textTools.toCamelCase('user_name'), 'userName');
+  assert.equal(textTools.toCamelCase('HTTP server_user name2'), 'httpServerUserName2');
+  assert.equal(textTools.toPascalCase('user-id'), 'UserId');
+  assert.equal(textTools.toSnakeCase('HTTPServerUserId'), 'http_server_user_id');
+  assert.equal(textTools.toKebabCase('user_id'), 'user-id');
+  assert.equal(textTools.toScreamingSnakeCase('user-id 2'), 'USER_ID_2');
+  // 非 ASCII 词内字符**保留**（不能静默删字：`café` 不该变成 `caf`，中文也不该整段丢）。
+  assert.equal(textTools.toKebabCase('café 测试'), 'café-测试');
+  assert.equal(textTools.toCamelCase('你好 世界'), '你好世界');
+  // 只有分隔符时结果为空（页面据此给一次性提示，而不是写一张空结果卡）。
+  assert.equal(textTools.toSnakeCase('---   '), '');
+  assert.equal(textTools.toCamelCase(''), '');
 }
 
 console.log('All toolbox model assertions passed');
