@@ -751,6 +751,7 @@ export struct RandomPage {
       Text(appText('random.no-repeats-across-rounds', this.english))
         .fontSize(14).fontColor(ToolPalette.textSecondary).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: this.poolEnabled })
+        .accessibilityText(appText('random.no-repeats-across-rounds', this.english))
         .onChange((value: boolean) => {
           this.poolEnabled = value;
           // 关掉再打开时给出当前进度；关掉时不清空已抽集合（再次打开能接着用）。

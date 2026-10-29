@@ -653,6 +653,7 @@ export struct DatesPage {
   @Builder private includeFirstToggle() {
     Row({ space: 12 }) {
       Toggle({ type: ToggleType.Switch, isOn: this.dateIncludeFirst })
+        .accessibilityText(appText('dates.include-the-start-date', this.english))
         .onChange((value: boolean) => this.dateIncludeFirst = value)
       Text(appText('dates.include-the-start-date', this.english))
         .fontSize(16).fontColor(ToolPalette.textPrimary)

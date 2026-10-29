@@ -21,7 +21,8 @@ import { TorchController } from '../services/SystemTools';
 import { enableImmersiveWindow } from '../services/ImmersiveWindow';
 import { seedThemeFromStorage, syncThemeColorMode } from '../services/ThemeRuntime';
 import { refreshQuickToolsCards } from '../services/WidgetData';
-import { setStartupIntent, pickStartupTool, pickStartupContent, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
+import { setStartupIntent, pickStartupTool, pickStartupContent, STARTUP_INTENT_EVENT_ID,
+  CONFIG_CHANGED_EVENT_ID } from '../model/StartupIntent';
 
 const DOMAIN = 0x0000;
 // 等窗口沉浸式生效的上限（毫秒）：超时就先加载首屏，界面退回非沉浸布局也不停摆。
@@ -145,6 +146,13 @@ export default class EntryAbility extends UIAbility {
     // 系统切深浅色后强调色要换成该模式的取值（浅/深各一套），界面里读过 `ToolPalette` 的组件会自动刷新。
     syncThemeColorMode(this.context);
     this.refreshWidgets(newConfig.language ?? '');
+    // 字体缩放也可能在这次配置变化里（用户在前台拖字体滑块）：通知已挂载的首屏重算版式。
+    // 只在应用运行中才有意义（冷启动由首帧自己读），因此这里发事件、没订阅者也无妨。
+    try {
+      emitter.emit({ eventId: CONFIG_CHANGED_EVENT_ID });
+    } catch (err) {
+      hilog.warn(DOMAIN, 'testTag', 'emit config-changed failed: %{public}s', JSON.stringify(err));
+    }
   }
 
   onForeground(): void {

@@ -80,7 +80,8 @@ import { IdCheckPage } from '../component/IdCheckPage';
 import { WorldClockPage } from '../component/WorldClockPage';
 import { ImageToolsPage } from '../component/ImageToolsPage';
 import { UrlCodecPage } from '../component/UrlCodecPage';
-import { StartupIntentValue, consumeStartupIntent, clearStartupTool, STARTUP_INTENT_EVENT_ID } from '../model/StartupIntent';
+import { StartupIntentValue, consumeStartupIntent, clearStartupTool, STARTUP_INTENT_EVENT_ID,
+  CONFIG_CHANGED_EVENT_ID } from '../model/StartupIntent';
 import { DEFAULT_LANGUAGE_PREFERENCE, LANGUAGE_FOLLOW_SYSTEM, englishFromPreference,
   normalizeLanguagePreference } from '../model/LanguagePreference';
 import { SettingsPage } from '../component/SettingsPage';
@@ -245,6 +246,18 @@ struct Index {
   private startupCallback: (data: emitter.EventData) => void = (data: emitter.EventData): void => {
     this.applyStartupIntent();
   };
+  /**
+   * 系统配置变了（`EntryAbility.onConfigurationUpdate` 转发过来）：重算与配置相关的版式。
+   *
+   * **为什么必须有这条**：`refreshFontScale()` 原来只在首帧 / 回前台 / 折叠展开时跑。用户在系统设置里
+   * **前台**拖动字体滑块时，系统把文字放大了、卡片高度却停在旧值——模拟器实测（2026-10-27）：
+   * 文字 66 px → 115 px（1.75×），卡片仍是 400 px，内容发紧、底部一行被页签压住。
+   * 读一次配置里最新的 `fontSizeScale` 即可；顺带重读安全区（沉浸式状态可能同时变了），代价可忽略。
+   */
+  private configSubscribed: boolean = false;
+  private configCallback: (data: emitter.EventData) => void = (data: emitter.EventData): void => {
+    this.refreshSafeArea();
+  };
   // 仅在进入文档扫描页时创建，避免在不支持 DocScan 的设备上加载 VisionKit。
   private scanConfig: DocumentScannerConfig | undefined = undefined;
   private readonly scannerSupported: boolean = canIUse('SystemCapability.AI.Component.DocScan');
@@ -281,6 +294,11 @@ struct Index {
       emitter.on({ eventId: STARTUP_INTENT_EVENT_ID }, this.startupCallback);
       this.startupSubscribed = true;
     } catch (_) { this.startupSubscribed = false; }
+    // 系统配置变化（字体缩放/深浅色）→ 重算版式；没有这条，前台改字体时卡片高度不会跟上。
+    try {
+      emitter.on({ eventId: CONFIG_CHANGED_EVENT_ID }, this.configCallback);
+      this.configSubscribed = true;
+    } catch (_) { this.configSubscribed = false; }
     this.applyStartupIntent();
   }
 
@@ -306,10 +324,14 @@ struct Index {
     if (this.startupSubscribed) {
       try { emitter.off(STARTUP_INTENT_EVENT_ID, this.startupCallback); } catch (_) {}
     }
+    if (this.configSubscribed) {
+      try { emitter.off(CONFIG_CHANGED_EVENT_ID, this.configCallback); } catch (_) {}
+    }
     this.holdingSubscribed = false;
     this.operatingSubscribed = false;
     this.foldSubscribed = false;
     this.startupSubscribed = false;
+    this.configSubscribed = false;
   }
 
   onPageHide(): void {
@@ -2228,7 +2250,7 @@ struct Index {
             }
             else if (name === 'tax') {
               TaxPage({ english: this.english, immersiveSupported: this.immersiveSupported,
-                materialLevel: this.materialLevel,
+                materialLevel: this.materialLevel, data: this.data,
                 onCopy: (value: string): void => { this.copy(value); },
                 onStatus: (message: string): void => { this.status = message; } })
             }

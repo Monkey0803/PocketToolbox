@@ -55,6 +55,20 @@ export class StartupIntentValue {
 export const STARTUP_INTENT_EVENT_ID: number = 1001;
 
 /**
+ * 「系统配置变了」事件 id（2026-10-27 新增）。
+ *
+ * 为什么需要它：页面只在**首帧 / 回前台 / 折叠展开**时读一次系统字体缩放（`Index.refreshSafeArea()`
+ * → `refreshFontScale()`）。而**用户在系统设置里拖动字体滑块**时应用还停在前台，页面不会重读——
+ * 系统把文字按新比例放大了，卡片高度却停在旧值，于是内容发紧、底部一行被页签压住。
+ * 模拟器实测（2026-10-27，用 `setFontSizeScale` 在运行中改）：文字 66 px → **115 px**（1.75×），
+ * 卡片高度**仍是 400 px 没动**。
+ *
+ * UIAbility 的 `onConfigurationUpdate()` 一定会收到这个变化（`FormExtensionAbility` 的对应回调
+ * 有三方应用限制，见 `EntryAbility` 里那段注释），所以在那里发这个事件、由已挂载的首屏重算版式。
+ */
+export const CONFIG_CHANGED_EVENT_ID: number = 1002;
+
+/**
  * 从 want.parameters 里取出目标工具 id（纯逻辑，可单测）。
  *
  * 先读我们自己在 shortcuts_config.json 里登记的 `tool` 参数；再兜底几个「系统可能自动注入

@@ -707,6 +707,7 @@ export struct IdPhotoPage {
           Text(appText('idphoto.cutLines', this.english)).fontSize(14)
             .fontColor(ToolPalette.textSecondary).layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.cutLines })
+            .accessibilityText(appText('idphoto.cutLines', this.english))
             .onChange((isOn: boolean) => {
               this.cutLines = isOn;
               this.invalidate();

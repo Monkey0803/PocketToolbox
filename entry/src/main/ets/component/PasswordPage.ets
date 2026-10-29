@@ -283,6 +283,7 @@ export struct PasswordPage {
   @Builder private passwordGroup(kind: string) {
     Row({ space: 8 }) {
       Toggle({ type: ToggleType.Checkbox, isOn: this.passwordGroupEnabled(kind) })
+        .accessibilityText(this.passwordGroupLabel(kind))
         .onChange((value: boolean) => this.setPasswordGroup(kind, value))
       Text(this.passwordGroupLabel(kind))
         .fontSize(16).fontColor(ToolPalette.textPrimary)
