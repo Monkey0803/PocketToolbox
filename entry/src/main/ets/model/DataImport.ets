@@ -109,6 +109,7 @@ export function importKeyLabel(key: string, english: boolean): string {
   if (key === 'world_clock_cities') { return english ? 'world clock cities' : '世界时钟城市'; }
   if (key === 'pomodoro_state') { return english ? 'Pomodoro timer' : '番茄钟'; }
   if (key === 'image_tool_state') { return english ? 'image tool options' : '图片工具选项'; }
+  if (key === 'tax_presets') { return english ? 'contribution presets' : '社保公积金预设'; }
   if (key === 'schema') { return english ? 'data version' : '数据版本'; }
   return key;
 }

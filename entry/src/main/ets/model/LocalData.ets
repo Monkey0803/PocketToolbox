@@ -60,6 +60,9 @@ export const LOCAL_KEYS: string[] = [
   // 图片工具的上次选项（`model/ImageTools.ets` 的 `encodeImageToolState()`：格式/画质/尺寸/最长边/旋转/翻转）。
   // **不含任何图片内容**；读取时逐字段校验，未知 id 与档位回退默认。
   'image_tool_state',
+  // 社保 / 公积金本机预设（`model/SocialInsurancePresets.ets` 的 `serializePresets()`：id/名字/两个比例/
+  // 两个可选基数）。**只存填写值，不存收入或税额**；读取时坏数据逐条丢弃、名字非法回退、id 去重。
+  'tax_presets',
   // 联网偏好（`model/NetPolicy.ets` 的 `serializeNetPrefs()`：总开关 / 仅 Wi-Fi / 逐项开关）。
   // 登记表驱动，读取时按 `NET_ACTIONS` 校验动作 id、非法回退默认；清除本机数据必须一起复位。
   // 数据包/汇率/节假日这些**联网缓存**不在这里：它们的正文是沙箱文件（`services/DataPackService.ets`

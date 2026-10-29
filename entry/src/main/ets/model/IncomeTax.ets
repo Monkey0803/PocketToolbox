@@ -31,7 +31,10 @@ export const TAX_KINDS: TaxKindEntry[] = [
   new TaxKindEntry('severance', '离职补偿', 'Severance'),
   new TaxKindEntry('labor', '劳务报酬', 'Service income'),
   new TaxKindEntry('royalty', '特许权使用费', 'Royalties'),
-  new TaxKindEntry('bonus', '年终奖', 'Annual bonus')
+  new TaxKindEntry('bonus', '年终奖', 'Annual bonus'),
+  // 2026-10-27：年度综合所得汇算。税率表与上面几项**同一张**（`AnnualTax` 只调 `annualTaxCents()`），
+  // 但输入与结果是一整年的口径，因此页面为它单独渲染一个面板（见 `TaxPage.annualPanel()`）。
+  new TaxKindEntry('annual', '年度汇算', 'Annual settlement')
 ];
 
 export function taxKindIndex(id: string): number {
@@ -46,6 +49,14 @@ export function taxKindIndex(id: string): number {
  */
 export const TAX_PERIOD_MIN: number = 1;
 export const TAX_PERIOD_MAX: number = 12;
+
+/**
+ * 每月基本减除费用（5000 元，单位：分）。
+ *
+ * 2026-10-27 提成常量：`wageTax()` 原来直接写 `input.period * 500000`，而「年度综合所得汇算」
+ * 需要的是 12 个月 = 60000 元/年。把它提出来，两处**共用同一个数字**——减除费用调整时不可能只改一处。
+ */
+export const MONTHLY_BASIC_DEDUCTION_CENTS: number = 500000;
 
 /** 期数滚轮的选项列（1–12 的十进制文案），与 `wageTax()` 的校验同一组边界。 */
 export function taxPeriodOptions(): string[] {
@@ -148,6 +159,25 @@ function applicableRate(taxableCents: number, rates: number[], limits: number[])
   return rates[bracket(taxableCents, limits)];
 }
 
+/**
+ * 年度综合所得的**税额**（分）——对外的单一入口。
+ *
+ * 2026-10-27 导出：年度汇算（`model/AnnualTax.ets`）必须与「工资累计预扣」用**同一张税率表与同一套
+ * 速算扣除数**。此前 `annualTax()` 是文件私有函数，新功能很容易顺手再抄一份表；导出这两个函数之后，
+ * 年度汇算只能拿到「已定档的结果」，**没有任何机会自己实现一遍定档**。
+ * 非法或非正的应税额返回 0（应税额为 0 时不该出现税额）。
+ */
+export function annualTaxCents(taxableCents: number): number {
+  if (!Number.isSafeInteger(taxableCents) || taxableCents <= 0) { return 0; }
+  return annualTax(taxableCents);
+}
+
+/** 年度综合所得的**适用税率**（%）：应税额为 0 时返回 0（口径见 `applicableRate()` 的注释）。 */
+export function annualRatePercent(taxableCents: number): number {
+  if (!Number.isSafeInteger(taxableCents) || taxableCents <= 0) { return 0; }
+  return annualRate(taxableCents);
+}
+
 export function wageTax(input: WageInput): TaxResult | undefined {
   const amounts: number[] = [input.grossCents, input.previousGrossCents, input.previousContributionCents,
     input.previousSpecialCents, input.previousPensionCents, input.previousOtherCents, input.previousTaxCents,
@@ -165,7 +195,8 @@ export function wageTax(input: WageInput): TaxResult | undefined {
   result.pensionCents = input.pensionCents;
   result.otherCents = input.otherCents;
   if (result.contributionCents > input.grossCents) { return undefined; }
-  const cumulativeTaxable: number = input.previousGrossCents + input.grossCents - input.period * 500000 -
+  const cumulativeTaxable: number = input.previousGrossCents + input.grossCents -
+    input.period * MONTHLY_BASIC_DEDUCTION_CENTS -
     input.previousContributionCents - result.contributionCents - input.previousSpecialCents -
     result.specialCents - input.previousPensionCents - input.pensionCents -
     input.previousOtherCents - input.otherCents;

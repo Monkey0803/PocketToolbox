@@ -131,6 +131,9 @@ export const APP_STRINGS: AppString[] = [
   new AppString('settings.privacy', '隐私政策', 'Privacy policy'),
   new AppString('settings.privacyOpenA11y', '打开隐私政策', 'Open the privacy policy'),
   new AppString('settings.privacyCopyA11y', '复制隐私政策地址', 'Copy the privacy policy address'),
+  // 离线全文（2026-10-27）：正文随包（由 `docs/PRIVACY.md` 生成），公网地址只是「更方便分享的同一份正文」。
+  new AppString('settings.privacyFull', '隐私政策全文（离线可读）', 'Full privacy policy (offline)'),
+  new AppString('settings.privacyFullA11y', '展开或收起隐私政策全文', 'Expand or collapse the full privacy policy'),
   new AppString('settings.languageA11y', '界面语言', 'App language'),
   new AppString('settings.iconSelectedSuffix', '，已选择', ', selected'),
   new AppString('about.tagline', '离线优先的工具箱', 'An offline-first toolbox'),
@@ -230,6 +233,7 @@ export const APP_STRINGS: AppString[] = [
     '单位换算的上次类别/单位/精度（不含你输入的数值）、指南针与水平仪的上次单位、纪念日清单（上限 20 条，' +
     '可在纪念日页逐条删除）、世界时钟的城市清单（键 world_clock_cities，只存城市 id）、番茄钟的设置与进度' +
     '（键 pomodoro_state，可在计时页重置）与图片工具的上次选项（键 image_tool_state，不含任何图片内容），' +
+    '社保与公积金预设（键 tax_presets，只存你保存的比例与可选基数，不含任何收入或税额，可在个税页逐条删除），' +
     '主题色偏好（键 theme_color / theme_custom_hex，只存预设 id 或你挑的 `#RRGGBB` 颜色），' +
     '以及上次成功获取的汇率缓存（键 fx_rates，可在货币类别里覆盖）仅保存在本机。' +
     '条形码、个税、计算、日期、文本、进制与位运算、文本对比、随机、亲戚称呼和密码的输入与结果只在当前运行期间保留；' +
@@ -248,7 +252,8 @@ export const APP_STRINGS: AppString[] = [
     'category/units/precision (never the value you typed), the compass and spirit-level last units, the anniversary ' +
     'list (up to 20, deletable entry by entry), the world clock city list (key world_clock_cities: city ids only), ' +
     'the Pomodoro settings and progress (key pomodoro_state, resettable in the timers page), the image tool’s last ' +
-    'options (key image_tool_state, never any image content), the theme colour preference (keys theme_color / ' +
+    'options (key image_tool_state, never any image content), the social-insurance and housing-fund presets (key ' +
+    'tax_presets: only the rates and optional bases you saved, never income or tax, deletable in the tax page), the theme colour preference (keys theme_color / ' +
     'theme_custom_hex: a preset id or the #RRGGBB colour you picked) and the last fetched exchange-rate cache (key fx_rates, ' +
     'overwritten when you update rates) stay on this device only. Barcode, income tax, calculator, date, text, ' +
     'base & bitwise, text diff, random, kinship and password inputs and results remain in memory for this run only; ' +
