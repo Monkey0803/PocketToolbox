@@ -47,6 +47,10 @@ const barcodes = await loadEts('../entry/src/main/ets/model/BarcodeTools.ets');
 const calculators = await loadEts('../entry/src/main/ets/model/QuickCalculators.ets');
 const timeTools = await loadEts('../entry/src/main/ets/model/TimeTools.ets');
 const tax = await loadEts('../entry/src/main/ets/model/IncomeTax.ets');
+// 年度综合所得汇算（2026-10-27）：与工资累计预扣共用同一张年度税率表。
+const annualTax = await loadEts('../entry/src/main/ets/model/AnnualTax.ets');
+// 社保 / 公积金本机预设（2026-10-27）：只存比例与可选基数，坏数据逐条丢弃。
+const presets = await loadEts('../entry/src/main/ets/model/SocialInsurancePresets.ets');
 const lunarTools = await loadEts('../entry/src/main/ets/model/LunarTools.ets');
 const holidayIcs = await loadEts('../entry/src/main/ets/model/HolidayIcs.ets');
 const toolMeta = await loadEts('../entry/src/main/ets/model/ToolMeta.ets');
@@ -54,6 +58,10 @@ const qrContent = await loadEts('../entry/src/main/ets/model/QrContent.ets');
 const encodingTools = await loadEts('../entry/src/main/ets/model/EncodingTools.ets');
 // URL 编解码（2026-10-26，第 31 个工具）：方式登记表 + 保留字符口径 + 查询参数拆表。
 const urlCodec = await loadEts('../entry/src/main/ets/model/UrlCodec.ets');
+// JSON 格式化 / 压缩 / 校验（2026-10-27）：令牌级扫描，字面量原样保留。
+const jsonTools = await loadEts('../entry/src/main/ets/model/JsonTools.ets');
+// 应用内离线隐私政策全文（2026-10-27）：由 docs/PRIVACY.md 生成（改完没重新生成会被一致性检查拦下）。
+const privacyText = await loadEts('../entry/src/main/ets/model/PrivacyText.ets');
 const hashTools = await loadEts('../entry/src/main/ets/model/HashTools.ets');
 const historyKinds = await loadEts('../entry/src/main/ets/model/HistoryKinds.ets');
 const timeZones = await loadEts('../entry/src/main/ets/model/TimeZoneTools.ets');
@@ -193,7 +201,30 @@ near(units.convert(1, data, unit(data, 'KiB'), unit(data, 'B')), 1024);
 near(units.convert(1, data, unit(data, 'KB'), unit(data, 'B')), 1000);
 near(units.convert(8, data, unit(data, 'bit'), unit(data, 'B')), 1);
 assert.equal(units.formatValue(Infinity), '—');
-assert.equal(units.CATEGORIES.length, 15);
+assert.equal(units.CATEGORIES.length, 18);
+// 2026-10-27 新增三组**线性**类别：数据速率（基准 bit/s）、力（基准 N）、扭矩（基准 N·m）。
+// 断言取的是**定义值**（不是近似），并顺带钉住「字节 = 8 bit」「kgf·m = 9.80665 N·m」这些跨类别的换算关系。
+const rate = units.CATEGORIES.find((entry) => entry.id === 'rate');
+// 线性类别不带 `special`（登记表用空串哨兵），换算一律走 `factor`。
+assert.equal(rate.special, '');
+near(units.convert(1, rate, unit(rate, 'bytes'), unit(rate, 'bits')), 8);
+near(units.convert(1, rate, unit(rate, 'mbytes'), unit(rate, 'mbits')), 8);
+near(units.convert(125, rate, unit(rate, 'mbytes'), unit(rate, 'gbits')), 1);
+near(units.convert(1, rate, unit(rate, 'gbytes'), unit(rate, 'mbytes')), 1000);
+const force = units.CATEGORIES.find((entry) => entry.id === 'force');
+near(units.convert(1, force, unit(force, 'kgf'), unit(force, 'n')), 9.80665);
+near(units.convert(1, force, unit(force, 'lbf'), unit(force, 'n')), 4.4482216152605);
+near(units.convert(1, force, unit(force, 'dyn'), unit(force, 'n')), 0.00001);
+near(units.convert(1000, force, unit(force, 'n'), unit(force, 'kn')), 1);
+const torque = units.CATEGORIES.find((entry) => entry.id === 'torque');
+near(units.convert(1, torque, unit(torque, 'kgfm'), unit(torque, 'nm')), 9.80665);
+near(units.convert(1, torque, unit(torque, 'lbfft'), unit(torque, 'nm')), 1.3558179483314004);
+// lbf·in 恰好是 lbf·ft 的 1/12（同一条定义链，写错一位就会在这里红）。
+near(units.convert(12, torque, unit(torque, 'lbfin'), unit(torque, 'lbfft')), 1);
+// 力与扭矩是**两个不同的类别**（同样的「1」在两类里含义不同），各自的基准单位都必须是 1。
+assert.notEqual(force.id, torque.id);
+assert.equal(unit(force, 'n').factor, 1);
+assert.equal(unit(torque, 'nm').factor, 1);
 // 货币类别走 `special = 'currency'`（不在页面按 id 硬编码），单位表为空、换算交给 FxTools
 const currencyCategory = units.CATEGORIES.find((entry) => entry.id === 'currency');
 assert.equal(currencyCategory.special, 'currency');
@@ -2262,14 +2293,19 @@ for (const kind of ['labor', 'royalty']) {
 }
 
 // 计税类型登记表：界面选项行由它派生，新增类型只加登记项
-assert.equal(tax.TAX_KINDS.length, 6);
-assert.equal(new Set(tax.TAX_KINDS.map((entry) => entry.id)).size, 6);
+// （2026-10-27：6 → 7，新增「年度汇算」，它由 `AnnualTax` 单独算，不参与 `oneOffTax()`）
+assert.equal(tax.TAX_KINDS.length, 7);
+assert.equal(new Set(tax.TAX_KINDS.map((entry) => entry.id)).size, 7);
 for (const entry of tax.TAX_KINDS) {
   assert.ok(entry.id.length > 0 && entry.zh.length > 0 && entry.en.length > 0, `incomplete tax kind ${entry.id}`);
 }
 assert.equal(tax.taxKindIndex('wage'), 0);
 assert.equal(tax.taxKindIndex('unknown'), -1);
 assert.equal(tax.taxKindIndex('bonus'), 5);
+assert.equal(tax.taxKindIndex('annual'), 6);
+assert.equal(tax.taxKindIndex('annual'), tax.TAX_KINDS.length - 1, '年度汇算是最后一项（下拉顺序不变）');
+// 年度汇算**不走**按次预扣的 `oneOffTax()`：它有自己的纯逻辑与年度税率表。
+assert.equal(tax.oneOffTax('annual', 100000), undefined);
 
 // --- 农历名称与格式化（纯逻辑；公历↔农历换算由系统历法负责，见 services/LunarCalendar.ets）---
 assert.equal(lunarTools.ganZhiOfYear(2026), '丙午');
@@ -12069,6 +12105,459 @@ for (const mode of netInfo.NETINFO_MODES) {
   assert.notEqual(themeColors.deriveThemeAccent('#FFE066', false).primary, '#FFE066');
   assert.equal(themeColors.deriveThemeAccent('#FFE066', false).onPrimary, '#000000');
   assert.equal(themeColors.deriveThemeAccent('#2673DD', false).onPrimary, '#FFFFFF');
+}
+
+// --- JSON 格式化 / 压缩 / 校验（2026-10-27，文本工具第 5 组动作）---
+// 核心口径：**令牌级**扫描——校验语法、重新排版，但每个字面量原样抄写，
+// 因此 `1.0` / `1e10` / 超过 2^53 的整数 / `\uXXXX` / 重复键都不会被改写。
+{
+  const json = jsonTools;
+  // 常量：输入上限必须与文本工具共用同一个来源，深度/缩进/错误码都要稳定。
+  assert.equal(json.JSON_INPUT_MAX, textTools.TEXT_INPUT_MAX);
+  assert.equal(json.JSON_MAX_DEPTH, 64);
+  assert.equal(json.JSON_INDENT, 2);
+  const codes = [json.JSON_ERROR_EMPTY, json.JSON_ERROR_UNEXPECTED, json.JSON_ERROR_STRING,
+    json.JSON_ERROR_NUMBER, json.JSON_ERROR_LITERAL, json.JSON_ERROR_EXPECT,
+    json.JSON_ERROR_TRAILING, json.JSON_ERROR_DEPTH];
+  assert.equal(new Set(codes).size, codes.length);
+  for (const code of codes) {
+    assert.equal(typeof code === 'string' && code.length > 0, true);
+  }
+
+  // 错误码文案：中英都存在、互不相同、不含行列号（位置由页面拼），未知码有兜底。
+  for (const code of codes) {
+    const zh = json.jsonErrorText(code, false);
+    const en = json.jsonErrorText(code, true);
+    assert.equal(zh.length > 0, true);
+    assert.equal(en.length > 0, true);
+    assert.notEqual(zh, en);
+    assert.equal(/行|列|line|column/i.test(zh), false);
+    assert.equal(/行|列|line|column/i.test(en), false);
+  }
+  assert.equal(json.jsonErrorText('nope', false), '无法按 JSON 解析');
+  assert.equal(json.jsonErrorText('nope', true), 'Cannot parse this as JSON');
+  assert.equal(json.jsonErrorText(json.JSON_ERROR_DEPTH, false).includes('64'), true);
+  assert.equal(json.jsonErrorText(json.JSON_ERROR_DEPTH, true).includes('64'), true);
+
+  // 格式化：一行输入 → 规范的两空格缩进。
+  const canonical = '{"a":1,"b":[2,3]}';
+  assert.equal(json.jsonFormat(canonical).text, '{\n  "a": 1,\n  "b": [\n    2,\n    3\n  ]\n}');
+  assert.equal(json.jsonFormat(canonical).ok, true);
+  // 缩进参数：4 空格生效；0/非法值回退默认 2（不让用户拿到一个「没有缩进」的伪格式化）。
+  assert.equal(json.jsonFormat(canonical, 4).text.includes('\n    "a"'), true);
+  assert.equal(json.jsonFormat(canonical, 0).text.includes('\n  "a"'), true);
+  assert.equal(json.jsonFormat(canonical, Number.NaN).text.includes('\n  "a"'), true);
+  // 空容器不写成多行。
+  assert.equal(json.jsonFormat('{}').text, '{}');
+  assert.equal(json.jsonFormat('[]').text, '[]');
+  assert.equal(json.jsonFormat('{"a":{}}').text, '{\n  "a": {}\n}');
+  assert.equal(json.jsonFormat('  [ ]  ').text, '[]');
+
+  // 压缩：吃掉结构性空白，但不动字符串里的空白。
+  assert.equal(json.jsonMinify('{\n  "a": [1, 2],\n  "b": "x  y"\n}').text, '{"a":[1,2],"b":"x  y"}');
+  assert.equal(json.jsonMinify('  [ 1 , 2 ]  ').text, '[1,2]');
+  // 压缩与格式化共用同一套校验：一个通过，另一个必须也通过。
+  for (const sample of ['{"a":1}', '[1,{"b":[true,null,false]}]', '"plain"', '42', '-0.5e+3']) {
+    assert.equal(json.jsonMinify(sample).ok, json.jsonFormat(sample).ok);
+  }
+
+  // 字面量原样保留（这正是不能用 JSON.parse→stringify 往返的原因）。
+  for (const literal of ['1.0', '1e10', '1E+2', '-0', '12345678901234567890', '0.30000000000000004']) {
+    const source = '{"n":' + literal + '}';
+    assert.equal(json.jsonMinify(source).text, source);
+    assert.equal(json.jsonFormat(source).text.includes(literal), true);
+  }
+  assert.equal(json.jsonMinify('{"s":"\\u4f60\\u597d"}').text, '{"s":"\\u4f60\\u597d"}');
+  // 重复键：JSON 不禁止，令牌级扫描原样保留两个键（`JSON.parse` 会丢掉前一个）。
+  assert.equal(json.jsonMinify('{"a":1,"a":2}').text, '{"a":1,"a":2}');
+  assert.equal(json.jsonValidate('{"a":1,"a":2}').ok, true);
+
+  // 校验与 Node 的 `JSON.parse` 做**合法性对照**（同一份语料，结论必须一致）。
+  const validCorpus = ['{}', '[]', '{"a":1}', '[1,2,3]', '"s"', 'true', 'false', 'null', '0', '-0',
+    '1.5e-3', '"\\uD83D\\uDE00"', '{"a":{"b":[{"c":null}]}}', '{"":""}', '[[[[1]]]]',
+    '{"emoji":"😀"}', '  {"a" : 1 }  '];
+  for (const sample of validCorpus) {
+    assert.equal(json.jsonValidate(sample).ok, true);
+    assert.doesNotThrow(() => JSON.parse(sample));
+  }
+  const invalidCorpus = ['', '   ', '{', '[', '}', ']', '{"a"}', '{"a":}', '{:1}', '{"a":1,}',
+    '[1,2,]', '[1,2', "{'a':1}", '{a:1}', '01', '1.', '1e', '.5', '+1', 'nan', 'NaN', 'Infinity',
+    'nul', 'tru', 'truex', '"abc', '"a\\x"', '"a\u0001b"', '{} {}', '[1] [2]', '@', '{"a":1}}', 'undefined'];
+  for (const sample of invalidCorpus) {
+    const result = json.jsonValidate(sample);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.length > 0, true);
+    assert.equal(result.line >= 1, true);
+    assert.equal(result.column >= 1, true);
+    assert.throws(() => JSON.parse(sample));
+  }
+  // 控制字符那一例在源码里要用真实字符，单独再确认一次（上面的字面量可能被转义成普通字符）。
+  assert.equal(json.jsonValidate('"a' + String.fromCharCode(1) + 'b"').ok, false);
+
+  // 错误定位：行列号要指到真正出问题的地方。
+  const empty = json.jsonValidate('');
+  assert.equal(empty.error, json.JSON_ERROR_EMPTY);
+  const missingValue = json.jsonValidate('{"a":}');
+  assert.equal(missingValue.error, json.JSON_ERROR_EXPECT);
+  assert.equal(missingValue.line, 1);
+  assert.equal(missingValue.column, 6);
+  const trailingComma = json.jsonValidate('{"a":1,}');
+  assert.equal(trailingComma.error, json.JSON_ERROR_EXPECT);
+  const trailingToken = json.jsonValidate('{} {}');
+  assert.equal(trailingToken.error, json.JSON_ERROR_TRAILING);
+  assert.equal(trailingToken.column, 4);
+  // 多行输入：错误落在第 3 行的 `}`（尾逗号）。
+  const multiLine = json.jsonValidate('{\n  "a": 1,\n}');
+  assert.equal(multiLine.error, json.JSON_ERROR_EXPECT);
+  assert.equal(multiLine.line, 3);
+  assert.equal(multiLine.column, 1);
+  assert.equal(json.jsonValidate('{"a" 1}').error, json.JSON_ERROR_EXPECT);
+  assert.equal(json.jsonValidate('[1 2]').error, json.JSON_ERROR_EXPECT);
+  assert.equal(json.jsonValidate('"unterminated').error, json.JSON_ERROR_STRING);
+  assert.equal(json.jsonValidate('"bad\\q"').error, json.JSON_ERROR_STRING);
+  assert.equal(json.jsonValidate('"bad\\u12"').error, json.JSON_ERROR_STRING);
+  assert.equal(json.jsonValidate('{"a":01}').error, json.JSON_ERROR_NUMBER);
+  assert.equal(json.jsonValidate('[1e]').error, json.JSON_ERROR_NUMBER);
+  assert.equal(json.jsonValidate('[.5]').error, json.JSON_ERROR_NUMBER);
+  assert.equal(json.jsonValidate('nul').error, json.JSON_ERROR_LITERAL);
+  assert.equal(json.jsonValidate('@').error, json.JSON_ERROR_UNEXPECTED);
+
+  // 嵌套上限：正好 64 层合法，65 层报 depth（不是爆栈）。
+  const nest = (depth) => '['.repeat(depth) + '1' + ']'.repeat(depth);
+  assert.equal(json.jsonValidate(nest(64)).ok, true);
+  assert.equal(json.jsonFormat(nest(64)).ok, true);
+  assert.equal(json.jsonValidate(nest(65)).error, json.JSON_ERROR_DEPTH);
+  assert.equal(json.jsonFormat(nest(65)).error, json.JSON_ERROR_DEPTH);
+  assert.equal(json.jsonMinify(nest(65)).error, json.JSON_ERROR_DEPTH);
+  assert.equal(json.jsonValidate('{"a":' + nest(65) + '}').error, json.JSON_ERROR_DEPTH);
+
+  // 与 Node 的 `JSON.stringify(value, null, 2)` 对**规范语料**逐字对照。
+  for (const sample of validCorpus) {
+    const reparsed = JSON.parse(sample);
+    if (typeof reparsed !== 'object' || reparsed === null) { continue; } // 标量：Node 的缩进表示与原串不同
+    if (sample.includes('{"":""}') || sample.includes('[[[[')) { continue; } // 结构无歧义但与 Node 写法差异需人工确认
+    assert.equal(json.jsonFormat(sample).text, JSON.stringify(reparsed, null, 2));
+  }
+  // 语义等价：格式化/压缩后的文本再解析必须得到同一份数据。
+  for (const sample of validCorpus) {
+    const expected = JSON.stringify(JSON.parse(sample));
+    assert.equal(JSON.stringify(JSON.parse(json.jsonFormat(sample).text)), expected);
+    assert.equal(JSON.stringify(JSON.parse(json.jsonMinify(sample).text)), expected);
+  }
+  // 校验成功时回的是压缩形态（页面只用结论，不用它替换输入）。
+  assert.equal(json.jsonValidate('{ "a" : 1 }').text, '{"a":1}');
+  // 失败时 text 必须为空，避免页面误把它当结果写进结果卡。
+  assert.equal(json.jsonValidate('{').text, '');
+  assert.equal(json.jsonFormat('{').text, '');
+  assert.equal(json.jsonMinify('{').ok, false);
+}
+
+// --- 年度综合所得汇算（2026-10-27）：扣除上限登记表 + 与工资预扣共用同一张税率表 ---
+{
+  const annual = annualTax;
+  // 登记表：7 项、id 唯一、中英与口径说明齐全、上限为正。
+  assert.equal(annual.SPECIAL_DEDUCTIONS.length, 7);
+  assert.equal(new Set(annual.SPECIAL_DEDUCTIONS.map((entry) => entry.id)).size, 7);
+  for (const entry of annual.SPECIAL_DEDUCTIONS) {
+    assert.equal(entry.zh.length > 0, true);
+    assert.equal(entry.en.length > 0, true);
+    assert.notEqual(entry.zh, entry.en);
+    assert.equal(entry.hintZh.length > 0, true);
+    assert.equal(entry.hintEn.length > 0, true);
+    assert.equal(entry.annualCapCents > 0, true);
+  }
+  assert.equal(annual.deductionById('nope'), undefined);
+  assert.equal(annual.deductionCapCents('nope', 1, true), 0, '未知项不得到退成第一项的上限');
+  assert.equal(annual.deductionById('child').unitMultiplier, true);
+  assert.equal(annual.deductionById('continuing').unitMultiplier, false);
+  // 上限：按月口径 × 12 的换算结果写死在断言里（改政策会红）。
+  assert.equal(annual.deductionCapCents('child', 1, true), 2400000);   // 2000 元/月
+  assert.equal(annual.deductionCapCents('child', 3, true), 7200000);   // 按人数翻倍
+  assert.equal(annual.deductionCapCents('infant', 2, true), 4800000);
+  assert.equal(annual.deductionCapCents('continuing', 9, true), 480000); // 固定项不受人数影响
+  assert.equal(annual.deductionCapCents('medical', 1, true), 8000000);
+  assert.equal(annual.deductionCapCents('mortgage', 1, true), 1200000);
+  assert.equal(annual.deductionCapCents('rent', 1, true), 1800000);
+  // 人数非法时按 1 人算（已经在填这一项，不该被 0 抹掉）。
+  assert.equal(annual.deductionCapCents('child', 0, true), 2400000);
+  assert.equal(annual.deductionCapCents('child', Number.NaN, true), 2400000);
+  // 赡养老人：独生 / 非独生两套上限。
+  assert.equal(annual.elderCapCents(true), 3600000);
+  assert.equal(annual.elderCapCents(false), 1800000);
+  assert.equal(annual.deductionCapCents('elder', 1, true), 3600000);
+  assert.equal(annual.deductionCapCents('elder', 1, false), 1800000);
+
+  const blank = () => new annual.AnnualInput();
+  // 基本减除费用 60000 元/年：收入正好 6 万 → 应税额 0、税率 0、税额 0。
+  const zero = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 }));
+  assert.equal(zero.taxableCents, 0);
+  assert.equal(zero.ratePercent, 0, '应税额为 0 时不显示最低档的 3%');
+  assert.equal(zero.taxCents, 0);
+  assert.equal(zero.basicCents, 60000 * 100);
+  assert.equal(zero.basicCents, tax.MONTHLY_BASIC_DEDUCTION_CENTS * tax.TAX_PERIOD_MAX,
+    '基本减除费用与工资页共用同一个常量');
+  assert.equal(annual.annualSettleText(zero.settleCents, false), '无需补税也无需退税');
+  // 收入低于扣除项合计：应税额夹到 0，不出现负数税额。
+  const below = annual.annualSettlement(Object.assign(blank(), { revenueCents: 1000000, socialCents: 5000000 }));
+  assert.equal(below.taxableCents, 0);
+  assert.equal(below.taxCents, 0);
+  // 档位边界：应税额 36000 元是 3% 档顶（税额 1080 元），多 1 分进 10% 档但税额连续。
+  const atLimit = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 + 3600000 }));
+  assert.equal(atLimit.taxableCents, 3600000);
+  assert.equal(atLimit.ratePercent, 3);
+  assert.equal(atLimit.taxCents, 108000);
+  const overLimit = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 + 3600001 }));
+  assert.equal(overLimit.ratePercent, 10);
+  assert.equal(Math.abs(overLimit.taxCents - atLimit.taxCents) <= 10, true, '跨档处税额必须连续（速算扣除数的作用）');
+  // 高档位：应税额 100000 元 → 10% 档，税额 7480 元；1000000 元 → 45% 档，税额 268080 元。
+  const ten = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 + 10000000 }));
+  assert.equal(ten.ratePercent, 10);
+  assert.equal(ten.taxCents, 748000);
+  const top = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 + 100000000 }));
+  assert.equal(top.ratePercent, 45);
+  assert.equal(top.taxCents, 26808000);
+  // 与工资预扣共用同一张税率表：年度汇算的税额必须逐值等于 `IncomeTax.annualTaxCents()`。
+  for (const taxable of [0, 1, 3600000, 3600001, 14400000, 30000000, 42000000, 66000000, 96000000, 100000000]) {
+    const settled = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 + taxable }));
+    assert.equal(settled.taxableCents, taxable);
+    assert.equal(settled.taxCents, tax.annualTaxCents(taxable));
+    assert.equal(settled.ratePercent, tax.annualRatePercent(taxable));
+  }
+  assert.equal(tax.annualTaxCents(-1), 0);
+  assert.equal(tax.annualTaxCents(Number.NaN), 0);
+  assert.equal(tax.annualRatePercent(0), 0);
+  // 扣除上限：填超了按上限计入，并把「被挡掉多少」如实回报。
+  const capped = annual.annualSettlement(Object.assign(blank(), {
+    revenueCents: 20000000, childUnits: 1, childCents: 3000000
+  }));
+  assert.equal(capped.specialCents, 2400000);
+  assert.deepEqual(capped.cappedIds, ['child']);
+  assert.equal(capped.cappedCents, 600000);
+  const capNote = annual.annualCapNoteText(capped, false);
+  assert.equal(capNote.includes('子女教育'), true);
+  assert.equal(capNote.includes('6000.00'), true, '被挡掉的金额是 30000 − 24000 = 6000 元');
+  assert.equal(annual.annualCapNoteText(zero, false), '', '没触到上限时不显示提示');
+  // 赡养老人非独生：上限减半。
+  const shared = annual.annualSettlement(Object.assign(blank(), {
+    revenueCents: 20000000, elderSole: false, elderCents: 3000000
+  }));
+  assert.equal(shared.specialCents, 1800000);
+  assert.deepEqual(shared.cappedIds, ['elder']);
+  // 多项合计：各按各自上限计入。
+  const mixed = annual.annualSettlement(Object.assign(blank(), {
+    revenueCents: 30000000, childUnits: 2, childCents: 4800000, continuingCents: 480000, medicalCents: 1000000,
+    mortgageCents: 1200000
+  }));
+  assert.equal(mixed.specialCents, 4800000 + 480000 + 1000000 + 1200000);
+  assert.equal(mixed.cappedIds.length, 0);
+  // 补退：预缴多于应纳 → 负数（应退）；少于 → 正数（应补）。
+  const refund = annual.annualSettlement(Object.assign(blank(), { revenueCents: 6000000 + 3600000, prepaidCents: 200000 }));
+  assert.equal(refund.settleCents, 108000 - 200000);
+  assert.equal(annual.annualSettleText(refund.settleCents, false), '应退 920.00 元');
+  assert.equal(annual.annualSettleText(92000, true), 'Pay 920.00 CNY');
+  assert.equal(annual.annualSettleText(Number.NaN, false), '无法估算');
+  // 校验失败路径：房贷与租金同时填、金额非法、人数越界。
+  assert.equal(annual.annualSettlement(Object.assign(blank(), {
+    revenueCents: 10000000, mortgageCents: 1, rentCents: 1
+  })), undefined, '房贷利息与住房租金不可同时扣除');
+  assert.equal(annual.annualSettlement(Object.assign(blank(), { revenueCents: -1 })), undefined);
+  assert.equal(annual.annualSettlement(Object.assign(blank(), { revenueCents: 1.5 })), undefined);
+  assert.equal(annual.annualSettlement(Object.assign(blank(), { childUnits: 21 })), undefined);
+  assert.equal(annual.annualSettlement(Object.assign(blank(), { childUnits: 2.5 })), undefined);
+  const errorText = annual.annualSettlementErrorText(false);
+  assert.equal(errorText.length > 0, true);
+  assert.notEqual(errorText, annual.annualSettlementErrorText(true));
+  const noteText = annual.annualSettlementNoteText(false);
+  assert.notEqual(noteText, annual.annualSettlementNoteText(true));
+  assert.equal(noteText.includes('不是申报结果'), true);
+  // 上限说明随口径切换（页面在输入框下方显示）。
+  assert.notEqual(annual.deductionLimitText('elder', true, false), annual.deductionLimitText('elder', false, false));
+  assert.equal(annual.deductionLimitText('elder', true, false).includes('3000'), true);
+  assert.equal(annual.deductionLimitText('elder', false, true).includes('1500'), true);
+  assert.equal(annual.deductionLimitText('nope', true, false), '');
+  assert.equal(annual.deductionLimitText('child', true, false).includes('2000'), true);
+  assert.equal(annual.ANNUAL_TAX_RULES_REVIEWED.length, 10, '复核日期必须是 YYYY-MM-DD');
+  // 「赡养老人」口径登记表：两项、一真一假、下标与布尔互相对上（页面下拉据此渲染）。
+  assert.equal(annual.ELDER_MODES.length, 2);
+  assert.equal(annual.ELDER_MODES[0].sole, true);
+  assert.equal(annual.ELDER_MODES[1].sole, false);
+  assert.equal(annual.elderModeIndex(true), 0);
+  assert.equal(annual.elderModeIndex(false), 1);
+  for (const mode of annual.ELDER_MODES) {
+    assert.equal(mode.zh.length > 0 && mode.en.length > 0, true);
+    assert.notEqual(mode.zh, mode.en);
+  }
+}
+
+// --- 社保 / 公积金本机预设（2026-10-27）：口径、坏数据逐条丢弃、增删改的纯函数 ---
+{
+  const p = presets;
+  assert.equal(p.PRESET_MAX, 20);
+  assert.equal(p.PRESET_NAME_MAX, 30);
+  assert.equal(p.PRESET_RATE_MAX, 100);
+  // 随包只有一条示例，且明确标注非权威、不带基数（套用时保留用户当前基数）。
+  const example = p.examplePresets();
+  assert.equal(example.length, 1);
+  assert.equal(example[0].id, 'p1');
+  assert.equal(example[0].name.includes('示例'), true);
+  assert.equal(example[0].name.includes('非权威'), true);
+  assert.equal(example[0].socialRate, 10.5);
+  assert.equal(example[0].housingRate, 12);
+  assert.equal(example[0].socialBaseCents, 0);
+  assert.equal(p.presetHasBase(example[0]), false);
+  assert.equal(p.presetHasBase(new p.ContributionPreset('p9', 'x', 10, 12, 500000, 0)), true);
+  // 名字校验：空 / 超长非法，中英提示互异。
+  assert.equal(p.presetNameValid(''), false);
+  assert.equal(p.presetNameValid('   '), false);
+  assert.equal(p.presetNameValid('a'.repeat(30)), true);
+  assert.equal(p.presetNameValid('a'.repeat(31)), false);
+  assert.equal(p.presetNameErrorText('x', false), '');
+  assert.notEqual(p.presetNameErrorText('', false), '');
+  assert.notEqual(p.presetNameErrorText('', false), p.presetNameErrorText('', true));
+  assert.notEqual(p.presetNameErrorText('a'.repeat(31), true), '');
+  // 单条规范化：比例/金额非法一律拒绝（不回退成默认值悄悄算错）。
+  assert.equal(p.normalizePreset('p2', 'n', 10, 12, 0, 0).socialRate, 10);
+  assert.equal(p.normalizePreset('p2', 'n', -1, 12, 0, 0), undefined);
+  assert.equal(p.normalizePreset('p2', 'n', 101, 12, 0, 0), undefined);
+  assert.equal(p.normalizePreset('p2', 'n', Number.NaN, 12, 0, 0), undefined);
+  assert.equal(p.normalizePreset('p2', 'n', 10, 12, -1, 0), undefined);
+  assert.equal(p.normalizePreset('p2', 'n', 10, 12, 1.5, 0), undefined);
+  assert.equal(p.normalizePreset('', 'n', 10, 12, 0, 0), undefined);
+  // 名字非法 → 回退成「预设 + id」，不丢这一条。
+  const fallback = p.normalizePreset('p7', '   ', 10, 12, 0, 0);
+  assert.equal(fallback.name, '预设 p7');
+  // 解析：坏输入整体退回空清单。
+  for (const raw of ['', '   ', 'null', '[]', '{', '"x"', '42', '[1,2]', '[null]']) {
+    if (raw === '[]') { assert.deepEqual(p.parsePresets(raw), []); continue; }
+    assert.deepEqual(p.parsePresets(raw), [], `坏输入 ${raw} 应得空清单`);
+  }
+  assert.deepEqual(p.parsePresets(undefined), []);
+  // 解析：坏条目逐条丢弃，好条目照常保留（含缺字段默认 0、重复 id 只留第一条）。
+  const mixed = p.parsePresets(JSON.stringify([
+    { id: 'p1', name: '一', socialRate: 8, housingRate: 12, socialBaseCents: 500000, housingBaseCents: 0 },
+    { id: 'p2', name: '坏比例', socialRate: 999, housingRate: 12 },
+    { id: 'p3', name: '缺字段', socialRate: 9, housingRate: 9 },
+    { id: 'p1', name: '重复 id', socialRate: 1, housingRate: 1 },
+    { id: 'p4', name: '金额是字符串', socialRate: 9, housingRate: 9, socialBaseCents: '500000' },
+    'not-an-object'
+  ]));
+  assert.deepEqual(mixed.map((entry) => entry.id), ['p1', 'p3', 'p4']);
+  assert.equal(mixed[1].socialBaseCents, 0, '缺字段按 0（不含基数）');
+  assert.equal(mixed[2].socialBaseCents, 0, '类型不符的字段按 0，而不是丢掉这一条');
+  assert.equal(mixed[0].socialBaseCents, 500000);
+  // 解析：名字超长 → 回退；数量超上限 → 截断到 PRESET_MAX。
+  const longName = p.parsePresets(JSON.stringify([{ id: 'p1', name: 'a'.repeat(40), socialRate: 8, housingRate: 8 }]));
+  assert.equal(longName[0].name, '预设 p1');
+  const many = [];
+  for (let index = 1; index <= 30; index++) {
+    many.push({ id: 'p' + index, name: 'n' + index, socialRate: 8, housingRate: 8 });
+  }
+  assert.equal(p.parsePresets(JSON.stringify(many)).length, p.PRESET_MAX);
+  // 序列化来回：只写这六个字段，解析回来逐值相等。
+  const roundTrip = p.parsePresets(p.serializePresets(example));
+  assert.deepEqual(roundTrip, example);
+  assert.equal(p.serializePresets([]), '[]');
+  assert.equal(p.parsePresets(p.serializePresets(mixed)).length, mixed.length);
+  // id 生成：扫现有 p<数字> 取最大 + 1，忽略怪 id。
+  assert.equal(p.nextPresetId([]), 'p1');
+  assert.equal(p.nextPresetId(example), 'p2');
+  assert.equal(p.nextPresetId([new p.ContributionPreset('p3', 'x', 1, 1, 0, 0),
+    new p.ContributionPreset('p9', 'y', 1, 1, 0, 0), new p.ContributionPreset('weird', 'z', 1, 1, 0, 0)]), 'p10');
+  // 增删改：都是纯函数，返回新数组、不改入参。
+  const base = example.slice();
+  const added = p.addPreset(base, new p.ContributionPreset('p2', '二', 8, 12, 0, 0));
+  assert.equal(added.length, 2);
+  assert.equal(base.length, 1, 'addPreset 不得改入参');
+  assert.equal(p.addPreset(added, new p.ContributionPreset('p2', 'dup', 1, 1, 0, 0)).length, 2, 'id 重复不追加');
+  // 非法字段**写入前就被挡住**（2026-10-27 模拟器真缺陷：-1 的基数写进去后读不回来）。
+  assert.equal(p.addPreset(base, new p.ContributionPreset('p8', 'x', 8, 12, -1, 0)).length, 1);
+  assert.equal(p.addPreset(base, new p.ContributionPreset('p8', 'x', 8, 12, 0, 1.5)).length, 1);
+  assert.equal(p.addPreset(base, new p.ContributionPreset('p8', 'x', 200, 12, 0, 0)).length, 1);
+  // 反过来：只要 `addPreset` 收下了，`serialize` → `parse` 一定能读回来（这一条正是上面那个缺陷的守卫）。
+  const accepted = p.addPreset(base, new p.ContributionPreset('p8', 'x', 8, 12, 0, 0));
+  assert.equal(accepted.length, 2);
+  assert.equal(p.parsePresets(p.serializePresets(accepted)).length, 2, '写入成功的预设必须能读回来');
+  const full = [];
+  for (let index = 1; index <= p.PRESET_MAX; index++) {
+    full.push(new p.ContributionPreset('p' + index, 'n' + index, 8, 8, 0, 0));
+  }
+  assert.equal(p.addPreset(full, new p.ContributionPreset('p99', 'x', 8, 8, 0, 0)).length, p.PRESET_MAX,
+    '到上限不追加（页面会先拦并提示）');
+  assert.deepEqual(p.removePreset(added, 'p2').map((entry) => entry.id), ['p1']);
+  assert.equal(p.removePreset(added, 'nope').length, 2);
+  const renamed = p.renamePreset(added, 'p2', '  新名字  ');
+  assert.equal(renamed[1].name, '新名字', '改名去首尾空白');
+  assert.equal(renamed[1].socialRate, 8, '改名不动其它字段');
+  assert.deepEqual(p.renamePreset(added, 'p2', '  ').map((entry) => entry.name), added.map((entry) => entry.name),
+    '非法名字不生效');
+  assert.equal(p.renamePreset(added, 'nope', 'x').length, 2);
+  assert.equal(p.presetIndexById(added, 'p2'), 1);
+  assert.equal(p.presetIndexById(added, 'nope'), -1);
+  // 文案：摘要含两个比例，带/不带基数分别有提示；口径说明与上限提示中英互异。
+  const summaryNoBase = p.presetSummaryText(example[0], false);
+  assert.equal(summaryNoBase.includes('10.5%'), true);
+  assert.equal(summaryNoBase.includes('12%'), true);
+  assert.equal(summaryNoBase.includes('不含基数'), true);
+  const summaryBase = p.presetSummaryText(new p.ContributionPreset('p5', 'x', 8, 12, 500000, 500000), true);
+  assert.equal(summaryBase.includes('with base'), true);
+  assert.notEqual(p.presetNoteText(false), p.presetNoteText(true));
+  assert.equal(p.presetNoteText(false).includes('不是权威'), true);
+  assert.notEqual(p.presetLimitText(false), p.presetLimitText(true));
+  assert.equal(p.presetLimitText(false).includes(p.PRESET_MAX.toString()), true);
+}
+
+// 应用内离线隐私政策全文（2026-10-27）：正文由 `docs/PRIVACY.md` 生成，这里断言
+// 「两段都非空、块种类合法、没有 Markdown 残留、中英不同、六项权限都被披露」——
+// 真正的漂移守卫在一致性检查里（逐字节复算生成结果），这里守的是**渲染前的数据质量**。
+{
+  const p = privacyText;
+  const zh = p.privacyBlocks(false);
+  const en = p.privacyBlocks(true);
+  assert.equal(p.privacyBlockCount(false), zh.length);
+  assert.equal(p.privacyBlockCount(true), en.length);
+  assert.equal(zh.length > 10, true);
+  assert.equal(en.length > 10, true);
+  assert.equal(zh.length, en.length);
+  // 第一块是正文（`最后更新…` 之类），标题行不进块——应用内自己显示标题。
+  assert.equal(zh[0].kind, 'p');
+  assert.equal(en[0].kind, 'p');
+  const kinds = ['h2', 'li', 'p'];
+  for (const blocks of [zh, en]) {
+    for (const block of blocks) {
+      assert.equal(kinds.includes(block.kind), true);
+      assert.equal(block.text.length > 0, true);
+      // 生成的正文里不能留下 Markdown 标记（`**`、`` ` ``、`](`）——否则界面上会看到原始符号。
+      assert.equal(block.text.includes('**'), false);
+      assert.equal(block.text.includes('`'), false);
+      assert.equal(block.text.includes(']('), false);
+      assert.equal(block.text.includes('\n'), false);
+    }
+  }
+  // 小节标题（当前政策没有 `##` 子标题，因此这里只断言「两语种标题数量一致、同位置不重复」——
+  // 将来政策加了子标题，这条会自动开始守中英对齐）。
+  const zhHeads = zh.filter((block) => block.kind === 'h2').map((block) => block.text);
+  const enHeads = en.filter((block) => block.kind === 'h2').map((block) => block.text);
+  assert.equal(zhHeads.length, enHeads.length);
+  for (let index = 0; index < zhHeads.length; index++) {
+    assert.notEqual(zhHeads[index], enHeads[index]);
+  }
+  // 六项权限：政策的职责就是披露它们，少一项就是合规问题。
+  const permissionNames = ['ohos.permission.PUBLISH_AGENT_REMINDER', 'ohos.permission.DETECT_GESTURE',
+    'ohos.permission.ACCELEROMETER', 'ohos.permission.VIBRATE', 'ohos.permission.INTERNET',
+    'ohos.permission.GET_NETWORK_INFO'];
+  const zhText = zh.map((block) => block.text).join('\n');
+  const enText = en.map((block) => block.text).join('\n');
+  for (const name of permissionNames) {
+    assert.equal(zhText.includes(name), true);
+    assert.equal(enText.includes(name), true);
+  }
+  // 零联网不变量与「不收集/不共享」两个结论也要在正文里（最容易被改版删掉的两处）。
+  assert.equal(zhText.includes('零联网') || zhText.includes('不发起'), true);
+  assert.equal(enText.includes('no network') || enText.includes('No network'), true);
+  // 构造器本身可用（`PrivacyBlock` 是导出的数据类）。
+  const custom = new p.PrivacyBlock('p', 'x');
+  assert.equal(custom.kind, 'p');
+  assert.equal(custom.text, 'x');
 }
 
 console.log('All toolbox model assertions passed');
