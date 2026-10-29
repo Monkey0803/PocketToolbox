@@ -10,7 +10,7 @@
 - **代码侧：全部完成**（P0 文档纠偏、P1.2 外部占位收口、P2 零权限能力、P3 工程质量与无障碍、P4.1/P4.2 工具深挖、P5.1 意图闸门、P6 门禁与文档联动，以及 2026-10-29 的 P4.3 口令短语、P4.4 繁简转换、贷款复利、三类新单位、结果用作输入、命名风格与第三方许可登记）。
 - **门禁：全绿**——`node tools/build-hap.mjs --tests` → `BUILD SUCCESSFUL` + 一致性 **37 项** + 单测全绿 + 逐函数覆盖 + HMSymbol 校验。
 - **P5.2 意图框架：声明已铺设（31 条），只差真机判「系统入口能不能拉起」**——`Index.ets` 里的声明段由 `tools/gen-intent-declarations.mjs` 从 `TOOL_META` 生成（一致性第 37 项逐字节比对），编译产物 `insight_intent.json` 实测 **31 条齐全**、`module.json` 里 `hasInsightIntent: true`；**回滚与判定规则见清单 R16 与 [`INTENT_FRAMEWORK.md`](INTENT_FRAMEWORK.md) §4/§8.1**。
-- **模拟器（2026-10-29 本轮重新拉起 Mate X7 实例，全绿）**：`emu.mjs smoke` **31/31**、`check-align --views` **35 屏**、`emu.mjs flows` **13/13**（含**新加的三条**：口令短语 / 繁简 / 命名风格）；另外在 **1.75× 大字体探针**下复跑 `smoke` **31/31**、`check-align` **35 屏**、三条新用例 **3/3**（探针已还原，卡片高度回到基准 400 px）。**仍未在设备上跑过的**：复利/储蓄面板、照度/剂量当量/加速度下拉、结果「用作输入」、第三方许可展开与屏幕朗读——已在 **R14/R15** 里逐条列出。
+- **模拟器（2026-10-29 本轮重新拉起 Mate X7 实例，全绿）**：`emu.mjs smoke` **31/31**、`check-align --views` **35 屏**、`emu.mjs flows` **14/14**（含**新加的四条**：口令短语 / 繁简 / 命名风格 / 单位换算「用作输入」）；另外在 **1.75× 大字体探针**下复跑 `smoke` **31/31**、`check-align` **35 屏**、新增用例（当时三条）**3/3**（探针已还原，卡片高度回到基准 400 px）。**仍未在设备上跑过的**：复利/储蓄面板、照度/剂量当量/加速度下拉、时间戳的「用作输入」、第三方许可展开与屏幕朗读——已在 **R14/R15** 里逐条列出。
 - **包体（2026-10-29 实测，同一份源码）**：debug HAP **9,814,179 字节（9.36 MiB，含原样存储的 `ets/sourceMaps.map` 2.25 MiB）**；release HAP **5,615,498 字节（5.36 MiB，无 source map）**。**发布时必须用 `node tools/build-hap.mjs --release`**（「外置 source map」的三条配置路子都做过 clean 重建实测：config 属性只会在别处**另存一份**、包里那份仍在，命令行 `-p` 完全不生效，**只有 release 模式真的去掉它**；细节见 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)）。
 - **屏幕朗读走查清单**：[`A11Y_WALKTHROUGH.md`](A11Y_WALKTHROUGH.md)（由源码生成、门禁盯着，35 个文件 / 255 个交互节点），真机照它念一遍即可。
 

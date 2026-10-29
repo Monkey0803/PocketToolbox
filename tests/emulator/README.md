@@ -43,7 +43,7 @@
 | `shot <名字>` | 截图到 `.cache/emulator/<名字>.jpeg` |
 | `grid [density]` | 量当前页的工具网格：列数、卡片宽高、内容列宽与左右边距、行列间距（`density` 取该实例配置里的 px/in，默认 480） |
 | `smoke [--only <工具id>] [--shots]` | **逐工具页渲染回归**：以启动意图（`aa start --ps tool <id>`）依次打开 31 个工具页，断言标题与页面关键文案都在；`--only` 只跑一个，`--shots` 顺带为每页截图 |
-| `flows [--only <用例id>]` | **交互路径回归**（当前 **13 条**）：文本工具 JSON 动作、URL 编解码切方式、单位换算落盘往返、工具页搜索与分类筛选、收藏加星标→长按取消收藏、导入本机数据、导入坏备份、清除→导入还原、导出→清除→导入完整往返、离线隐私政策展开，以及 2026-10-29 新增的**口令短语**（面板接线 + 默认 6 词 + 熵说明）、**繁简**（词组优先：`頭髮` 而不是 `頭发` + 往返 + 口径说明）、**命名风格**（驼峰/短横线 + 非 ASCII 字符不被吃掉）。用例表见 `FLOW_CASES`（`--only <id>` 可单跑）。 |
+| `flows [--only <用例id>]` | **交互路径回归**（当前 **14 条**）：文本工具 JSON 动作、URL 编解码切方式、单位换算落盘往返、工具页搜索与分类筛选、收藏加星标→长按取消收藏、导入本机数据、导入坏备份、清除→导入还原、导出→清除→导入完整往返、离线隐私政策展开，以及 2026-10-29 新增的四条——**口令短语**（面板接线 + 默认 6 词 + 熵说明）、**繁简**（词组优先：`頭髮` 而不是 `頭发` + 往返 + 口径说明）、**命名风格**（驼峰/短横线 + 非 ASCII 字符不被吃掉）、**换算「用作输入」**（结果写回输入框并按新输入重算）。用例表见 `FLOW_CASES`（`--only <id>` 可单跑）。 |
 
 产物目录 `.cache/emulator/` 已在 `.gitignore` 里（`/.cache`）；需要入库的证据图要手动复制到
 `docs/screenshots/emulator/`，并在 `docs/DEVICE_ACCEPTANCE.md` 里引用。
@@ -208,7 +208,7 @@ this.context.getApplicationContext().setFontSizeScale(1.75); // API 13，主线�
 
 然后 `node tools/build-hap.mjs` → `emu.mjs launch`，就能在 1.75× 下跑 `smoke` / `check-align` / `flows` 并截图。
 **探针必须还原**（`grep setFontSizeScale` = 0），还原后重跑 `--tests` 并把包装回设备（否则设备上留着一个被改过缩放的构建）。
-**2026-10-29 复跑（同一台 Mate X7 模拟器，探针已还原）**：`smoke` **31/31**、`check-align --views` **35 屏**、`flows` **13/13**；1.75× 下 `smoke` **31/31**、`check-align` **35 屏**、新增的三条用例（`passphrase` / `variant` / `naming`）**3/3**——大字体下靠「先滚动到目标再定位」才成立（`selectLabelScrolled()` / `resultToggle()`）。
+**2026-10-29 复跑（同一台 Mate X7 模拟器，探针已还原）**：`smoke` **31/31**、`check-align --views` **35 屏**、`flows` **14/14**；1.75× 下 `smoke` **31/31**、`check-align` **35 屏**、当时已有的三条新用例（`passphrase` / `variant` / `naming`）**3/3**——大字体下靠「先滚动到目标再定位」才成立（`selectLabelScrolled()` / `resultActionPair()`）。
 
 **大字体下断言前必须先滚动**：`dumpLayout` **只导出可见节点**，1.75× 时结果卡常被挤出可视区——
 `json` 用例就曾报「找不到第 1 行」，实际上文字好端端地渲染着（上滑一次即可见）。用 `textsAfterSwipeUp(n)`

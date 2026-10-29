@@ -609,32 +609,41 @@ function selectLabelScrolled(label, maxSwipes = 4) {
  * 判断用的是「页面下半部同一行里最靠下的一对方形按钮」——因此默认字号下直接可见，
  * 1.75× 下先上滑几次把结果卡滚进可视区。返回最左边那颗（= 显示/隐藏，右边那颗是复制）。
  */
-function resultToggle(maxSwipes = 3) {
+function resultActionPair(maxSwipes = 3) {
   const pairAt = (items) => {
     // 找「同一行里成对出现、水平间距 < 200 px」的两颗方形按钮：结果动作行就是这种形状
-    // （显示/隐藏 + 复制），而底部页签那三颗的中心距约 230 px、生成按钮单独一颗。
-    // 这样判断**不依赖屏幕高度或字体缩放**——2026-10-29 实测：1.75× 下结果行落在 y≈2153，
-    // 用「cy < 2150」这种硬阈值会差 3 px 判不到（当时就是这么红的）。
+    // （密码页是显示/隐藏 + 复制，换算页是复制 + 用作输入），而底部页签那三颗的中心距约 230 px、
+    // 单独一颗的按钮（如生成）不会被算进来。这样判断**不依赖屏幕高度或字体缩放**——2026-10-29 实测：
+    // 1.75× 下结果行落在 y≈2153，用「cy < 2150」这种硬阈值会差 3 px 判不到（当时就是这么红的）。
+    const found = [];
     for (const item of items) {
       const partner = items.find((other) => other !== item &&
         Math.abs(other.bounds.cy - item.bounds.cy) < 24 &&
         Math.abs(other.bounds.cx - item.bounds.cx) < 200);
-      if (partner !== undefined) {
-        return item.bounds.cx <= partner.bounds.cx ? item : partner;
+      if (partner === undefined) { continue; }
+      for (const member of [item, partner]) {
+        if (!found.includes(member)) { found.push(member); }
       }
     }
-    return undefined;
+    return found.sort((a, b) => a.bounds.x1 - b.bounds.x1);
   };
   for (let attempt = 0; attempt <= maxSwipes; attempt++) {
     const squares = controlsOf(dump(), 'Button')
-      .filter((item) => (item.bounds.x2 - item.bounds.x1) === (item.bounds.y2 - item.bounds.y1));
-    const lowest = squares.slice().sort((a, b) => b.bounds.cy - a.bounds.cy);
-    const toggle = pairAt(lowest);
-    if (toggle !== undefined) { return toggle; }
+      .filter((item) => (item.bounds.x2 - item.bounds.x1) === (item.bounds.y2 - item.bounds.y1))
+      .slice()
+      .sort((a, b) => b.bounds.cy - a.bounds.cy);
+    const row = pairAt(squares);
+    if (row.length >= 2) { return row; }
     t(['shell', 'uitest', 'uiInput', 'swipe', '1300', '1900', '1300', '900', '800']);
     sleep(900);
   }
   return undefined;
+}
+
+/** 结果行的「显示 / 隐藏」按钮 = 结果动作行**最左边**那颗。 */
+function resultToggle(maxSwipes = 3) {
+  const row = resultActionPair(maxSwipes);
+  return row === undefined ? undefined : row[0];
 }
 
 /**
@@ -1083,6 +1092,41 @@ function pickerWalkToDownload(filePrefix) {
 }
 
 /**
+ * 结果「用作输入」（2026-10-29 新增能力）：把换算结果写回输入框，形成连续换算链。
+ *
+ * 判据刻意分成**两步**：① 2500 毫米（默认类别「长度」、mm → cm）应得 `250`；② 点「用作输入」后
+ * 输入框应变成 `250`，并且页面**按新输入重算**出 `25`。只断言第 ① 步等于没测这个按钮；
+ * 只断言输入框变了而不断言重算，则可能只是把文本塞进框里而没走同一条解析路径。
+ */
+function flowChain() {
+  const problems = [];
+  const tree = openTool('units');
+  const input = controlsOf(tree, 'TextInput')[0];
+  if (input === undefined) { return ['units/chain：找不到数值输入框']; }
+  setControl(input, '2500');
+  if (!allTexts().some((text) => text === '250')) {
+    problems.push('2500 毫米没有换算成 250 厘米（结果卡看不到 250）');
+  }
+  const row = resultActionPair();
+  if (row === undefined || row.length < 2) {
+    return problems.concat(['units/chain：找不到结果动作行的两颗按钮']);
+  }
+  // 换算页的结果动作行是「复制 + 用作输入」，最右边那颗才是「用作输入」。
+  const use = row[row.length - 1];
+  click(use.bounds.cx, use.bounds.cy);
+  sleep(1200);
+  const after = controlsOf(dump(), 'TextInput')[0];
+  const text = after === undefined ? '' : String(after.node.attributes?.text ?? '');
+  if (text !== '250') {
+    problems.push(`「用作输入」没有把结果写回输入框（实测 ${JSON.stringify(text)}，期望 '250'）`);
+  }
+  if (!allTexts().some((value) => value === '25')) {
+    problems.push('写回后没有按新输入（250 毫米）重算，结果卡看不到 25');
+  }
+  return problems;
+}
+
+/**
  * 口令短语（2026-10-29 新增的第 4 种类型）：面板接线 + 默认 6 词 + 熵/口径说明。
  *
  * 为什么值得一条交互用例：这一条链路上「词表没读到」「随机源没接上」「词数没按登记表」三种错都会
@@ -1433,7 +1477,8 @@ const FLOW_CASES = [
   // 没有可见文字可定位，靠几何猜太脆，改由真机清单 R2 覆盖）。
   { id: 'passphrase', title: '密码页口令短语：面板接线 + 默认 6 词 + 熵与口径说明', run: flowPassphrase },
   { id: 'variant', title: '文本工具繁简：词组优先（頭髮 而不是 頭发）+ 往返 + 口径说明', run: flowVariant },
-  { id: 'naming', title: '文本工具命名风格：驼峰/短横线 + 非 ASCII 字符不被吃掉', run: flowNaming }
+  { id: 'naming', title: '文本工具命名风格：驼峰/短横线 + 非 ASCII 字符不被吃掉', run: flowNaming },
+  { id: 'chain', title: '单位换算「用作输入」：结果写回输入框并按新输入重算', run: flowChain }
 ];
 
 function flows(only) {

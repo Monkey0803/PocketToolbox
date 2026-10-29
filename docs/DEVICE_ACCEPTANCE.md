@@ -13,12 +13,13 @@
 **设备**：`Emulator.exe -hvd "Mate X7"`（命令出自 DevEco 日志，写法见 [`../tests/emulator/README.md`](../tests/emulator/README.md) 顶部），`hdc list targets` → `127.0.0.1:5555`。
 本轮**不是真机**，因此真机清单 R1–R16 仍全部待跑；下面记的是**模拟器实测结果**。
 
-### 1. 默认字号：`smoke` 31/31、`check-align --views` 35 屏、`flows` **13/13**
+### 1. 默认字号：`smoke` 31/31、`check-align --views` 35 屏、`flows` **14/14**
 
-- `flows` 从 10 条扩到 **13 条**，新增的三条都是本轮新能力：
+- `flows` 从 10 条扩到 **14 条**，新增的四条都是本轮新能力：
   - `passphrase`：密码页「类型 → 口令短语」→ 面板（词数 / 分隔符 / 口径说明）→ 生成 → 显示明文 → 断言 `word-word-…` 形状与**默认 6 词**、并断言「· 约 78 位熵」（6 × 12.925 ≈ 77.55 → 78）；
   - `variant`：文本工具「繁简」→ 输入 `头发` 简→繁 → 断言**必须出现 `頭髮`**且**不得出现 `頭发`**（词组优先），并断言结果卡下方常驻的「不做地区用词」口径行；再繁→简回到 `头发`；
-  - `naming`：`user_name` → 驼峰式得到 `userName`；`café 测试` → 短横线式得到 `café-测试`（**非 ASCII 不被吃掉**）。
+  - `naming`：`user_name` → 驼峰式得到 `userName`；`café 测试` → 短横线式得到 `café-测试`（**非 ASCII 不被吃掉**）；
+  - `chain`：单位换算输入 `2500`（默认 mm → cm）得到 `250` → 点结果动作行最右那颗**「用作输入」** → 输入框变成 `250` **且页面按新输入重算**出 `25`（两步断言缺一不可：只验「写回」可能只是塞文本，只验「换算」等于没测这个按钮）。
 - **模拟器现在能吃中文**：`uitest uiInput text 头发` 实测落进 `TextArea`（统计行「字符 2 · 非空白字符 2 · 行数 1」），因此中文用例不必绕道剪贴板。
 - **本轮修掉的两处「测试脚手架」缺陷（不是产品缺陷）**：
   1. `flowJson` 用「页面**最后一个** Select」当 JSON 下拉——本轮文本工具在 JSON 之后又加了「繁简」「命名风格」两组，最后一个 Select 已经不是 JSON 了（实测「选不到『格式化』」）。改为既有的 `selectNearLabel('JSON')`；
@@ -26,7 +27,7 @@
 
 ### 2. 1.75× 大字体（探针 `setFontSizeScale(1.75)` 放在 `onWindowStageCreate`，**已还原**）
 
-- `smoke` **31/31**、`check-align --views` **35 屏**、新增三条用例 **3/3**；
+- `smoke` **31/31**、`check-align --views` **35 屏**、当时已有的三条新用例 **3/3**（`chain` 是后来补的，未在 1.75× 下跑过——它靠的是同一套 `resultActionPair()` 定位，默认字号下已验证）；
 - 大字体下页面变长，`dumpLayout` **只导出可见节点**，因此三条新用例都改成「**先滚动到目标再定位**」：`selectLabelScrolled()`（反复上滑直到标签与它的 Select 同时可见）与 `resultToggle()`（按「同 cy、中心距 < 200 px 的方形按钮对」定位结果动作行——**不用 `cy < 阈值`**，实测 1.75× 下结果行落在 y≈2153，而当时阈值写的是 2150，差 3 px 就判不到）；结果是**逐字转换**还是**词组优先**在两种字号下都成立。
 - 截图：`docs/screenshots/emulator/font175-{passphrase,variant,naming}-zh.jpeg`。
 - **还原证据**：`grep POCKETPROBE|setFontSizeScale` = **0**；还原后重建并重装，工具卡片高度回到基准 **400 px**（1.75× 时为 700 px，见 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) 2026-10-27 那条），随后在**默认字号**下复跑：`smoke` 31/31 与 `flows` **13/13** 全过。
