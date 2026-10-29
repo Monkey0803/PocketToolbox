@@ -22,10 +22,14 @@
    - `node tools/build-variant-table.mjs` → `STCharacters 4012 / STPhrases 49238 / TSCharacters 4148 / TSPhrases 480`、兜底判据 4 条全部命中、合计 **57,878 条映射 / 1,057.2 KiB**（UTF-8 字节）/ 落盘 **1,082,601 字节**。
    - 两条生成器都在**校验失败时报错退出**（本轮实测过一次：最初给 `TSPhrases` 挑的兜底对照 `頭髮 → 头发` 并不在该表里——`TSPhrases` 只收两类罕见异体/类推简化，常见词走单字表——生成器当场红，因此改为 `一目瞭然 → 一目了然`）。
 2. **纯逻辑行为（本机 Node 直跑模型 + 真实数据文件）**：词表解析 `ok=true / 7776`；口令短语确定性随机源下得到 `abdomen-abdominal-abide-abiding-ability-ablaze`；大区间下标在恒定 255 的源上返回 `-1`（拒绝采样 + 尝试上限，不会挂住）；字表 `loaded=true`、最长键 12/10；`头发很长，请开发软件` → `頭髮很長，請開發軟件` 且繁→简能原样回到 `头发很长，请开发软件`；命名风格 `HTTP server_user name` → `httpServerUserName`、`café 测试` → `café-测试`（**非 ASCII 不丢字**）。
-3. **包体与 source map（同一份源码、clean 重建）**：
-   - debug：HAP **9,814,179 字节**，含 `ets/sourceMaps.map` **2,252,328 字节**（存储方式为**不压缩**）、`ets/modules.abc` **4,535,704 字节**；
+3. **包体与 source map（同一份源码、clean 重建）**：   - debug：HAP **9,814,179 字节**，含 `ets/sourceMaps.map` **2,252,328 字节**（存储方式为**不压缩**）、`ets/modules.abc` **4,535,704 字节**；
    - release（`-p buildMode=release`）：HAP **5,615,498 字节**，**没有** `sourceMaps.map`、`modules.abc` 降到 **2,620,664 字节**；
    - 三条「外置 source map」路子**各自 clean 重建（删 `entry/build`）实测**：① `hvigor/hvigor-config.json5` 的 `properties["ohos.arkCompile.sourceMapDir"]` —— **会另存一份**到该目录（相对路径基准是 `hvigor/`：写 `.cache/x` 会落到 `hvigor/.cache/x/entry/sourceMaps.map`），**但 HAP 里那份还在**（9,814,177 字节、`ets/sourceMaps.map` 依旧打包）；② 命令行 `-p ohos.arkCompile.sourceMapDir=…` —— **完全不生效**；③ release 模式 —— **有效**（5,615,498 字节、无该条目）。**结论**：不改构建配置（实验属性已删掉），发布走 release 模式（已固化成 `node tools/build-hap.mjs --release`）。
+4. **P5.2 意图声明（编译期可测的部分已测，运行期仍待真机）**：
+   - 生成器 `tools/gen-intent-declarations.mjs` 从 `TOOL_META` 产出 **31 条** `@InsightIntentPage`；`--check` 与 `Index.ets` 里的段落逐字节一致；
+   - 构建 `BUILD SUCCESSFUL`；产物 `entry/build/default/intermediates/res/default/resources/base/profile/insight_intent.json` 的 `extractInsightIntents` **恰好 31 条**，逐条 `intentName`（`PocketToolboxOpen_<路由 id>`）与 `navDestinationName`（`qr` … `url`）两两不重复；
+   - 打包后的 `module.json` 里 `"hasInsightIntent": true`（该字段由编译器写入，应用不手写）；
+   - **不能替代真机的部分**：系统入口能否真正拉起本应用 —— 模拟器没有小艺/智能搜索，本轮也没有真机，因此写成 **R16**（回执与回滚方式见 [`INTENT_FRAMEWORK.md`](INTENT_FRAMEWORK.md) §4/§7）。
 
 ## 2026-10-27 模拟器补验：实况窗**在模拟器上就能验**，并又抓到一个真 bug（Mate X7 · API 26）
 

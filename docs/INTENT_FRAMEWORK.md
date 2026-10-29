@@ -123,15 +123,24 @@ struct Index { … }
 **不改代码**：现在的 4 个静态快捷方式（二维码 / 条形码 / 科学计算器 / 计时）是 2026-10-21 的产品选择，
 在没有用户明确要求前不动；`tests/check-consistency.mjs` 已经盯着它们的 `bundleName` 与目标工具是否仍在 `TOOL_META` 里。
 
-## 7. 如果要进 P5.2，实现口径（先写清楚，免得将来临时决定）
+## 7. P5.2 实现口径与**当前状态**（2026-10-29 已按 F2a 铺设）
 
-- **单一数据源**：意图清单必须由 `model/ToolMeta.ets` 的 `TOOL_IDS`/`TOOL_META` 派生，**不手写第二份工具 id 列表**
-  （与收藏白名单、搜索、快捷方式同一条纪律）。
-- **`pagePath` 只有一个值**（所有工具都在 `pages/Index`），因此每个工具一条意图 + `navDestinationName: <路由 id>`；
-  31 条意图 ≈ 31 个装饰器，`intentName` 用稳定前缀（如 `PocketToolboxOpen_<route id>`）保证唯一。
-- **参数**：`insightIntent` 的调用参数由系统/标准意图决定；**不要**把用户数据塞进参数，也不要因此新增联网。
-- **回归**：一次性加 31 个装饰器后必须复跑 `--tests`；并把 `insight_intent.json` 的存在与条目数做成
-  `tests/check-consistency.mjs` 的一项（防止「工具加了、意图忘了」）。
+- **单一数据源**：意图清单由 `model/ToolMeta.ets` 的 `TOOL_META` 派生（**不手写第二份工具 id 列表**）。实现是
+  `tools/gen-intent-declarations.mjs`：把声明段**生成**进 `pages/Index.ets`（起止标记之间的内容「请勿手改」），
+  一致性**第 37 项**重新渲染并逐字节比对，同时断言「声明顺序与 `intentName` 由 TOOL_META 派生」「每条
+  `navDestinationName` 都有路由分支」「顶部 import 在」「声明里没有参数映射/链接/联网字段」「声明段紧贴 `@Entry`」。
+- **`pagePath` 只有一个值**（所有工具都在 `pages/Index`），因此每条工具一条声明 +
+  `navDestinationName: <路由 id>`；`intentName` 用稳定前缀 `PocketToolboxOpen_<路由 id>` 保证唯一。
+- **参数**：调用参数**一律不传**——意图只负责「跳到某个工具页」，不接收也不传递任何用户数据，不因此新增联网。
+- **实测（2026-10-29）**：31 条声明 `BUILD SUCCESSFUL`，生成的 `insight_intent.json` 里 `extractInsightIntents`
+  **31 条齐全、`intentName` 与 `navDestinationName` 两两不重复**，打包后 `module.json` 仍 `hasInsightIntent: true`。
+- **仍未验证**：系统入口（小艺/全局搜索）能否真正拉起 → **真机清单 R16**。三种回执的处置：
+  能拉起 → 保留；只出现但落不到工具页 → 退回「只保留 `pagePath` 级声明」（去掉 `navDestinationName`）；
+  完全不出现 → 按下面「回滚」删掉声明段与顶部 import，并记录「需华为侧收录/权益」。
+- **回滚**（一步到位）：删掉 `Index.ets` 里两个标记之间的整段 + 顶部那行
+  `import { InsightIntentPage } from '@kit.AbilityKit';` → `node tools/build-hap.mjs --tests` 应回到全绿
+  （第 37 项会随之报「声明段与 TOOL_META 不一致」，因此**门禁项也要一并删掉**，或把该项改成「允许为空」；
+  实施时把这条写进 R16 的回执要求里）。
 - **不做**：`@InsightIntentEntry` 的 `uiextension`/`background` 执行模式（要新 Ability 与新 syscap），
   以及任何会引入 AGC 权益依赖的运行期上报（`@kit.IntentsKit` 的 `getSid`）。
 
@@ -159,11 +168,20 @@ struct Index { … }
 **因此本轮（2026-10-29）只做探针、没有铺设 31 条声明**：`grep InsightIntent entry/src/main/ets/**/*.ets` = 0、
 `insight_intent.json` 不存在、`git status` 干净、门禁全绿（一致性 36 项 + 单测 + 逐函数覆盖 + HMSymbol）。
 
-### 8.2 变更记录
+### 8.2 2026-10-29 铺设 31 条声明（F2a 实施）
+
+在 §8.1 的探针结论之上，本轮把 P5.2 的声明**真正铺开**：`tools/gen-intent-declarations.mjs` 从 `TOOL_META`
+生成 `Index.ets` 里那段 31 条 `@InsightIntentPage`，一致性**第 37 项**逐字节比对。实测：
+`BUILD SUCCESSFUL`；`insight_intent.json` 的 `extractInsightIntents` **31 条**（`PocketToolboxOpen_qr` … `PocketToolboxOpen_url`），
+`intentName` 与 `navDestinationName` 各自两两不重复；`module.json` 的 `hasInsightIntent: true`。
+**仍未验证的还是同一件事**：系统入口能否拉起 → 真机清单 **R16**（回执与回滚方式见 §7）。
+
+### 8.3 变更记录
 
 | 日期 | 变更 |
 |---|---|
 | 2026-10-27 | 建立本文件：P5.1 可行性闸门结论（装饰器机制 + 本机探针证据 + 停在 P5.2 的判定 + 真机验证配方 + 将来实现口径）与 P5.3 的快捷方式能力边界更正 |
-| 2026-10-29 | 第二轮探针（§8.1）：**多条 `@InsightIntentPage` 可同一 struct 共存**且都进产物 → 确定走 F2a（31 条生成式声明）；仍因「本机无设备/无系统入口」**未铺设声明**，配方与回滚规则不变 |
+| 2026-10-29 | 第二轮探针（§8.1）：**多条 `@InsightIntentPage` 可同一 struct 共存**且都进产物 → 确定走 F2a |
+| 2026-10-29 | F2a 落地（§8.2）：31 条生成式声明 + 一致性第 37 项；真机判定与回滚规则收进清单 R16 |
 
 
