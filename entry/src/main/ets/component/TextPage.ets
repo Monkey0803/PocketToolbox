@@ -7,6 +7,7 @@ import { ToolPalette } from '../model/ToolPalette';
 import { TextStats, TEXT_INPUT_MAX, textInputTooLong, textStats, trimLines, collapseSpaces, removeBlankLines,
   joinLines, uniqueLines, uniqueLinesIgnoreCase, duplicateLines, sortLines, reverseLines, titleCase } from '../model/TextTools';
 import { CodecResult, base64Encode, base64Decode, urlEncode, urlDecode, codecErrorText } from '../model/EncodingTools';
+import { JsonScanResult, jsonErrorText, jsonFormat, jsonMinify, jsonValidate } from '../model/JsonTools';
 import { md5, sha1, sha256 } from '../model/HashTools';
 import { MORSE_TEXT_MAX, MorseDecodeResult, morseEncodeText, morseDecodeText } from '../model/TorchSignal';
 
@@ -105,6 +106,8 @@ export struct TextPage {
     if (id === 'clean') { return appText('text.clean', this.english); }
     if (id === 'sort') { return appText('text.dedup', this.english); }
     if (id === 'case') { return appText('text.case', this.english); }
+    // `JSON` 是中英通用的写法，直接写常量（不必进登记表；72 vp 的标签列放得下 4 个字符）。
+    if (id === 'json') { return 'JSON'; }
     return appText('text.encode', this.english);
   }
 
@@ -115,6 +118,15 @@ export struct TextPage {
 
   /** 分组 id → 菜单条目（纯动作，选了就执行；输入为空时置灰）。 */
   private menuItems(id: string): MenuElement[] {
+    if (id === 'json') {
+      // 令牌级扫描：只校验语法并重新排版，**不改写字面量**（`1.0`/`1e10`/大整数/重复键都原样保留）。
+      return [
+        this.jsonMenuItem('格式化', 'Format', (value: string): JsonScanResult => jsonFormat(value)),
+        this.jsonMenuItem('压缩为一行', 'Minify', (value: string): JsonScanResult => jsonMinify(value)),
+        this.jsonMenuItem('校验', 'Validate', (value: string): JsonScanResult => jsonValidate(value),
+          'validate')
+      ];
+    }
     if (id === 'clean') {
       return [
         this.textMenuItem('去空行', 'Remove blanks', removeBlankLines),
@@ -202,6 +214,46 @@ export struct TextPage {
       enabled: this.textInput.length > 0,
       action: (): void => { this.runCodec(decode); }
     };
+  }
+
+  /**
+   * JSON 动作。三条口径：
+   * - 失败时把「第 L 行第 C 列：原因」**留在结果卡里**（toast 一闪即逝，而定位语法错误恰恰需要盯着看），
+   *   并且**绝不覆盖输入框**——用户要的是改那一段 JSON，不是让工具替他改；
+   * - 「校验」是「要个结论」的动作，所以成功时额外给一次 toast（点了没动静会让人以为没生效）；
+   * - 结果卡的结论行同样可复制/可记历史，与其它动作同一口径。
+   */
+  private jsonMenuItem(zh: string, en: string, run: (value: string) => JsonScanResult,
+    mode: string = 'transform'): MenuElement {
+    return {
+      value: this.tr(zh, en),
+      enabled: this.textInput.length > 0,
+      action: (): void => { this.runJson(run, mode); }
+    };
+  }
+
+  private runJson(run: (value: string) => JsonScanResult, mode: string): void {
+    if (this.textInput.length === 0) { return; }
+    if (this.rejectIfTooLong()) { return; }
+    const result: JsonScanResult = run(this.textInput);
+    if (!result.ok) {
+      this.textOutput = this.jsonPositionText(result);
+      return;
+    }
+    if (mode === 'validate') {
+      const valid: string = this.tr('JSON 合法，没有语法错误', 'Valid JSON — no syntax errors');
+      this.textOutput = valid;
+      this.onStatus(valid);
+      return;
+    }
+    this.textOutput = result.text;
+  }
+
+  /** 出错位置 + 原因（原因来自纯逻辑 `jsonErrorText()`，位置只在这里拼一次）。 */
+  private jsonPositionText(result: JsonScanResult): string {
+    const reason: string = jsonErrorText(result.error, this.english);
+    return this.tr('第 ' + result.line + ' 行第 ' + result.column + ' 列：' + reason,
+      'Line ' + result.line + ', column ' + result.column + ': ' + reason);
   }
 
   /** 需要一个自有提示（而不只是 `string -> string`）的菜单项，例如摩尔斯加解码时的「已忽略」提示。 */
@@ -318,6 +370,7 @@ export struct TextPage {
       this.menuEntry('sort')
       this.menuEntry('case')
       this.menuEntry('codec')
+      this.menuEntry('json')
 
       Text(appText('text.result', this.english)).fontSize(18).fontWeight(FontWeight.Bold).width('100%')
       MaterialSurface({

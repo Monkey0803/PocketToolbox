@@ -102,7 +102,9 @@ export const TOOL_META: ToolMeta[] = [
   new ToolMeta('timestamp', '时间戳', 'Timestamp', 'time',
     ['unix', 'sjc', '时间戳转换', '时区', 'utc', 'epoch', '毫秒', 'millisecond', '时间戳转换器']),
   new ToolMeta('text', '文本工具', 'Text tools', 'text',
-    ['base64', 'md5', 'sha', 'wbgj', '编码', '去重', '排序', '字数']),
+    ['base64', 'md5', 'sha', 'wbgj', '编码', '去重', '排序', '字数',
+      // JSON 是「文本工具第 5 组动作」，不是独立卡片，因此关键词挂在这一条上。
+      'json', 'json格式化', 'json压缩', 'json校验', '格式化', '压缩', 'beautify']),
   new ToolMeta('random', '随机选择', 'Random picker', 'life',
     ['抽签', 'sjxz', '抽奖', '随机数', '摇号', '骰子', '跑团', '抛硬币', '硬币', '分组', '点名']),
   new ToolMeta('password', '密码生成', 'Password generator', 'text',
